@@ -1,0 +1,26 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local demo database — the app auto-seeds a fresh one when empty (app.py),
+# so shipping a stale binary snapshot isn't needed and just bloats the repo.
+vienna.db
+
+# Secrets — never commit real credentials. .env.example stays committed as the template.
+.env
+.streamlit/secrets.toml
+
+# Internal strategy docs — confidential business/pricing detail, kept local only.
+GG_Dashboard_Technical_Brief.docx
+GG_Signal_Sourcing_Plan.docx
+
+# Virtualenvs, in case one gets created locally
+.venv/
+venv/
+env/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
