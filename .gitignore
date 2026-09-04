@@ -24,3 +24,6 @@ env/
 Thumbs.db
 .vscode/
 .idea/
+
+# Throwaway ad-hoc test scripts, not part of the app
+scratch/

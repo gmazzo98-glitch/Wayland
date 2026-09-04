@@ -12,24 +12,28 @@ the Brief:
     page, and can't be filtered away.
 """
 
+from datetime import datetime
 import streamlit as st
 import plotly.express as px
 import pandas as pd
 from sqlalchemy.orm import Session
 from models import Company, SignalRecord, SourceHealth
 from scoring import calculate_company_scores, rank_companies, is_prime_target, PRIME_NEED_MIN, PRIME_READINESS_BAND
-from config import SIGNAL_METADATA
+from indicators import fetch_indicator_defs
 
 SEGMENT_COLORS = {"Midcap": "#38BDF8", "SME": "#F59E0B"}
 SEGMENT_ORDER = ["Midcap", "SME"]
 
 
-def _render_completeness_banner(db: Session, companies):
-    total_possible = len(companies) * len(SIGNAL_METADATA)
+def _render_completeness_banner(db: Session, companies, indicator_defs):
+    # Mirror how scoring.py counts signals_total: a 'need'/'readiness' indicator
+    # counts once, a 'both'-axis one counts once per axis (twice), 'context' never.
+    scored_count = sum(2 if d["axis"] == "both" else 1 for d in indicator_defs.values() if d["axis"] != "context")
+    total_possible = len(companies) * scored_count
     total_checked = 0
     for comp in companies:
         signals = db.query(SignalRecord).filter_by(company_id=comp.id).all()
-        total_checked += calculate_company_scores(signals)["signals_checked"]
+        total_checked += calculate_company_scores(signals, indicator_defs)["signals_checked"]
     pct_run = (total_checked / total_possible * 100.0) if total_possible else 0.0
 
     sources = db.query(SourceHealth).all()
@@ -78,11 +82,12 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
         color="is_prime",
         hover_name="legal_name",
         hover_data={
+            "country": True,
             "registration_number": True,
             "need_score": ":.1f",
             "readiness_score": ":.1f",
             "total_completeness_pct": ":.1f%",
-            "is_shortlisted": True,
+            "shortlist_status": True,
             "is_prime": False,
         },
         labels={
@@ -109,19 +114,20 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
     st.plotly_chart(fig, use_container_width=True, key=f"scatter_{seg_name}")
 
     disp_df = seg_df[[
-        "legal_name", "registration_number", "need_score", "readiness_score",
-        "total_completeness_pct", "signals_checked", "is_shortlisted"
+        "legal_name", "country", "registration_number", "need_score", "readiness_score",
+        "total_completeness_pct", "signals_checked", "shortlist_status"
     ]]
     st.dataframe(
         disp_df,
         column_config={
             "legal_name": f"{seg_name} Company",
-            "registration_number": "Handelsregister-Nr.",
+            "country": st.column_config.TextColumn("Country", width="small"),
+            "registration_number": "Reg. Number",
             "need_score": st.column_config.NumberColumn("Need Score", format="%.1f"),
             "readiness_score": st.column_config.NumberColumn("Readiness Score", format="%.1f"),
             "total_completeness_pct": st.column_config.ProgressColumn("Data Completeness", format="%.1f%%", min_value=0, max_value=100),
             "signals_checked": "Checked Signals",
-            "is_shortlisted": "Shortlisted",
+            "shortlist_status": "Shortlist Status",
         },
         use_container_width=True,
         hide_index=True,
@@ -137,45 +143,69 @@ def render_target_matrix_page(db: Session):
         st.warning("No target companies found in database. Run seed script or ingestion pipeline.")
         return
 
-    _render_completeness_banner(db, companies)
+    indicator_defs = fetch_indicator_defs(db)
+    _render_completeness_banner(db, companies, indicator_defs)
     st.markdown("---")
 
     matrix_data = []
+    now = datetime.utcnow()
     for comp in companies:
         signals = db.query(SignalRecord).filter_by(company_id=comp.id).all()
-        scores = calculate_company_scores(signals)
+        scores = calculate_company_scores(signals, indicator_defs)
+
+        # Refresh Company's cached need_score/readiness_score/last_scored_at
+        # snapshot — this page computes a score for every company anyway, so
+        # it's the natural place to keep the cache from going stale. Nothing
+        # else in the app reads FROM these columns to render a score; every
+        # view still recomputes live from SignalRecords. The cache exists for
+        # external consumers (a future BI/export query, PilotOutcome context)
+        # that want "what did we last think" without re-running the engine.
+        comp.need_score = scores["need_score"]
+        comp.readiness_score = scores["readiness_score"]
+        comp.last_scored_at = now
+
         matrix_data.append({
             "id": comp.id,
             "legal_name": comp.legal_name,
+            "country": comp.country or "Germany",
             "registration_number": comp.registration_number,
             "nace_code": comp.nace_code,
             "sector": comp.sector_name,
             "segment": comp.segment,
-            "is_shortlisted": "Yes" if comp.is_shortlisted else "No",
+            "shortlist_status": comp.shortlist_status,
             "need_score": scores["need_score"],
             "readiness_score": scores["readiness_score"],
             "total_completeness_pct": scores["total_completeness_pct"],
             "signals_checked": f"{scores['signals_checked']}/{scores['signals_total']}",
             "is_prime": is_prime_target(scores["need_score"], scores["readiness_score"]),
         })
+    db.commit()
     df = pd.DataFrame(matrix_data)
 
     all_segments = [s for s in SEGMENT_ORDER if s in df["segment"].unique()]
     all_segments += [s for s in sorted(df["segment"].unique()) if s not in all_segments]
 
-    col_f1, col_f2, col_f3 = st.columns(3)
+    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     with col_f1:
+        country_options = ["All Countries", "Germany 🇩🇪", "Italy 🇮🇹"]
+        selected_country = st.selectbox("Filter Country 🌐", country_options)
+    with col_f2:
         sectors = ["All Sectors"] + sorted(df["sector"].unique().tolist())
         selected_sec = st.selectbox("Filter Sector", sectors)
-    with col_f2:
-        min_comp = st.slider("Min Completeness %", 0, 100, 0, step=10)
     with col_f3:
+        min_comp = st.slider("Min Completeness %", 0, 100, 0, step=10)
+    with col_f4:
         selected_segments = st.multiselect(
-            "Segments to show (each rendered separately — never pooled)",
+            "Segments (never pooled)",
             options=all_segments, default=all_segments,
         )
 
     filtered_df = df.copy()
+    if selected_country == "Germany 🇩🇪":
+        filtered_df = filtered_df[filtered_df["country"] == "Germany"]
+    elif selected_country == "Italy 🇮🇹":
+        filtered_df = filtered_df[filtered_df["country"] == "Italy"]
+
     if selected_sec != "All Sectors":
         filtered_df = filtered_df[filtered_df["sector"] == selected_sec]
     filtered_df = filtered_df[filtered_df["total_completeness_pct"] >= min_comp]

@@ -15,7 +15,8 @@ a fabricated "real" filing.
 
 from sqlalchemy.orm import Session
 from adapters.base import run_adapter
-from config import BUNDESANZEIGER_PAID_ENABLED, SIGNAL_METADATA
+from config import BUNDESANZEIGER_PAID_ENABLED
+from indicators import get_indicator_def
 
 SOURCE_NAME = "Bundesanzeiger"
 PHASE = 3
@@ -53,9 +54,10 @@ def _simulate(company) -> dict:
 
 def pull_bundesanzeiger_filing(company, db_session: Session) -> dict:
     """Manual, gated pull — never auto-run across the full batch (Section 3 of the Brief)."""
+    indicator = get_indicator_def(db_session, "rd_expense_ratio")
     return run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=BUNDESANZEIGER_PAID_ENABLED,
         fetch_live=_fetch_live, simulate=_simulate,
-        cost_per_call=SIGNAL_METADATA["rd_expense_ratio"]["cost_per_pull"],
+        cost_per_call=indicator.cost_per_pull if indicator else 5.0,
     )

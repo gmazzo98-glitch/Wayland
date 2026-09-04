@@ -15,7 +15,8 @@ stays False by default.
 
 from sqlalchemy.orm import Session
 from adapters.base import run_adapter
-from config import KUNUNU_RESELLER_ENABLED, SIGNAL_METADATA
+from config import KUNUNU_RESELLER_ENABLED
+from indicators import get_indicator_def
 
 SOURCE_NAME = "Kununu Reseller"
 PHASE = 5
@@ -44,9 +45,10 @@ def _simulate(company) -> dict:
 
 def pull_kununu_rating(company, db_session: Session) -> dict:
     """Manual, gated pull — final shortlist only (Phase 5 of the sourcing plan)."""
+    indicator = get_indicator_def(db_session, "kununu_rating")
     return run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=KUNUNU_RESELLER_ENABLED,
         fetch_live=_fetch_live, simulate=_simulate,
-        cost_per_call=SIGNAL_METADATA["kununu_rating"]["cost_per_pull"],
+        cost_per_call=indicator.cost_per_pull if indicator else 2.5,
     )

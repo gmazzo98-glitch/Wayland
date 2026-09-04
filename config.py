@@ -8,9 +8,12 @@ from dotenv import load_dotenv
 
 load_dotenv()  # loads .env if present — see .env.example for what it can set
 
-# Database URI (SQLite default for simple local/cloud deployment)
+# Database URI (SQLite default for simple local/cloud deployment).
+# `or` rather than getenv's own default arg — a DATABASE_URL line present in
+# .env but left blank (os.getenv would return "" for that, not None) must
+# still fall back to SQLite, not try to connect to an empty string.
 DB_PATH = os.path.join(os.path.dirname(__file__), "vienna.db")
-SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH}"
 
 # ---------------------------------------------------------------------------
 # Source credentials (Section 7 of the Technical Brief: budget/access are open
@@ -82,61 +85,22 @@ def has_credentials(source_name: str) -> bool:
     required = SOURCE_CREDENTIAL_VARS.get(source_name, [])
     return all(os.getenv(var) for var in required)
 
-# Freshness window per signal_key in days (Section 2.2 of Brief)
-FRESHNESS_WINDOWS = {
-    # Financial signals (Annual filings from Bundesanzeiger)
-    "interest_coverage_ratio": 365,
-    "rd_expense_ratio": 365,
-    "margin_compression": 365,
-    
-    # Innovation & IP signals (Medium-term updates)
-    "patent_count": 90,
-    "patent_ipc_diversity": 90,
-    "trademark_count": 90,
-    
-    # Trade & Grants
-    "sector_export_exposure": 180,
-    "public_grant_count": 180,
-    
-    # Digital & Job posting velocity (Fast changing)
-    "job_posting_velocity": 14,
-    "tech_stack_intensity": 60,
-    
-    # Social & Culture
-    "kununu_rating": 30,
-    "management_diversity": 180,
-    "partnership_news_count": 30,
-}
+# Indicator catalog (weights, axis, normalization bounds, freshness) lives in the
+# IndicatorDefinition table now — see indicators.py for the seed and
+# indicators.fetch_indicator_defs() for the accessor. This replaces the old
+# hardcoded SIGNAL_METADATA/FRESHNESS_WINDOWS dicts so the whole catalog is
+# editable from the Indicator Weights page without a code change.
 
-# Signal metadata and two-axis alignment.
-# "invert": True means a LOWER raw value indicates MORE pressure/need (e.g. thin
-# interest cover), so normalization flips the scale before it feeds the need axis.
-SIGNAL_METADATA = {
-    # NEED AXIS (Could Innovate: Export pressure, margin compression, digital gaps)
-    "margin_compression": {"axis": "need", "label": "Margin Compression", "source": "Bundesanzeiger", "phase": 3, "cost_per_pull": 5.0},
-    "interest_coverage_ratio": {"axis": "need", "label": "Interest Coverage Ratio (Financial Pressure)", "source": "Bundesanzeiger", "phase": 3, "cost_per_pull": 5.0, "invert": True},
-    "sector_export_exposure": {"axis": "need", "label": "Sector Export Pressure", "source": "Destatis", "phase": 1, "cost_per_pull": 0.0},
-    "job_posting_velocity": {"axis": "need", "label": "Job Posting Velocity", "source": "Arbeitsagentur", "phase": 1, "cost_per_pull": 0.0},
-    "tech_stack_intensity": {"axis": "need", "label": "Digital Intensity Index", "source": "Wappalyzer", "phase": 4, "cost_per_pull": 0.0},
-
-    # READINESS AXIS (Is Innovating: R&D spend, patents, trademarks, grants, culture)
-    "rd_expense_ratio": {"axis": "readiness", "label": "R&D Spend Ratio", "source": "Bundesanzeiger", "phase": 3, "cost_per_pull": 5.0},
-    "patent_count": {"axis": "readiness", "label": "Patent Count", "source": "EPO OPS", "phase": 1, "cost_per_pull": 0.0},
-    "patent_ipc_diversity": {"axis": "readiness", "label": "Patent IPC Class Diversity", "source": "EPO OPS", "phase": 1, "cost_per_pull": 0.0},
-    "trademark_count": {"axis": "readiness", "label": "Trademark Count", "source": "EUIPO", "phase": 1, "cost_per_pull": 0.0},
-    "public_grant_count": {"axis": "readiness", "label": "Public Grant Count", "source": "EU Funding Portal", "phase": 1, "cost_per_pull": 0.0},
-    "management_diversity": {"axis": "readiness", "label": "Management Diversity / Background", "source": "Own-Site Scrape", "phase": 4, "cost_per_pull": 0.0},
-    "kununu_rating": {"axis": "readiness", "label": "Kununu Culture Rating", "source": "Kununu Reseller", "phase": 5, "cost_per_pull": 2.5},
-    "partnership_news_count": {"axis": "readiness", "label": "Partnership News Signals", "source": "Google News", "phase": 4, "cost_per_pull": 0.0},
-}
-
-# Pipeline Phases (Section 3 of Technical Brief)
+# Pipeline Phases (Section 3 of Technical Brief). Phase 6 extends the original
+# five with indicators that aren't pipeline-automatable at all — first-contact
+# interview data, entered by hand from the Company Intelligence page.
 PHASE_CONFIG = {
     1: {"name": "Phase 1: Free Documented APIs", "auto_run": True, "requires_approval": False},
     2: {"name": "Phase 2: Handelsregister Base & Free Scraping", "auto_run": True, "requires_approval": False},
     3: {"name": "Phase 3: Targeted Paid Document Pulls", "auto_run": False, "requires_approval": True},
     4: {"name": "Phase 4: Website & Light Social Layer", "auto_run": True, "requires_approval": False},
     5: {"name": "Phase 5: Paid Social & Review Data", "auto_run": False, "requires_approval": True},
+    6: {"name": "Phase 6: Manual / First-Contact Data", "auto_run": False, "requires_approval": False},
 }
 
 # Shortlist Gate Thresholds

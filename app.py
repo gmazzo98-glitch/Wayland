@@ -3,6 +3,7 @@ Project Vienna — GG Signal Sourcing & Scoring Dashboard
 Main Streamlit Application Entrance & Navigation
 """
 
+from collections import Counter
 import streamlit as st
 from database import init_db, get_db_session
 from models import Company
@@ -11,6 +12,7 @@ from views.target_matrix import render_target_matrix_page
 from views.company_detail import render_company_detail_page
 from views.pipeline_health import render_pipeline_health_page
 from views.paid_shortlist_gate import render_paid_shortlist_gate_page
+from views.indicator_weights import render_indicator_weights_page
 
 # Page Configuration
 st.set_page_config(
@@ -20,15 +22,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize Database & Auto-Seed if empty
+# Initialize Database & Engine
 init_db()
 db = get_db_session()
-
-# Check if companies exist, else seed
-comp_count = db.query(Company).count()
-if comp_count == 0:
-    seed_database()
-    st.toast("Database seeded with sample Agrifood company dataset!", icon="🌱")
 
 # Sidebar Header & Navigation
 st.sidebar.image("https://img.icons8.com/color/96/wheat.png", width=60)
@@ -43,7 +39,8 @@ page_selection = st.sidebar.radio(
         "⚙️ Pipeline & Source Health",
         "🏢 Company Intelligence",
         "🎯 Scored Target Matrix",
-        "💰 Shortlist Gate & Paid Pulls"
+        "💰 Shortlist Gate & Paid Pulls",
+        "⚖️ Indicator Weights"
     ]
 )
 st.sidebar.caption(
@@ -58,9 +55,18 @@ st.sidebar.markdown("---")
 company_count = db.query(Company).count()
 midcap_count = db.query(Company).filter_by(segment="Midcap").count()
 sme_count = db.query(Company).filter_by(segment="SME").count()
+de_count = db.query(Company).filter(Company.country.in_(["Germany", None])).count()
+it_count = db.query(Company).filter_by(country="Italy").count()
 
 st.sidebar.metric("Target Companies", company_count, f"{midcap_count} Midcaps | {sme_count} SMEs")
-st.sidebar.caption("📍 Primary Sector: Agrifood & Agriculture")
+st.sidebar.caption(f"🌐 **Coverage:** 🇩🇪 {de_count} Germany | 🇮🇹 {it_count} Italy")
+if company_count > 0:
+    # Mode of sector_name — dataset is small, a plain Counter is simplest and clear.
+    sector_counts = Counter(c.sector_name for c in db.query(Company.sector_name).all())
+    top_sector_name = sector_counts.most_common(1)[0][0]
+    st.sidebar.caption(f"📍 **Primary Sector:** {top_sector_name}")
+else:
+    st.sidebar.caption("📍 No companies loaded yet")
 
 # Route Page Rendering
 if page_selection == "🎯 Scored Target Matrix":
@@ -71,6 +77,8 @@ elif page_selection == "⚙️ Pipeline & Source Health":
     render_pipeline_health_page(db)
 elif page_selection == "💰 Shortlist Gate & Paid Pulls":
     render_paid_shortlist_gate_page(db)
+elif page_selection == "⚖️ Indicator Weights":
+    render_indicator_weights_page(db)
 
 # Footer
 st.sidebar.markdown("---")

@@ -13,7 +13,7 @@ from config import ARBEITSAGENTUR_API_KEY
 
 SOURCE_NAME = "Arbeitsagentur"
 PHASE = 1
-SEARCH_URL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
+SEARCH_URL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs"
 
 
 def _fetch_live(company) -> dict:

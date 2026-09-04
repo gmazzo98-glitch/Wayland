@@ -1,126 +1,181 @@
 """
-Two-Axis Scoring Engine (Need vs. Readiness)
-Strictly adheres to Section 4 of GG_Dashboard_Technical_Brief.docx
+Two-Axis Scoring Engine (Need vs. Readiness), weighted by IndicatorDefinition.
+
+Every signal's normalization bounds, axis, invert direction, and weight come
+from the IndicatorDefinition table (indicators.py / models.py) — nothing here
+is hardcoded per signal_key, so the whole catalog is editable from the
+Indicator Weights page without touching this file. See Section 4 of
+GG_Dashboard_Technical_Brief.docx for the underlying two-axis philosophy.
 
 Need Axis: Signals indicating pressure or capacity gap (could innovate).
-Readiness Axis: Signals indicating active R&D/IP activity (is innovating).
+Readiness Axis: Signals indicating active R&D/IP activity, governance, and
+organizational capacity to actually run a pilot (is innovating / could absorb one).
+'both'-axis signals (e.g. a recent generational handover) count in each axis's
+weighted sum independently. 'context'-axis signals are never scored — they're
+informational tags/moderators, excluded from both sums.
 """
 
 from typing import Dict, List, Any
-from config import SIGNAL_METADATA
 from utils import get_signal_display_status
 
-def normalize_signal_value(signal_key: str, raw_value: float) -> float:
+
+def normalize_indicator_value(value: float, defn: Dict[str, Any]) -> float:
     """
-    Normalizes raw signal numeric values into a 0.0 to 100.0 score scale.
+    Maps a raw signal value onto a 0.0-100.0 score using the indicator's own
+    raw_min/raw_max bounds.
+      - curve_type 'linear' (default): raw_min->0, raw_max->100, then flipped
+        if invert=True (a LOW raw value should mean a HIGH score).
+      - curve_type 'band': raw_min..raw_max is a sweet spot scoring 100
+        anywhere inside it, tapering linearly to 0 one band-width outside
+        either edge (e.g. Total Assets — too little or too much both score low).
+    Falls back to treating the raw value as already 0-100 if no bounds are set.
     """
-    if raw_value is None:
+    if value is None:
         return 0.0
 
-    if signal_key == "margin_compression":
-        # Margin compression percentage (e.g. 5% to 25%) mapped to 0-100 score
-        return min(100.0, max(0.0, raw_value * 4.0))
-    elif signal_key == "sector_export_exposure":
-        # Export ratio 0.0 to 1.0 mapped to 0-100
-        return min(100.0, max(0.0, raw_value * 100.0))
-    elif signal_key == "job_posting_velocity":
-        # Number of active job listings (e.g. 0 to 20)
-        return min(100.0, max(0.0, raw_value * 5.0))
-    elif signal_key == "tech_stack_intensity":
-        # Tech intensity score (0 to 10 scale) mapped to 0-100
-        return min(100.0, max(0.0, raw_value * 10.0))
-    elif signal_key == "rd_expense_ratio":
-        # R&D spend as % of revenue (0% to 15%)
-        return min(100.0, max(0.0, raw_value * 6.66))
-    elif signal_key == "interest_coverage_ratio":
-        # Inverted: a LOW ratio means the company can barely cover interest from
-        # operating profit — that's financial pressure, i.e. high NEED. Scale 0x-15x.
-        return min(100.0, max(0.0, (1.0 - (raw_value / 15.0)) * 100.0))
-    elif signal_key == "patent_count":
-        # Patent count (0 to 15 patents)
-        return min(100.0, max(0.0, raw_value * 6.66))
-    elif signal_key == "patent_ipc_diversity":
-        # Distinct IPC class prefixes (0 to 5)
-        return min(100.0, max(0.0, raw_value * 20.0))
-    elif signal_key == "management_diversity":
-        # Leadership-mention proxy score (0 to 10, see scrapers/management_diversity.py)
-        return min(100.0, max(0.0, raw_value * 10.0))
-    elif signal_key == "trademark_count":
-        # Trademark count (0 to 10)
-        return min(100.0, max(0.0, raw_value * 10.0))
-    elif signal_key == "public_grant_count":
-        # Public grants received (0 to 5)
-        return min(100.0, max(0.0, raw_value * 20.0))
-    elif signal_key == "kununu_rating":
-        # Rating 1.0 to 5.0 scale
-        return min(100.0, max(0.0, (raw_value / 5.0) * 100.0))
-    elif signal_key == "partnership_news_count":
-        # News partnership count (0 to 10)
-        return min(100.0, max(0.0, raw_value * 10.0))
-    
-    return min(100.0, max(0.0, float(raw_value)))
+    raw_min, raw_max = defn.get("raw_min"), defn.get("raw_max")
+    if raw_min is None or raw_max is None or raw_min == raw_max:
+        return min(100.0, max(0.0, float(value)))
 
-def calculate_company_scores(company_signals: List[Any]) -> Dict[str, Any]:
+    if defn.get("curve_type") == "band":
+        width = raw_max - raw_min
+        if width <= 0:
+            return 0.0
+        if raw_min <= value <= raw_max:
+            return 100.0
+        if value < raw_min:
+            return max(0.0, 100.0 * (1 - (raw_min - value) / width))
+        return max(0.0, 100.0 * (1 - (value - raw_max) / width))
+
+    base = (value - raw_min) / (raw_max - raw_min)
+    base = min(1.0, max(0.0, base))
+    score = base * 100.0
+    if defn.get("invert"):
+        score = 100.0 - score
+    return score
+
+
+def _apply_redundancy_dampening(keys: List[str], indicator_defs: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
     """
-    Computes Need score, Readiness score, and Completeness percentages for a company.
-    
-    company_signals: List of SignalRecord objects or dictionaries for a company.
+    Redundancy groups (e.g. Materials/Labour/Logistics/Energy/COGS all under
+    COST_PRESSURE) measure overlapping underlying constructs — summing every
+    member at full weight double-counts one signal. Confirmed with the
+    business side: a dampening schedule, not a composite average/max (both
+    also allowed by the spec, but this is simplest to reason about and keeps
+    every variable's own normalized value visible rather than collapsing the
+    group into one representative number).
+
+    Within each group, sort members by their own configured weight
+    (descending); the highest-weighted member counts at its full weight, the
+    next at half, the next at a quarter, and so on. Re-derived on every call
+    from each variable's *current* weight, so re-ranking a group by editing
+    weights on the Indicator Weights page (which the business side flagged as
+    something they'll keep tuning) changes the dampening automatically —
+    there's no separately-stored dampening percentage to fall out of sync.
+
+    `keys` is expected to already be filtered to one axis (as _evaluate_axis
+    does) — a group that has members on both axes (e.g. MGMT_PROFILE has a
+    NEED row and two READINESS rows) is therefore naturally dampened as two
+    smaller, separate groups, one per axis, never mixed across axes.
+
+    Ungrouped variables (redundancy_group is None/blank) are always at their
+    full configured weight — grouping of exactly one member is a no-op by
+    construction (rank 0 -> multiplier 1.0), but they're kept out of the
+    ranking entirely for clarity.
+    """
+    groups: Dict[Any, List[str]] = {}
+    for k in keys:
+        rg = indicator_defs[k].get("redundancy_group") or None
+        groups.setdefault(rg, []).append(k)
+
+    effective_weight: Dict[str, float] = {}
+    for rg, group_keys in groups.items():
+        if rg is None:
+            for k in group_keys:
+                effective_weight[k] = indicator_defs[k].get("weight", 0.0)
+            continue
+        ordered = sorted(group_keys, key=lambda k: (-indicator_defs[k].get("weight", 0.0), k))
+        for rank, k in enumerate(ordered):
+            effective_weight[k] = indicator_defs[k].get("weight", 0.0) * (0.5 ** rank)
+    return effective_weight
+
+
+def _evaluate_axis(signal_map: Dict[str, Any], indicator_defs: Dict[str, Dict[str, Any]], axis_name: str):
+    keys = [k for k, d in indicator_defs.items() if d["axis"] in (axis_name, "both")]
+    eff_weight = _apply_redundancy_dampening(keys, indicator_defs)
+
+    weighted_sum = 0.0
+    weight_checked = 0.0
+    weight_total = sum(eff_weight.values()) or 0.0
+    checked_count = 0
+    gate_multiplier = 1.0
+
+    for key in keys:
+        defn = indicator_defs[key]
+        weight = eff_weight[key]
+        data = signal_map.get(key, {"status": "not_yet_checked", "value": None})
+        status = data["status"]
+
+        if status in ("present", "stale"):
+            checked_count += 1
+            weight_checked += weight
+            normalized = normalize_indicator_value(data["value"], defn)
+            weighted_sum += normalized * weight
+            if defn.get("is_gate") and normalized < 50.0:
+                gate_multiplier *= defn.get("gate_penalty_multiplier", 1.0)
+        elif status == "absent":
+            checked_count += 1
+            weight_checked += weight
+            if defn.get("is_gate"):
+                gate_multiplier *= defn.get("gate_penalty_multiplier", 1.0)
+            # absent contributes 0 to weighted_sum, same as before
+
+    axis_score = (weighted_sum / weight_checked) if weight_checked > 0 else 0.0
+    axis_score = min(100.0, axis_score * gate_multiplier)
+    weighted_completeness_pct = (weight_checked / weight_total * 100.0) if weight_total > 0 else 0.0
+    count_completeness_pct = (checked_count / len(keys) * 100.0) if keys else 0.0
+
+    return axis_score, weighted_completeness_pct, count_completeness_pct, checked_count, len(keys)
+
+
+def calculate_company_scores(company_signals: List[Any], indicator_defs: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Computes weighted Need/Readiness scores and completeness for a company.
+
+    company_signals: SignalRecord objects or dicts for one company.
+    indicator_defs: {signal_key: definition_dict} — fetch once per page render
+        via indicators.fetch_indicator_defs(db), not per company, to avoid
+        re-querying the (small, ~75-row) catalog on every loop iteration.
     """
     signal_map = {}
     for sig in company_signals:
         key = getattr(sig, "signal_key", None) or sig.get("signal_key")
+        if key not in indicator_defs:
+            continue  # signal exists in DB but its definition was deactivated/removed
         status = getattr(sig, "status", None) or sig.get("status")
         val = getattr(sig, "numeric_value", None) if hasattr(sig, "numeric_value") else sig.get("numeric_value")
         fetched_at = getattr(sig, "fetched_at", None) if hasattr(sig, "fetched_at") else sig.get("fetched_at")
-        
-        display_status = get_signal_display_status(status, key, fetched_at)
-        signal_map[key] = {
-            "status": display_status,
-            "raw_status": status,
-            "value": val
-        }
-    
-    need_signals = [k for k, meta in SIGNAL_METADATA.items() if meta["axis"] == "need"]
-    readiness_signals = [k for k, meta in SIGNAL_METADATA.items() if meta["axis"] == "readiness"]
 
-    def evaluate_axis(axis_keys: List[str]):
-        checked_count = 0
-        score_sum = 0.0
-        
-        for key in axis_keys:
-            data = signal_map.get(key, {"status": "not_yet_checked", "value": None})
-            st = data["status"]
-            
-            if st in ("present", "stale"):
-                checked_count += 1
-                normalized_val = normalize_signal_value(key, data["value"])
-                score_sum += normalized_val
-            elif st == "absent":
-                # Actively checked, 0 value
-                checked_count += 1
-                # 0 added to score sum
-            # 'not_yet_checked' is excluded from checked_count & denominator
-            
-        axis_score = (score_sum / checked_count) if checked_count > 0 else 0.0
-        completeness_pct = (checked_count / len(axis_keys)) * 100.0 if len(axis_keys) > 0 else 0.0
-        
-        return axis_score, completeness_pct, checked_count, len(axis_keys)
+        display_status = get_signal_display_status(status, indicator_defs[key].get("freshness_days"), fetched_at)
+        signal_map[key] = {"status": display_status, "raw_status": status, "value": val}
 
-    need_score, need_comp_pct, need_checked, need_total = evaluate_axis(need_signals)
-    readiness_score, readiness_comp_pct, readiness_checked, readiness_total = evaluate_axis(readiness_signals)
+    need_score, need_wcomp, need_ccomp, need_checked, need_total = _evaluate_axis(signal_map, indicator_defs, "need")
+    readiness_score, ready_wcomp, ready_ccomp, ready_checked, ready_total = _evaluate_axis(signal_map, indicator_defs, "readiness")
 
-    total_checked = need_checked + readiness_checked
-    total_signals = need_total + readiness_total
-    total_comp_pct = (total_checked / total_signals) * 100.0 if total_signals > 0 else 0.0
+    total_checked = need_checked + ready_checked
+    total_signals = need_total + ready_total
+    total_comp_pct = (total_checked / total_signals * 100.0) if total_signals > 0 else 0.0
 
     return {
         "need_score": round(need_score, 1),
         "readiness_score": round(readiness_score, 1),
-        "need_completeness_pct": round(need_comp_pct, 1),
-        "readiness_completeness_pct": round(readiness_comp_pct, 1),
+        "need_completeness_pct": round(need_wcomp, 1),
+        "readiness_completeness_pct": round(ready_wcomp, 1),
+        "need_completeness_count_pct": round(need_ccomp, 1),
+        "readiness_completeness_count_pct": round(ready_ccomp, 1),
         "total_completeness_pct": round(total_comp_pct, 1),
         "signals_checked": total_checked,
-        "signals_total": total_signals
+        "signals_total": total_signals,
     }
 
 

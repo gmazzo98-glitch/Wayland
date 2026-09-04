@@ -52,53 +52,72 @@ def render_pipeline_health_page(db: Session):
     st.markdown("---")
 
     st.subheader("⚡ Pipeline Trigger Controls")
+    
+    col_filter, _ = st.columns([2, 2])
+    with col_filter:
+        country_sync_scope = st.radio("Sync Scope 🌐", ["All Countries", "Germany 🇩🇪 Only", "Italy 🇮🇹 Only"], horizontal=True, key="pipeline_sync_country")
+
+    target_companies = companies
+    if country_sync_scope == "Germany 🇩🇪 Only":
+        target_companies = [c for c in companies if (c.country or "Germany") == "Germany"]
+    elif country_sync_scope == "Italy 🇮🇹 Only":
+        target_companies = [c for c in companies if c.country == "Italy"]
+
+    st.caption(f"Triggers below will execute for **{len(target_companies)}** target companies, running only APIs applicable to each company's country.")
+
     col_t1, col_t2, col_t3 = st.columns(3)
+
+    from company_service import sync_company_applicable_sources
 
     with col_t1:
         if st.button("🚀 Run Phase 1 Free APIs Sync", use_container_width=True):
-            with st.spinner("Syncing Phase 1 APIs (EPO, EUIPO, Destatis, EU Funding, Arbeitsagentur)..."):
-                for comp in companies:
-                    epo_ops.sync_company_patents(comp, db)
-                    euipo.sync_company_trademarks(comp, db)
-                    destatis.sync_sector_export_exposure(comp, db)
-                    eu_funding.sync_company_grants(comp, db)
-                    arbeitsagentur.sync_job_velocity(comp, db)
-                st.success(f"Phase 1 API sync completed across {len(companies)} companies! Check the mode column below for live vs. simulated.")
+            with st.spinner(f"Syncing Phase 1 APIs across {len(target_companies)} companies (activating country-relevant APIs)..."):
+                for comp in target_companies:
+                    sync_company_applicable_sources(comp, db, phases=[1])
+                st.success(f"Phase 1 API sync completed across {len(target_companies)} companies! Check the mode column below.")
                 st.rerun()
 
     with col_t2:
-        if st.button("🔍 Run Phase 2 Handelsregister Base", use_container_width=True):
-            with st.spinner("Normalizing Handelsregister entity records..."):
-                for comp in companies:
+        if st.button("🔍 Run Phase 2 Commercial Register Base", use_container_width=True):
+            de_comps = [c for c in target_companies if (c.country or "Germany") == "Germany"]
+            with st.spinner(f"Normalizing Handelsregister entity records for {len(de_comps)} German companies..."):
+                for comp in de_comps:
                     handelsregister_free.index_handelsregister_snapshot(comp, db)
-                st.success("Phase 2 entity-resolution pass complete! (Snapshot event scraping itself — filing types/dates — is still backlog, not yet built.)")
+                st.success(f"Phase 2 pass complete for {len(de_comps)} German companies! (Italian register scraping is backlog).")
                 st.rerun()
 
     with col_t3:
         if st.button("🌐 Run Phase 4 Website & Social Layer", use_container_width=True):
-            with st.spinner("Running Wappalyzer, own-site management scan, and partnership-news search..."):
-                for comp in companies:
-                    wappalyzer_local.sync_tech_stack(comp, db)
-                    management_diversity.sync_management_diversity(comp, db)
-                    google_news.sync_partnership_news(comp, db)
-                st.success(f"Phase 4 pass complete across {len(companies)} companies!")
+            with st.spinner(f"Running Wappalyzer, own-site scan, and news search for {len(target_companies)} companies..."):
+                for comp in target_companies:
+                    sync_company_applicable_sources(comp, db, phases=[4])
+                st.success(f"Phase 4 pass complete across {len(target_companies)} companies!")
                 st.rerun()
 
-    st.caption("Phase 3 (Bundesanzeiger) and Phase 5 (Kununu) paid pulls are manual, per-company, and live on the **💰 Shortlist Gate & Paid Pulls** page — never auto-run across the full batch (Section 3 of the Brief).")
+    st.caption(
+        "Phase 3 (Bundesanzeiger) and Phase 5 (Kununu) paid pulls are manual, per-company, and live on the "
+        "**💰 Shortlist Gate & Paid Pulls** page — never auto-run across the full batch (Section 3 of the Brief). "
+        "Phase 6 indicators (org structure, approval chains — anything only a first-contact call can answer) "
+        "have no trigger at all; they're recorded by hand on **🏢 Company Intelligence**. "
+        "Which indicators matter and how much is tunable on **⚖️ Indicator Weights**."
+    )
 
     st.markdown("---")
 
     st.subheader("📡 Ingestion Source Status, Mode & Credentials")
 
     if sources:
+        from company_service import GERMAN_ONLY_SOURCES
         health_rows = []
         for s in sources:
             phase_info = PHASE_CONFIG.get(s.phase, {"name": f"Phase {s.phase}"})
             last_run_str = s.last_run_at.strftime("%Y-%m-%d %H:%M") if s.last_run_at else "Never"
+            scope_label = "🇩🇪 Germany only" if s.source_name in GERMAN_ONLY_SOURCES else "🌐 EU / Universal"
 
             health_rows.append({
                 "Phase": f"Phase {s.phase}",
                 "Source Name": s.source_name,
+                "Scope": scope_label,
                 "Mode": MODE_BADGES.get(s.mode, s.mode),
                 "Run Status": "🟢 Healthy" if s.last_status in ("success", "idle") else ("🔴 Error" if s.last_status == "error" else s.last_status),
                 "Credentials": _credential_note(s.source_name),
@@ -116,6 +135,7 @@ def render_pipeline_health_page(db: Session):
             column_config={
                 "Phase": "Phase",
                 "Source Name": "Source Name",
+                "Scope": st.column_config.TextColumn("Country Scope", width="medium"),
                 "Mode": "Live / Simulated",
                 "Run Status": "Run Status",
                 "Credentials": "Credential Status",

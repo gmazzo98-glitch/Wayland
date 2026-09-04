@@ -3,11 +3,13 @@ Shortlist Gate & Paid Pull Trigger View (Page 4)
 Section 3 & 7 of GG_Dashboard_Technical_Brief.docx & Phase 3/5 of Sourcing Plan
 """
 
+from datetime import datetime
 import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 from models import Company, SignalRecord, SourceHealth
 from scoring import calculate_company_scores
+from indicators import fetch_indicator_defs
 from scrapers.bundesanzeiger_paid import pull_bundesanzeiger_filing
 from scrapers.kununu_light import pull_kununu_rating
 from config import (
@@ -35,7 +37,7 @@ def render_paid_shortlist_gate_page(db: Session):
     with col_g2:
         st.metric("Cumulative Paid Spend", f"€{total_paid_spend:.2f}", help="Tracks per-document and reseller fees")
     with col_g3:
-        shortlisted_count = sum(1 for c in companies if c.is_shortlisted)
+        shortlisted_count = sum(1 for c in companies if c.shortlist_status in ("shortlisted", "in_pilot"))
         st.metric("Shortlisted Candidates", f"{shortlisted_count}/{len(companies)}", "Gated for Paid Ingestion")
 
     st.markdown("---")
@@ -44,11 +46,12 @@ def render_paid_shortlist_gate_page(db: Session):
     st.subheader("🚧 Target Shortlist Qualification Gate")
     st.write("Review candidate companies clearing the Phase 1+2 free data threshold. Promote to shortlist to enable Phase 3+ paid document pulls.")
 
+    indicator_defs = fetch_indicator_defs(db)
     gate_rows = []
     for comp in companies:
         signals = db.query(SignalRecord).filter_by(company_id=comp.id).all()
-        scores = calculate_company_scores(signals)
-        
+        scores = calculate_company_scores(signals, indicator_defs)
+
         preliminary_score = (scores["need_score"] + scores["readiness_score"]) / 2.0
         eligible = (
             scores["total_completeness_pct"] >= SHORTLIST_MIN_COMPLETENESS_PCT and
@@ -65,13 +68,13 @@ def render_paid_shortlist_gate_page(db: Session):
             "preliminary_score": round(preliminary_score, 1),
             "completeness_pct": scores["total_completeness_pct"],
             "is_eligible": eligible,
-            "is_shortlisted": comp.is_shortlisted
+            "shortlist_status": comp.shortlist_status,
         })
 
     df_gate = pd.DataFrame(gate_rows)
 
     st.dataframe(
-        df_gate,
+        df_gate.drop(columns=["id"]),
         column_config={
             "legal_name": "Company Legal Name",
             "registration_number": "Handelsregister-Nr.",
@@ -81,18 +84,39 @@ def render_paid_shortlist_gate_page(db: Session):
             "preliminary_score": st.column_config.NumberColumn("Prelim Score", format="%.1f"),
             "completeness_pct": st.column_config.ProgressColumn("Phase 1+2 Completeness", format="%.1f%%", min_value=0, max_value=100),
             "is_eligible": "Gate Eligible",
-            "is_shortlisted": "Shortlisted Status"
+            "shortlist_status": "Shortlist Status",
         },
         use_container_width=True,
         hide_index=True
     )
 
+    # Promotion control — nothing else in the app writes shortlist_status to
+    # 'shortlisted' at runtime (Company Intelligence can set any status
+    # ad hoc, but this is the dedicated gate action tied to eligibility above).
+    promotable = [r for r in gate_rows if r["is_eligible"] and r["shortlist_status"] == "candidate"]
+    if promotable:
+        col_p1, col_p2 = st.columns([3, 1])
+        with col_p1:
+            promote_options = {f"{r['legal_name']} ({r['registration_number']})": r["id"] for r in promotable}
+            promote_label = st.selectbox("Promote an eligible candidate to Shortlisted", list(promote_options.keys()))
+        with col_p2:
+            st.markdown("&nbsp;")
+            if st.button("⬆️ Promote to Shortlisted", use_container_width=True, type="primary"):
+                comp = db.query(Company).filter_by(id=promote_options[promote_label]).first()
+                comp.shortlist_status = "shortlisted"
+                comp.shortlisted_at = datetime.utcnow()
+                db.commit()
+                st.success(f"{comp.legal_name} is now shortlisted — Phase 3+ paid pulls unlocked below.")
+                st.rerun()
+    else:
+        st.caption("No gate-eligible candidates awaiting promotion right now.")
+
     st.markdown("---")
 
     # Manual Paid Pull Execution Form
     st.subheader("💳 Execute Gated Paid Document Pull (Phase 3 & 5)")
-    
-    shortlisted_companies = [c for c in companies if c.is_shortlisted]
+
+    shortlisted_companies = [c for c in companies if c.shortlist_status in ("shortlisted", "in_pilot")]
     if not shortlisted_companies:
         st.info("No companies currently shortlisted. Qualify candidates above first to unlock paid triggers.")
         return

@@ -4,8 +4,14 @@
     {
       "name": "vienna-dashboard",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.headless", "true"],
-      "port": 8501
+      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.headless", "true", "--server.port", "8502"],
+      "port": 8502
+    },
+    {
+      "name": "vienna-dashboard-preview-test",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["scripts/run_preview_server.py"],
+      "port": 8503
     }
   ]
 }
