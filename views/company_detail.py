@@ -987,6 +987,47 @@ def _render_tab1_content(db: Session):
                             st.markdown(f"*{p.full_name or 'Unnamed'}*")
                             st.json(p.raw_fields, expanded=False)
 
+        # Family & Succession — derived from the same CompanyPerson roster
+        # (only rows with a known age, so shareholder/subsidiary entities
+        # exploded from the ownership imports are naturally excluded) plus
+        # Company.legal_name/incorporation_date. See company_service.
+        # detect_family_and_succession for the exact rule.
+        has_aged_people = db.query(CompanyPerson).filter_by(company_id=company.id).filter(CompanyPerson.age.isnot(None)).first() is not None
+        if has_aged_people:
+            from company_service import sync_succession_signal
+            with st.expander("🧬 Family & Succession"):
+                succession = sync_succession_signal(db, company)
+                if succession["is_family_company"]:
+                    st.info(f"🏠 **Family company** — shared surname(s) in management: {', '.join(succession['family_surnames'])}")
+                else:
+                    st.caption("No shared management surname detected — not flagged as a family company.")
+
+                ng = succession["new_generation"]
+                if ng["detected"]:
+                    yr = ng["years_since_handover"]
+                    st.success(
+                        f"🌱 **New Generation Management detected** — surname **{ng['surname']}** appears in the company "
+                        f"name; {ng['young_manager'].full_name} (age {ng['young_manager'].age}) is running it with no "
+                        f"older **{ng['surname']}** still in management, and the company's incorporation date predates "
+                        f"them — a generational handover, not a founding."
+                    )
+                    if yr is not None:
+                        st.metric("Years since handover (estimated)", f"{yr:.1f}")
+                        st.caption(
+                            "✅ Scored: the **New Generation of Management** indicator has been updated with this value."
+                            if succession["signal_written"] else
+                            "Detected, but the indicator wasn't written — check the app logs."
+                        )
+                    else:
+                        st.caption(
+                            "⚠️ Detected, but the young manager's appointment date isn't in the data, so the "
+                            "**New Generation of Management** indicator can't be scored with a real number yet — "
+                            "add a 'Data nomina' value for this person (re-import the board roster) to activate it."
+                        )
+                if st.button("🔄 Recompute Family & Succession", key="recompute_succession_btn"):
+                    sync_succession_signal(db, company)
+                    st.rerun()
+
         # Pilot History
         pilot_rows = _pilot_rows(db, company)
         if pilot_rows:

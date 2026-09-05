@@ -790,6 +790,12 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
 
         db.commit()
 
+        if "incorporation_date" in company_field_updates:
+            # A newly-set/changed incorporation date could make an already-
+            # imported board roster's succession pattern newly detectable or
+            # quantifiable — see sync_succession_signal.
+            sync_succession_signal(db, company, source=dataset_name)
+
         if was_new:
             result["created"] += 1
         elif is_conflict:
@@ -1338,5 +1344,164 @@ def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
                 person.updated_at = fetched_at
 
         db.commit()
+        sync_succession_signal(db, company, source=dataset_name)
 
+    return result
+
+
+# =============================================================================
+# Family ownership & generational succession detection
+#
+# Derived entirely from data already imported above (CompanyPerson board/
+# management records, Company.legal_name/incorporation_date) — no new import
+# step. Two related but distinct signals:
+#
+#   - "Family company": 2+ CURRENT managers share a surname. Purely
+#     informational/display — indicators.py's own family_ownership_share row
+#     wants an equity %, which surname-matching among managers can't honestly
+#     give (it's weight=0/context anyway, so nothing is lost by not writing
+#     it), so this is surfaced on the Company Profile page rather than
+#     written as a SignalRecord.
+#   - "New generation management": indicators.py's new_generation_management
+#     (weight 5.0, category Leadership & Succession, axis "both" — "the
+#     strongest single trigger-event variable in this table"). Detected when
+#     a young manager's surname (a) appears in the company's own legal name,
+#     (b) belongs to NO current older manager — i.e. the founder generation
+#     isn't still there — and (c) predates incorporation by more than the
+#     youngest plausible founding age, so the young manager could not have
+#     been the original founder themselves (they must have inherited/taken
+#     over from an earlier relative). Its proxy is a real number ("years
+#     since handover"), so this only writes the SignalRecord when the young
+#     manager's own appointment_date is known — same tri-state honesty rule
+#     as the rest of the pipeline: detected-but-unquantifiable is not the
+#     same as measured, so it's surfaced on the profile page either way but
+#     only scored when a real date backs the number.
+# =============================================================================
+
+YOUNG_MANAGER_MAX_AGE = 45
+OLD_MANAGER_MIN_AGE = 60
+MIN_PLAUSIBLE_FOUNDING_AGE = 20
+SUCCESSION_INDICATOR_KEY = "new_generation_management"
+
+
+def _person_surname(person: CompanyPerson) -> str:
+    """Best-effort surname: the raw 'Cognome' sub-field when the source
+    provided one directly (DM/ADV both do — see _PERSON_FIELD_ALIASES), else
+    the last whitespace-separated token of full_name."""
+    raw = person.raw_fields or {}
+    cognome = raw.get("Cognome") or raw.get("cognome")
+    if cognome and str(cognome).strip():
+        return str(cognome).strip()
+    if person.full_name:
+        parts = str(person.full_name).split()
+        if parts:
+            return parts[-1]
+    return ""
+
+
+def _normalize_for_name_match(text: str) -> str:
+    return re.sub(r"[^a-z0-9 ]", " ", str(text or "").lower())
+
+
+def detect_family_and_succession(db: Session, company: Company) -> dict:
+    """
+    Only looks at CompanyPerson rows with a known age — this is what
+    distinguishes a named individual (director/advisor) from a shareholder/
+    subsidiary entity row exploded from the same-shaped ownership imports,
+    which never carry an age (see detect_loose_stacked_groups's module
+    docstring: Azionisti/CSH/Partecipate have no age sub-field at all).
+
+    Returns {"is_family_company": bool, "family_surnames": [str, ...],
+             "new_generation": {"detected": bool, "surname": str or None,
+             "young_manager": CompanyPerson or None,
+             "years_since_handover": float or None}}.
+    """
+    people = (
+        db.query(CompanyPerson)
+        .filter_by(company_id=company.id)
+        .filter(CompanyPerson.age.isnot(None))
+        .all()
+    )
+
+    by_surname = {}
+    for p in people:
+        surname = _person_surname(p)
+        if surname:
+            by_surname.setdefault(surname.lower(), []).append(p)
+
+    family_surnames = [s for s, ps in by_surname.items() if len({p.full_name for p in ps}) >= 2]
+
+    new_generation = {"detected": False, "surname": None, "young_manager": None, "years_since_handover": None}
+    legal_name_norm = _normalize_for_name_match(company.legal_name)
+    current_year = datetime.utcnow().year
+
+    for surname_key, ps in by_surname.items():
+        # Word-boundary check so e.g. surname "Or" doesn't match inside an
+        # unrelated word in the legal name.
+        if not surname_key or not re.search(rf"\b{re.escape(surname_key)}\b", legal_name_norm):
+            continue
+        if any((p.age or 0) >= OLD_MANAGER_MIN_AGE for p in ps):
+            continue  # founder generation is still present -> not a completed handover
+        young = [p for p in ps if (p.age or 999) <= YOUNG_MANAGER_MAX_AGE]
+        if not young or not company.incorporation_date:
+            continue
+
+        candidate = min(young, key=lambda p: p.age or 999)
+        birth_year_estimate = current_year - candidate.age
+        founding_age_estimate = company.incorporation_date.year - birth_year_estimate
+        if founding_age_estimate >= MIN_PLAUSIBLE_FOUNDING_AGE:
+            continue  # incorporation date isn't actually incompatible with this manager having founded it
+
+        years_since_handover = None
+        if candidate.appointment_date:
+            years_since_handover = max(0.0, (datetime.utcnow() - candidate.appointment_date).days / 365.25)
+
+        new_generation = {
+            "detected": True, "surname": surname_key.title(),
+            "young_manager": candidate, "years_since_handover": years_since_handover,
+        }
+        break  # one qualifying surname is enough to flag the company
+
+    return {
+        "is_family_company": bool(family_surnames),
+        "family_surnames": sorted(s.title() for s in family_surnames),
+        "new_generation": new_generation,
+    }
+
+
+def sync_succession_signal(db: Session, company: Company, source: str = "Board Roster Analysis") -> dict:
+    """
+    Runs detect_family_and_succession and, when a handover is detected AND
+    the young manager's real appointment_date gives an actual years-since
+    number, writes/updates the new_generation_management SignalRecord for
+    real (is_simulated=False) — never fabricates a value when the date isn't
+    known; the signal is simply left at whatever status it already had.
+
+    Called automatically after a real (non-dry-run) import_company_people
+    run and after apply_data_import updates a company's incorporation_date
+    (either could newly make a handover detectable/quantifiable); also
+    callable on demand from the Company Profile page.
+
+    Returns detect_family_and_succession's dict plus "signal_written": bool.
+    """
+    result = detect_family_and_succession(db, company)
+    result["signal_written"] = False
+    ng = result["new_generation"]
+    if ng["detected"] and ng["years_since_handover"] is not None:
+        sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key=SUCCESSION_INDICATOR_KEY).first()
+        if not sig:
+            sig = SignalRecord(company_id=company.id, signal_key=SUCCESSION_INDICATOR_KEY, source=source)
+            db.add(sig)
+        sig.status = "present"
+        sig.numeric_value = round(ng["years_since_handover"], 1)
+        sig.confidence = 1.0
+        sig.is_simulated = False
+        sig.source = source
+        sig.fetched_at = datetime.utcnow()
+        sig.raw_payload_ref = json.dumps({
+            "surname": ng["surname"], "young_manager": ng["young_manager"].full_name,
+            "detected_from": "family_surname_vs_company_name_and_incorporation_date",
+        })
+        db.commit()
+        result["signal_written"] = True
     return result

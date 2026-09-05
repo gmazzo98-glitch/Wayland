@@ -6,6 +6,7 @@ column-mapping data feeder.
 
 import pytest
 import pandas as pd
+from datetime import datetime
 from database import init_db, get_db_session
 from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, RawImportRecord, CompanyPerson
 from utils import normalize_registration_nr
@@ -30,12 +31,15 @@ from company_service import (
     explode_person_group,
     import_company_people,
     delete_companies,
+    detect_family_and_succession,
+    sync_succession_signal,
 )
 
 FLEX_TEST_REGS = ["IT11122233344", "IT99988877766"]
 FLEX_TEST_DATASET_NAMES = ["Test AIDA Financials", "Test Shareholder Data"]
 FLEX_TEST_INDICATOR_KEYS = ["a_brand_new_column"]
 PEOPLE_TEST_REGS = ["IT44455566677", "IT55566677788", "IT66677788899", "IT77788899900"]
+SUCCESSION_TEST_REGS = ["IT10101010101", "IT20202020202", "IT30303030303", "IT40404040404", "IT50505050505"]
 
 
 @pytest.fixture(scope="function")
@@ -43,7 +47,8 @@ def db():
     init_db()
     session = get_db_session()
     # Clean up any test records
-    test_regs = ["HRB-889900", "IT09988776655", "HRB-554433", "IT55443322110"] + FLEX_TEST_REGS + PEOPLE_TEST_REGS
+    test_regs = (["HRB-889900", "IT09988776655", "HRB-554433", "IT55443322110"]
+                 + FLEX_TEST_REGS + PEOPLE_TEST_REGS + SUCCESSION_TEST_REGS)
 
     def _cleanup():
         for reg in test_regs:
@@ -857,3 +862,169 @@ def test_import_company_people_with_loosely_detected_shareholder_group(db):
     assert people[1].role == "Società"
     assert people[2].full_name == "Other Holder"
     assert people[2].raw_fields["Livello"] == "3"
+
+
+# --- Family ownership & generational succession detection ---
+
+def _add_person(db, company_id, full_name, age=None, cognome=None, appointment_date=None,
+                 role_group="DM", position=0, dataset="Test Succession Dataset"):
+    person = CompanyPerson(
+        company_id=company_id, dataset_name=dataset, role_group=role_group, position_in_row=position,
+        full_name=full_name, age=age, appointment_date=appointment_date,
+        raw_fields={"Cognome": cognome} if cognome else {},
+    )
+    db.add(person)
+    db.commit()
+    return person
+
+
+def test_detect_family_and_succession_flags_shared_surname_as_family(db):
+    company, err = create_company(db, {
+        "legal_name": "Rossi Officina S.r.l.", "registration_number": "IT10101010101", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    company.incorporation_date = datetime(1990, 1, 1)
+    db.commit()
+
+    _add_person(db, company.id, "Mario Rossi", age=65, cognome="Rossi", position=0)
+    _add_person(db, company.id, "Anna Rossi", age=60, cognome="Rossi", position=1)
+
+    result = detect_family_and_succession(db, company)
+    assert result["is_family_company"] is True
+    assert result["family_surnames"] == ["Rossi"]
+    # Founder generation (>=60) still present under that surname -> no completed handover.
+    assert result["new_generation"]["detected"] is False
+
+
+def test_detect_family_and_succession_no_shared_surname_not_family(db):
+    company, err = create_company(db, {
+        "legal_name": "Multi Team S.r.l.", "registration_number": "IT20202020202", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    _add_person(db, company.id, "Mario Rossi", age=50, cognome="Rossi", position=0)
+    _add_person(db, company.id, "Anna Bianchi", age=45, cognome="Bianchi", position=1)
+
+    result = detect_family_and_succession(db, company)
+    assert result["is_family_company"] is False
+    assert result["new_generation"]["detected"] is False
+
+
+def test_detect_family_and_succession_flags_new_generation_with_quantified_handover(db):
+    company, err = create_company(db, {
+        "legal_name": "Bianchi Group S.p.A.", "registration_number": "IT30303030303", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    now = datetime.utcnow()
+    young_age = 30
+    birth_year = now.year - young_age
+    company.incorporation_date = datetime(birth_year - 10, 1, 1)  # incorporated a decade before he was even born
+    db.commit()
+
+    appointment_date = datetime(now.year - 5, 6, 1)
+    _add_person(db, company.id, "Luca Bianchi", age=young_age, cognome="Bianchi", appointment_date=appointment_date)
+
+    result = detect_family_and_succession(db, company)
+    ng = result["new_generation"]
+    assert ng["detected"] is True
+    assert ng["surname"] == "Bianchi"
+    assert ng["years_since_handover"] == pytest.approx(5.0, abs=0.3)
+
+    signal_result = sync_succession_signal(db, company)
+    assert signal_result["signal_written"] is True
+    sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="new_generation_management").first()
+    assert sig is not None
+    assert sig.status == "present"
+    assert sig.is_simulated is False
+    assert sig.numeric_value == pytest.approx(5.0, abs=0.3)
+
+
+def test_detect_family_and_succession_no_flag_when_founder_could_have_founded_it(db):
+    company, err = create_company(db, {
+        "legal_name": "Verdi Innovations S.r.l.", "registration_number": "IT40404040404", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    now = datetime.utcnow()
+    young_age = 35
+    birth_year = now.year - young_age
+    company.incorporation_date = datetime(birth_year + 25, 1, 1)  # she'd have been 25 - old enough to found it
+    db.commit()
+
+    _add_person(db, company.id, "Sara Verdi", age=young_age, cognome="Verdi")
+
+    result = detect_family_and_succession(db, company)
+    assert result["new_generation"]["detected"] is False
+
+
+def test_detect_family_and_succession_no_flag_when_old_generation_still_present(db):
+    company, err = create_company(db, {
+        "legal_name": "Ferrari Costruzioni S.r.l.", "registration_number": "IT50505050505", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    now = datetime.utcnow()
+    young_age = 28
+    birth_year = now.year - young_age
+    company.incorporation_date = datetime(birth_year - 10, 1, 1)
+    db.commit()
+
+    _add_person(db, company.id, "Giovanni Ferrari", age=70, cognome="Ferrari", position=0)
+    _add_person(db, company.id, "Marco Ferrari", age=young_age, cognome="Ferrari", position=1)
+
+    result = detect_family_and_succession(db, company)
+    assert result["is_family_company"] is True
+    assert result["new_generation"]["detected"] is False
+
+
+def test_sync_succession_signal_does_not_write_without_appointment_date(db):
+    company, err = create_company(db, {
+        "legal_name": "Bianchi Group S.p.A.", "registration_number": "IT30303030303", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    now = datetime.utcnow()
+    young_age = 30
+    birth_year = now.year - young_age
+    company.incorporation_date = datetime(birth_year - 10, 1, 1)
+    db.commit()
+
+    _add_person(db, company.id, "Luca Bianchi", age=young_age, cognome="Bianchi")  # no appointment_date
+
+    result = sync_succession_signal(db, company)
+    assert result["new_generation"]["detected"] is True
+    assert result["new_generation"]["years_since_handover"] is None
+    assert result["signal_written"] is False
+    # create_company() pre-seeds every indicator as not_yet_checked — confirm
+    # sync_succession_signal left that alone rather than fabricating a value.
+    sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="new_generation_management").first()
+    assert sig is not None
+    assert sig.status == "not_yet_checked"
+    assert sig.numeric_value is None
+
+
+def test_import_company_people_auto_triggers_succession_signal(db):
+    """The Board & Management import path (import_company_people) should
+    call sync_succession_signal automatically per matched company — no
+    separate manual step needed."""
+    company, err = create_company(db, {
+        "legal_name": "Bianchi Group S.p.A.", "registration_number": "IT30303030303", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    now = datetime.utcnow()
+    young_age = 30
+    birth_year = now.year - young_age
+    company.incorporation_date = datetime(birth_year - 10, 1, 1)
+    db.commit()
+
+    df = pd.DataFrame([{
+        "Ragione sociale": "Bianchi Group S.p.A.",
+        "DM\nNome completo": "Luca Bianchi",
+        "DM\nCognome": "Bianchi",
+        "DM\nEtà": str(young_age),
+        "DM\nData nomina": f"{now.year - 5}-06-01",
+    }])
+    result = import_company_people(db, df, "Auto Succession Dataset", dry_run=False)
+    assert result["people_created"] == 1
+
+    sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="new_generation_management").first()
+    assert sig is not None
+    assert sig.status == "present"
+    assert sig.numeric_value == pytest.approx(5.0, abs=0.3)
