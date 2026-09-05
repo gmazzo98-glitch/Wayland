@@ -1094,7 +1094,7 @@ def render_company_detail_page(db: Session):
         "➕ Add Single Company",
         "📁 Bulk CSV Import",
         "🔗 Flexible Data Import",
-        "👥 Import Board & Management",
+        "👥 Import People & Ownership",
         "🗑️ Manage Companies"
     ])
 
