@@ -614,6 +614,18 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
     company just merges in, no flag. dataset_name is therefore what scopes
     "same vs. different dataset type" per the user's own rule.
 
+    Match key: exactly one column must be mapped to EITHER Registration
+    Number OR Legal Name — registration_number is preferred when both are
+    present. Registration-number matching can create brand-new companies
+    (a registration number is a reliable enough identifier for that);
+    legal-name matching never does — a source whose only identity column
+    isn't a real registration number (verified example: AIDA's own "BvD ID
+    number" column frequently does NOT match the registration_number
+    already on file for the same company) is exactly the case this is for,
+    and guessing a company into existence from a name string alone risks a
+    real duplicate. Rows that don't match an existing company under
+    legal-name mode land in "unmatched" instead.
+
     dry_run is a genuinely separate read-only classification pass (file
     already parsed into df; only Company lookups happen, zero writes) rather
     than a transaction-rollback trick — create_company() commits internally,
@@ -621,9 +633,9 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
 
     Returns {"created", "merged", "overwritten": int,
              "conflicts": [{"legal_name", "registration_number"}...],
-             "errors": [str...]}.
+             "unmatched": [legal_name...], "errors": [str...]}.
     """
-    result = {"created": 0, "merged": 0, "overwritten": 0, "conflicts": [], "errors": []}
+    result = {"created": 0, "merged": 0, "overwritten": 0, "conflicts": [], "unmatched": [], "errors": []}
 
     if not dataset_name or not str(dataset_name).strip():
         result["errors"].append("Dataset name is required.")
@@ -633,12 +645,17 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
     groups = detect_column_groups(list(df.columns))
 
     reg_bases = [b for b, t in mapping.items() if t == "company:registration_number"]
-    if len(reg_bases) != 1:
+    name_bases = [b for b, t in mapping.items() if t == "company:legal_name"]
+    if len(reg_bases) == 1:
+        match_mode, match_base = "registration_number", reg_bases[0]
+    elif len(name_bases) == 1:
+        match_mode, match_base = "legal_name", name_bases[0]
+    else:
         result["errors"].append(
-            f"Exactly one column must be mapped to Registration Number (found {len(reg_bases)})."
+            "Exactly one column must be mapped to Registration Number or Legal Name "
+            f"(found {len(reg_bases)} Registration Number, {len(name_bases)} Legal Name)."
         )
         return result
-    reg_base = reg_bases[0]
 
     indicator_defs = fetch_indicator_defs(db)
 
@@ -646,24 +663,32 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
         row_dict = row.to_dict()
         row_num = idx + 2  # 1-indexed header + 1
 
-        reg_points = {suffix: row_dict.get(col) for suffix, col in groups[reg_base]["points"].items()}
-        raw_reg, _ = _pick_latest_and_base(reg_points)
-        norm_reg_nr = (
-            normalize_registration_nr(str(raw_reg).strip(), country=country)
-            if raw_reg is not None and not (isinstance(raw_reg, float) and pd.isna(raw_reg)) and str(raw_reg).strip()
-            else ""
-        )
-        if not norm_reg_nr:
-            result["errors"].append(f"Row {row_num}: could not read a registration number.")
-            continue
+        match_points = {suffix: row_dict.get(col) for suffix, col in groups[match_base]["points"].items()}
+        raw_match, _ = _pick_latest_and_base(match_points)
+        has_match_val = raw_match is not None and not (isinstance(raw_match, float) and pd.isna(raw_match)) and str(raw_match).strip()
 
-        existing = db.query(Company).filter_by(registration_number=norm_reg_nr).first()
+        if match_mode == "registration_number":
+            norm_reg_nr = normalize_registration_nr(str(raw_match).strip(), country=country) if has_match_val else ""
+            if not norm_reg_nr:
+                result["errors"].append(f"Row {row_num}: could not read a registration number.")
+                continue
+            existing = db.query(Company).filter_by(registration_number=norm_reg_nr).first()
+        else:
+            match_legal_name = _clean_str(raw_match) if has_match_val else None
+            if not match_legal_name:
+                result["errors"].append(f"Row {row_num}: could not read a legal name.")
+                continue
+            existing = db.query(Company).filter_by(legal_name=match_legal_name).first()
+            if not existing:
+                result["unmatched"].append(match_legal_name)
+                continue
+            norm_reg_nr = existing.registration_number
 
         # Resolve every mapped field/indicator for this row up front.
         company_field_updates = {}
         signal_updates = {}  # signal_key -> (value, status)
         for base, target in mapping.items():
-            if not target or base == reg_base:
+            if not target or base == match_base:
                 continue
             group = groups.get(base)
             if not group:
@@ -850,19 +875,29 @@ def delete_companies(db: Session, company_ids: list) -> dict:
 
 
 # =============================================================================
-# Management & board roster import
+# People & ownership roster import
 #
 # A different shape from the flexible column-mapping feeder above: one source
-# row is still one company, but several columns each pack MULTIPLE people's
+# row is still one company, but several columns each pack MULTIPLE entities'
 # values into a single cell, newline-stacked in matching order across columns
 # (AIDA's own export convention — e.g. 'DM\nNome completo' holds N directors'
 # names, 'DM\nCarica' the same N people's roles, in the same order). That
 # can't go through a one-value-per-column mapper; it needs exploding into one
-# CompanyPerson row per person. See the "Management & Board Roster Import"
-# plan for the full design rationale, including why matching is done by
-# legal_name rather than the source file's own BvD ID column (verified
-# directly against real data: BvD ID doesn't reliably match the
-# registration_number already on file for the same company, legal_name does).
+# CompanyPerson row per person/entity. Originally built for the director/
+# advisor board roster (detect_multivalue_groups: every group column shares
+# a literal 'Prefix\n...' header), then extended to AIDA's shareholder-
+# control and legal-ownership exports, which stack the exact same way but
+# DON'T consistently mark every group column with the same header
+# convention — 'Azionisti\nNome' (newline) sits next to 'Azionisti Numero
+# BvD' (space) and 'Azionista - Ticker Symbol' (dash, a singular/plural
+# variant), and the ownership-chain's 'Livello' column shares no header text
+# with 'CSH' at all despite being part of the same per-row stack. See
+# detect_loose_stacked_groups for how those are still found (by content,
+# not naming), and the "Management & Board Roster Import" plan for the
+# original design rationale, including why matching is done by legal_name
+# rather than the source file's own BvD ID column (verified directly against
+# real data: BvD ID doesn't reliably match the registration_number already
+# on file for the same company, legal_name does).
 # =============================================================================
 
 # Normalized (lower/strip) Italian sub-label -> CompanyPerson structured column.
@@ -878,6 +913,11 @@ _PERSON_FIELD_ALIASES = {
     "data nomina": "appointment_date",
     "data dimissioni": "resignation_date",
     "attuale o precedente": "current_or_former",
+    # Shareholder/subsidiary entity type (e.g. "Persone fisiche o famiglie",
+    # "Società") — not a director-style title, but 'role' is otherwise
+    # unused for these groups and this keeps it visible in the same "Role"
+    # column the Management & Board table already renders.
+    "tipo": "role",
 }
 
 
@@ -940,6 +980,211 @@ def detect_multivalue_groups(columns: list) -> dict:
     return {g: cols for g, cols in groups.items() if len(cols) >= 2}
 
 
+def _split_header_prefix(col: str) -> tuple:
+    """
+    Splits a column header into (prefix, remainder) at whichever of '\\n',
+    ' - ', or a plain ' ' occurs EARLIEST — e.g. 'DM\\nCarica' ->
+    ('DM', 'Carica'), 'Azionisti Numero BvD' -> ('Azionisti', 'Numero BvD'),
+    'Azionista - Ticker Symbol' -> ('Azionista', 'Ticker Symbol'). No
+    separator at all -> (col, '').
+
+    Shared by detect_loose_stacked_groups (to find a column's own natural
+    group prefix) and strip_person_column_prefix (to compute that same
+    column's person-level sub-label), so the two stay in lockstep.
+    """
+    s = str(col)
+    candidates = [(s.find(sep), sep) for sep in ("\n", " - ", " ")]
+    candidates = [(pos, sep) for pos, sep in candidates if pos != -1]
+    if not candidates:
+        return s.strip(), ""
+    pos, sep = min(candidates, key=lambda t: t[0])
+    return s[:pos].strip(), s[pos + len(sep):].strip()
+
+
+def strip_person_column_prefix(col: str) -> str:
+    """The person-level sub-label for one group column: the header with its
+    own natural group-prefix stripped (see _split_header_prefix), falling
+    back to the whole original header when there's nothing to strip (e.g.
+    'Livello', adopted into a group by content rather than by a shared
+    header prefix)."""
+    _, remainder = _split_header_prefix(col)
+    return remainder or str(col)
+
+
+def _multiline_count(df: pd.DataFrame, col: str) -> int:
+    return int(df[col].map(lambda v: isinstance(v, str) and "\n" in v).sum())
+
+
+def _stack_split_len(v):
+    """Split-length of every non-blank string cell, including an un-stacked
+    single value (length 1) — unlike the multiline-only check above, this is
+    needed for correlation: a group where most rows have exactly one entry
+    (e.g. one advisor) would otherwise never have enough genuinely-stacked
+    overlapping rows to prove two columns belong together."""
+    if isinstance(v, str) and v.strip():
+        return len(v.split("\n"))
+    return None
+
+
+def _stack_correlation(df: pd.DataFrame, col_a: str, col_b: str, min_overlap: int):
+    """Fraction of rows (where both columns have a value) whose split-length
+    matches exactly, or None if there isn't enough overlap to judge."""
+    sa, sb = df[col_a].map(_stack_split_len), df[col_b].map(_stack_split_len)
+    both = pd.concat([sa, sb], axis=1).dropna()
+    if len(both) < min_overlap:
+        return None
+    return (both.iloc[:, 0] == both.iloc[:, 1]).mean()
+
+
+def detect_loose_stacked_groups(df: pd.DataFrame, exclude_columns: set = None,
+                                  min_multiline_cells: int = 3, match_threshold: float = 0.9,
+                                  min_overlap: int = 5) -> dict:
+    """
+    Finds newline-stacked column groups the same way detect_multivalue_groups
+    does, but for sources that DON'T mark every group column with a shared
+    'Prefix\\n...' header — needed for real AIDA exports: the shareholder-
+    control file mixes 'Azionisti\\nNome' (newline) with 'Azionisti Numero
+    BvD' (space) and 'Azionista - Ticker Symbol' (dash, a singular/plural
+    variant of the same word), and its ownership-chain 'Livello' column
+    shares no header text with 'CSH' at all despite being part of the same
+    per-row stack.
+
+    Only ever looks at columns with NO '\\n' in their header (exclude_columns
+    should also list anything detect_multivalue_groups already claimed) — it
+    can never see, let alone reassign, a column detect_multivalue_groups
+    already grouped, so it cannot regress the already-verified DM/ADV
+    director/advisor import.
+
+    Three passes, all driven by actual cell content rather than assumed
+    naming:
+      1. Seed candidate groups from columns sharing a header prefix (via
+         _split_header_prefix) — but only keep the seed if at least one
+         member has real stacking evidence (>= min_multiline_cells genuinely
+         newline-joined cells), and only keep a given NON-anchor member if
+         it's near-empty (too little data to judge either way — e.g. a
+         comments column that's blank on every real row) or its own per-row
+         split-length matches the seed's densest ("anchor") column at
+         >= match_threshold. This is what excludes a same-prefix but
+         unrelated SCALAR column (e.g. two 'Data di chiusura...' columns
+         that happen to start with the same word as a real stacked
+         'Data di inizio...' column) without needing it named any
+         differently.
+      2. Merge two seed groups when their anchors correlate at
+         >= match_threshold — catches spelling/grammar variants that don't
+         share a literal prefix token (Azionisti/Azionista, Partecipate/
+         Partecipazioni).
+      3. Adopt a leftover column with real stacking evidence but no 2+-
+         column prefix partner (e.g. 'Livello') into whichever surviving
+         group's anchor its own split-length correlates with best, if that
+         correlation clears match_threshold.
+
+    Verified against real data that this does NOT merge two genuinely
+    independent groups just because rows happen to share a count: real
+    Directors (DM) vs Advisors (ADV) split-lengths only coincidentally match
+    on ~7% of overlapping rows in a real 954-row export, far under
+    match_threshold.
+
+    Returns {group_label: [original_column_name, ...]}, label = the seed's
+    own header-prefix text (deduplicated with a numeric suffix on a clash).
+    """
+    exclude_columns = exclude_columns or set()
+    cols = [c for c in df.columns if c not in exclude_columns and "\n" not in str(c)]
+
+    by_prefix = {}
+    for col in cols:
+        prefix, _ = _split_header_prefix(col)
+        key = prefix.lower()
+        by_prefix.setdefault(key, {"display": prefix, "cols": []})
+        by_prefix[key]["cols"].append(col)
+
+    groups = []  # [{"label": str, "cols": [...], "anchor": col}]
+    for entry in by_prefix.values():
+        member_cols = entry["cols"]
+        if len(member_cols) < 2:
+            continue
+        anchor = max(member_cols, key=lambda c: _multiline_count(df, c))
+        if _multiline_count(df, anchor) < min_multiline_cells:
+            continue
+        kept = [anchor]
+        for c in member_cols:
+            if c == anchor:
+                continue
+            if len(df[c].dropna()) < min_overlap:
+                kept.append(c)  # too little data to judge either way, harmless to include
+                continue
+            rate = _stack_correlation(df, anchor, c, min_overlap)
+            if rate is not None and rate >= match_threshold:
+                kept.append(c)
+        if len(kept) >= 2:
+            groups.append({"label": entry["display"], "cols": kept, "anchor": anchor})
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(groups)):
+            for j in range(i + 1, len(groups)):
+                rate = _stack_correlation(df, groups[i]["anchor"], groups[j]["anchor"], min_overlap)
+                if rate is not None and rate >= match_threshold:
+                    a, b = groups[i], groups[j]
+                    winner, loser = (
+                        (a, b) if _multiline_count(df, a["anchor"]) >= _multiline_count(df, b["anchor"])
+                        else (b, a)
+                    )
+                    winner["cols"] = list(dict.fromkeys(winner["cols"] + loser["cols"]))
+                    groups.remove(loser)
+                    changed = True
+                    break
+            if changed:
+                break
+
+    claimed = set(c for g in groups for c in g["cols"])
+    orphans = [c for c in cols if c not in claimed and _multiline_count(df, c) >= min_multiline_cells]
+    for orphan in orphans:
+        best_group, best_rate = None, 0.0
+        for g in groups:
+            rate = _stack_correlation(df, g["anchor"], orphan, min_overlap)
+            if rate is not None and rate > best_rate:
+                best_group, best_rate = g, rate
+        if best_group and best_rate >= match_threshold:
+            best_group["cols"].append(orphan)
+            claimed.add(orphan)
+
+    result = {}
+    for g in groups:
+        ordered = [c for c in cols if c in g["cols"]]
+        label, i = g["label"], 2
+        while label in result:
+            label = f"{g['label']} {i}"
+            i += 1
+        result[label] = ordered
+    return result
+
+
+def detect_person_groups(df: pd.DataFrame) -> dict:
+    """
+    The full group-detection pass for the people/ownership importer: exact
+    'Prefix\\n...' header groups (detect_multivalue_groups — the original,
+    unchanged detector the DM/ADV import already relies on) plus whatever
+    detect_loose_stacked_groups additionally finds among the columns it
+    didn't claim. When both happen to produce the same group label, their
+    column lists are UNIONED rather than one silently overwriting the other
+    — needed for real data: AIDA's shareholder file's only two literally
+    '\\n'-prefixed 'Azionisti' columns are 'Commenti' and 'Nome', and losing
+    'Nome' to an overwrite would drop the shareholder's own name.
+    """
+    header_groups = detect_multivalue_groups(list(df.columns))
+    claimed = set(c for cols in header_groups.values() for c in cols)
+    loose_groups = detect_loose_stacked_groups(df, exclude_columns=claimed)
+
+    groups = dict(header_groups)
+    for label, cols in loose_groups.items():
+        if label in groups:
+            groups[label] = list(dict.fromkeys(groups[label] + cols))
+        else:
+            groups[label] = cols
+    return groups
+
+
 def explode_person_group(row: dict, group_columns: list) -> list:
     """
     Splits each of this group's cells (for one company's row) on '\\n' and
@@ -951,12 +1196,13 @@ def explode_person_group(row: dict, group_columns: list) -> list:
 
     Returns a list of {sub_label: value} dicts, sub_label being the
     original column header with the group prefix stripped (e.g.
-    'Nome completo', 'Carica', 'Età').
+    'Nome completo', 'Carica', 'Età') — see strip_person_column_prefix,
+    which handles the '\\n' / ' - ' / ' ' separator conventions uniformly.
     """
     split_by_col = {}
     for col in group_columns:
         val = row.get(col)
-        sub_label = col.partition("\n")[2].strip() or col
+        sub_label = strip_person_column_prefix(col)
         if isinstance(val, str) and val.strip():
             split_by_col[sub_label] = [v.strip() for v in val.split("\n")]
         else:
@@ -1044,9 +1290,9 @@ def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
         result["errors"].append(f"Column '{legal_name_column}' (company legal name) not found in the uploaded file.")
         return result
 
-    groups = detect_multivalue_groups(list(df.columns))
+    groups = detect_person_groups(df)
     if not groups:
-        result["errors"].append("No multi-value 'Prefix\\n...' column groups detected in this file.")
+        result["errors"].append("No multi-value stacked-cell column groups detected in this file.")
         return result
 
     for _, row in df.iterrows():

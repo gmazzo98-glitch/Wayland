@@ -197,14 +197,22 @@ def _render_flexible_import_tab(db: Session):
     st.session_state["flex_new_labels"] = new_labels_state
 
     reg_targets = [b for b, t in mapping_state.items() if t == "company:registration_number"]
-    if len(reg_targets) != 1:
-        st.warning("Map exactly one column to **Company: Registration Number** before previewing.")
+    name_targets = [b for b, t in mapping_state.items() if t == "company:legal_name"]
+    has_match_key = len(reg_targets) == 1 or len(name_targets) == 1
+    if not has_match_key:
+        st.warning("Map exactly one column to **Company: Registration Number** or **Company: Legal Name** before previewing.")
+    elif len(reg_targets) != 1:
+        st.caption(
+            "⚠️ Matching by **Legal Name** (no Registration Number column mapped) — safer when a file's own ID "
+            "column doesn't reliably match what's already on file (e.g. AIDA's BvD ID often doesn't). This mode "
+            "never creates new companies from unmatched names — they're reported instead."
+        )
 
     st.markdown("---")
 
     if st.button(
         "🔍 Preview Import", key="flex_preview_btn",
-        disabled=len(reg_targets) != 1 or not dataset_name.strip(), use_container_width=True,
+        disabled=not has_match_key or not dataset_name.strip(), use_container_width=True,
     ):
         resolved_mapping = {}
         for base, target in mapping_state.items():
@@ -224,10 +232,15 @@ def _render_flexible_import_tab(db: Session):
             for err in preview["errors"]:
                 st.error(err)
         else:
-            pc1, pc2, pc3 = st.columns(3)
+            pc1, pc2, pc3, pc4 = st.columns(4)
             pc1.metric("New Companies", preview["created"])
             pc2.metric("Existing — Will Merge", preview["merged"])
             pc3.metric("⚠️ Conflicts", len(preview["conflicts"]))
+            pc4.metric("⚠️ Unmatched Names", len(preview.get("unmatched", [])))
+            if preview.get("unmatched"):
+                with st.expander(f"⚠️ {len(preview['unmatched'])} legal name(s) with no matching company (not created)", expanded=False):
+                    for name in preview["unmatched"]:
+                        st.write(f"- {name}")
             if preview["errors"]:
                 with st.expander(f"⚠️ {len(preview['errors'])} row(s) with issues", expanded=False):
                     for err in preview["errors"]:
@@ -258,7 +271,8 @@ def _render_flexible_import_tab(db: Session):
                     save_mapping_profile(db, dataset_name, flex_country, resolved_mapping)
                 st.success(
                     f"✅ Import complete! **{result['created']}** created, **{result['merged']}** merged, "
-                    f"**{result['overwritten']}** overwritten, **{len(result['conflicts'])}** skipped as conflicts."
+                    f"**{result['overwritten']}** overwritten, **{len(result['conflicts'])}** skipped as conflicts, "
+                    f"**{len(result.get('unmatched', []))}** unmatched names."
                 )
                 if result["errors"]:
                     with st.expander("⚠️ Import Warnings & Skipped Rows", expanded=True):
@@ -271,18 +285,21 @@ def _render_flexible_import_tab(db: Session):
 
 
 def _render_people_import_tab(db: Session):
-    st.subheader("👥 Import Board & Management")
+    st.subheader("👥 Import People & Ownership")
     st.caption(
-        "For source files that pack MULTIPLE people into a single cell, one line per person "
-        "(AIDA's own export convention — e.g. a 'DM' column group holding every director's name, "
-        "role, age, etc. newline-stacked in matching order). Detected automatically from the column "
-        "headers — no manual mapping step. Matches rows to existing companies by **legal name** "
-        "(not the file's own BvD ID column — verified against real data that it doesn't reliably "
-        "match the registration numbers already on file). Never creates a new company from this file "
-        "alone; unmatched names are listed so you can reconcile them."
+        "For source files that pack MULTIPLE people or entities into a single cell, one line per "
+        "person/entity (AIDA's own export convention — e.g. a 'DM' column group holding every "
+        "director's name, role, age, etc. newline-stacked in matching order; the same convention "
+        "AIDA uses for shareholders, ultimate owners, and subsidiaries). Groups are detected "
+        "automatically — from a shared column-header prefix where the file uses one consistently, "
+        "and from matching stacked-cell patterns where it doesn't — no manual mapping step. Matches "
+        "rows to existing companies by **legal name** (not the file's own BvD ID column — verified "
+        "against real data that it doesn't reliably match the registration numbers already on file). "
+        "Never creates a new company from this file alone; unmatched names are listed so you can "
+        "reconcile them."
     )
 
-    from company_service import parse_roster_file, detect_multivalue_groups, import_company_people
+    from company_service import parse_roster_file, detect_person_groups, import_company_people, strip_person_column_prefix
 
     dataset_name = st.text_input(
         "Dataset Name *", placeholder="e.g. Directors & Board C28",
@@ -314,14 +331,15 @@ def _render_people_import_tab(db: Session):
         st.session_state["people_preview"] = None
 
     df = st.session_state["people_df"]
-    groups = detect_multivalue_groups(list(df.columns))
+    groups = detect_person_groups(df)
 
-    st.markdown(f"##### {len(df)} row(s), **{len(groups)}** person group(s) detected")
+    st.markdown(f"##### {len(df)} row(s), **{len(groups)}** person/entity group(s) detected")
     if groups:
         for name, cols in groups.items():
-            st.caption(f"**{name}**: {len(cols)} columns — {', '.join(c.partition(chr(10))[2] or c for c in cols[:5])}{', ...' if len(cols) > 5 else ''}")
+            sub_labels = ", ".join(strip_person_column_prefix(c) for c in cols[:5])
+            st.caption(f"**{name}**: {len(cols)} columns — {sub_labels}{', ...' if len(cols) > 5 else ''}")
     else:
-        st.warning("No 'Prefix\\n...' multi-value column groups detected in this file's headers.")
+        st.warning("No multi-value stacked-cell column groups detected in this file's headers/content.")
     st.dataframe(df.head(5), use_container_width=True)
 
     st.markdown("---")
@@ -516,6 +534,52 @@ def _single_point_fields_from_raw(raw_row: dict) -> dict:
 # base name (from a RawImportRecord) underlies each computed trend indicator.
 _TREND_KEY_TO_RAW_BASE = {"revenue_trend": "revenue", "ebit_trend": "ebit", "margin_compression": "gross_margin"}
 
+# Keys representing monetary financial levels / amounts uploaded in thousands (k)
+MONETARY_INDICATOR_KEYS = {
+    "total_assets", "cash_position", "debt_level", "revenue", "ebit", "gross_margin", "turnover",
+}
+
+PERCENTAGE_INDICATOR_KEYS = {
+    "revenue_trend", "ebit_trend", "margin_compression", "capex_ratio",
+    "materials_cost", "labour_cost", "logistics_cost", "energy_cost",
+    "cogs_ratio", "service_costs", "rd_expense_ratio",
+}
+
+RATIO_INDICATOR_KEYS = {
+    "leverage_ratio", "interest_coverage_ratio",
+}
+
+
+def _is_financial_field(name: str) -> bool:
+    """Returns True if a raw column name or metric represents a monetary financial quantity (uploaded in thousands, k)."""
+    norm = str(name).strip().lower().replace(" ", "_")
+    keywords = [
+        "revenue", "ebit", "turnover", "fatturato", "ricavi", "assets", "attivo",
+        "debt", "debiti", "cash", "cassa", "liquidita", "patrimonio", "ebitda",
+        "valore_produzione", "sales", "gross_margin", "operating_profit", "net_income",
+        "utile", "perdita", "cost_of_goods", "capex", "purchases", "acquisti",
+    ]
+    if any(non in norm for non in ["ratio", "trend", "pct", "percent", "rate", "count", "days", "turnover_rate"]):
+        return False
+    return any(kw in norm for kw in keywords)
+
+
+def _format_indicator_value(key: str, val, defn: dict = None) -> str:
+    """Formats an indicator/field value with appropriate units, adding 'k' for monetary financials in thousands."""
+    if val is None or val == "" or val == "—":
+        return "—"
+    if not isinstance(val, (int, float)):
+        return str(val)
+    k = key.lower()
+    if k in MONETARY_INDICATOR_KEYS or _is_financial_field(k):
+        return f"{val:,.2f}k"
+    proxy_str = (defn.get("proxy") or "") if defn else ""
+    if k in PERCENTAGE_INDICATOR_KEYS or "%" in proxy_str:
+        return f"{val:,.2f}%"
+    if k in RATIO_INDICATOR_KEYS or "ratio" in k:
+        return f"{val:,.2f}x"
+    return f"{val:,.2f}"
+
 
 def _trend_headline(indicator_key: str, sig, raw_records: list) -> dict:
     """
@@ -571,7 +635,7 @@ def _financial_profile_rows(sig_dict: dict, indicator_defs: dict) -> list:
         rows.append({
             "Category": defn["category"], "Indicator": defn["label"],
             "What this measures": defn.get("proxy") or "—",
-            "Value": f"{value:,.2f}" if isinstance(value, (int, float)) else "—",
+            "Value": _format_indicator_value(k, value, defn),
             "Status": STATUS_BADGES.get(status, status), "Mode": mode,
             "Source": source, "Last Updated": fetched,
         })
@@ -793,10 +857,10 @@ def _render_tab1_content(db: Session):
             info = _trend_headline(hk, sig, raw_records_for_trends)
             with tcols[i]:
                 if info.get("has_raw"):
-                    delta_str = f"{info['delta']:+,.0f}"
+                    delta_str = f"{info['delta']:+,.0f}k"
                     delta_str += f" ({info['pct']:+.0f}%)" if info["pct"] is not None else " (base too small for a % figure)"
-                    st.metric(defn["label"], f"{info['latest']:,.0f}", delta=delta_str, help=defn.get("proxy"))
-                    st.caption(f"Was **{info['base']:,.0f}** → now **{info['latest']:,.0f}** · source: {info['dataset']}")
+                    st.metric(defn["label"], f"{info['latest']:,.0f}k", delta=delta_str, help=defn.get("proxy"))
+                    st.caption(f"Was **{info['base']:,.0f}k** → now **{info['latest']:,.0f}k** · source: {info['dataset']}")
                 elif info.get("pct") is not None:
                     st.metric(defn["label"], f"{info['pct']:+.1f}%", help=defn.get("proxy"))
                     st.caption(f"⚠️ Only the % change survived from this import ({info.get('dataset') or '—'}) — the yearly figures behind it weren't retained. Re-upload the source file to see the before/after breakdown.")
@@ -816,11 +880,12 @@ def _render_tab1_content(db: Session):
             sig = sig_dict.get(hk)
             has_val = sig and sig.status != "not_yet_checked" and sig.numeric_value is not None
             with lcols[i]:
-                st.metric(defn["label"], f"{sig.numeric_value:,.2f}" if has_val else "—", help=defn.get("proxy"))
+                formatted_level = _format_indicator_value(hk, sig.numeric_value, defn) if has_val else "—"
+                st.metric(defn["label"], formatted_level, help=defn.get("proxy"))
                 st.caption(f"Source: {sig.source} · {sig.fetched_at.strftime('%Y-%m-%d')}" if has_val and sig.fetched_at else ("Not yet checked." if not has_val else f"Source: {sig.source}"))
 
         with st.expander("📋 Full Financial & Cost Structure Table (every indicator, with plain-English description)", expanded=False):
-            st.caption("Every Financial Health and Cost Structure indicator in the catalog for this company, checked or not. **Value** is the raw figure as computed/injected — not a 0-100 score (see Score Breakdown below for that).")
+            st.caption("Every Financial Health and Cost Structure indicator in the catalog for this company, checked or not. **Value** is the raw figure as computed/injected (monetary financials in thousands, **k**) — not a 0-100 score (see Score Breakdown below for that).")
             fin_df = pd.DataFrame(_financial_profile_rows(sig_dict, indicator_defs))
             st.dataframe(fin_df, use_container_width=True, hide_index=True)
 
@@ -829,7 +894,7 @@ def _render_tab1_content(db: Session):
         # mapped to a scored indicator.
         if raw_records_for_trends:
             with st.expander("📈 Data Trends (from Raw Injected Data)", expanded=False):
-                st.caption("Every multi-year figure exactly as uploaded — financial and non-financial, whether or not it was mapped to a scored indicator.")
+                st.caption("Every multi-year figure exactly as uploaded — financial and non-financial, whether or not it was mapped to a scored indicator (financial values in thousands, **k**).")
                 for rec in raw_records_for_trends:
                     trend_groups = _trend_groups_from_raw(rec.raw_row)
                     flat_fields = _single_point_fields_from_raw(rec.raw_row)
@@ -841,14 +906,27 @@ def _render_tab1_content(db: Session):
                                 [v for _, v in series], index=[label for label, _ in series], columns=[base]
                             )
                             with trend_cols[i % len(trend_cols)]:
-                                st.caption(base.replace("_", " ").title())
+                                tag_k = " (k)" if _is_financial_field(base) else ""
+                                st.caption(f"{base.replace('_', ' ').title()}{tag_k}")
                                 st.line_chart(chart_df, height=180)
                     else:
                         st.caption("No multi-year (Latest/Y-1/Y-2 style) columns detected in this dataset.")
                     if flat_fields:
                         with st.expander(f"All other fields from {rec.dataset_name}", expanded=False):
+                            field_rows = []
+                            for k, v in sorted(flat_fields.items()):
+                                if _is_financial_field(k) and isinstance(v, (int, float)):
+                                    disp_v = f"{v:,.2f}k"
+                                elif _is_financial_field(k) and str(v).replace(".", "", 1).replace("-", "", 1).isdigit():
+                                    try:
+                                        disp_v = f"{float(v):,.2f}k"
+                                    except Exception:
+                                        disp_v = f"{v}k"
+                                else:
+                                    disp_v = v
+                                field_rows.append({"Field": k, "Value": disp_v})
                             st.dataframe(
-                                pd.DataFrame([{"Field": k, "Value": v} for k, v in sorted(flat_fields.items())]),
+                                pd.DataFrame(field_rows),
                                 use_container_width=True, hide_index=True,
                             )
                     st.markdown("&nbsp;")
@@ -884,11 +962,14 @@ def _render_tab1_content(db: Session):
                     st.markdown(f"**{rec.dataset_name}** — {rec.source_filename or 'filename not recorded'} · updated {rec.updated_at.strftime('%Y-%m-%d %H:%M') if rec.updated_at else '—'}")
                     st.json(rec.raw_row, expanded=False)
 
-        # Management & Board — exploded from newline-stacked multi-value
-        # cells (see company_service.import_company_people).
+        # People & Ownership — exploded from newline-stacked multi-value
+        # cells (see company_service.import_company_people). Covers whatever
+        # role_group(s) have been imported for this company: board/
+        # management (DM/ADV), shareholders (Azionisti/CSH), subsidiaries
+        # (Partecipate), etc. — driven entirely by what's in the data.
         people_groups = _management_board_groups(db, company)
         if people_groups:
-            with st.expander(f"👥 Management & Board ({sum(len(v) for v in people_groups.values())} people)"):
+            with st.expander(f"👥 People & Ownership ({sum(len(v) for v in people_groups.values())})"):
                 for role_group, people in people_groups.items():
                     st.markdown(f"**{role_group}** ({len(people)})")
                     rows = [{
@@ -957,7 +1038,7 @@ def _render_tab1_content(db: Session):
                 "Tier / Phase": f"{defn.get('automation_tier') or '—'} / Phase {defn.get('phase')}",
                 "Status": STATUS_BADGES.get(disp_status, disp_status),
                 "Mode": mode_badge,
-                "Value": (f"{val:.2f}" if isinstance(val, (int, float)) else (val or "—")),
+                "Value": _format_indicator_value(sig_key, val, defn),
                 "Modifier": modifier or "—",
                 "Caveat": caveat_note,
                 "Freshness Window": f"{fresh_window} days",

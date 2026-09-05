@@ -24,6 +24,9 @@ from company_service import (
     load_mapping_profile,
     create_ad_hoc_indicator,
     detect_multivalue_groups,
+    detect_loose_stacked_groups,
+    detect_person_groups,
+    strip_person_column_prefix,
     explode_person_group,
     import_company_people,
     delete_companies,
@@ -32,7 +35,7 @@ from company_service import (
 FLEX_TEST_REGS = ["IT11122233344", "IT99988877766"]
 FLEX_TEST_DATASET_NAMES = ["Test AIDA Financials", "Test Shareholder Data"]
 FLEX_TEST_INDICATOR_KEYS = ["a_brand_new_column"]
-PEOPLE_TEST_REGS = ["IT44455566677", "IT55566677788", "IT66677788899"]
+PEOPLE_TEST_REGS = ["IT44455566677", "IT55566677788", "IT66677788899", "IT77788899900"]
 
 
 @pytest.fixture(scope="function")
@@ -306,12 +309,40 @@ def _aida_style_mapping():
     }
 
 
-def test_apply_data_import_requires_registration_mapping(db):
+def test_apply_data_import_requires_a_match_key(db):
+    # Neither Registration Number nor Legal Name mapped -> must error, not guess.
     df = _aida_style_dataframe()
-    mapping = {k: v for k, v in _aida_style_mapping().items() if v != "company:registration_number"}
+    mapping = {k: v for k, v in _aida_style_mapping().items()
+               if v not in ("company:registration_number", "company:legal_name")}
     result = apply_data_import(db, df, mapping, "Test AIDA Financials", country="Italy", dry_run=False)
     assert result["created"] == 0
-    assert any("Registration Number" in e for e in result["errors"])
+    assert any("Registration Number" in e and "Legal Name" in e for e in result["errors"])
+
+
+def test_apply_data_import_legal_name_match_never_creates(db):
+    # No Registration Number column mapped, only Legal Name — e.g. a file
+    # whose only identity column (like AIDA's BvD ID) doesn't reliably match
+    # the registration numbers already on file. Must merge into an existing
+    # company by exact legal_name, and must NEVER create a new company from
+    # a name alone — an unmatched name is reported, not guessed into being.
+    existing, err = create_company(db, {
+        "legal_name": "Test Vinicola Toscana S.p.A.", "registration_number": "IT99988877766",
+        "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    df = _aida_style_dataframe()  # has "Test Agrifood Italia S.r.l." (no existing company) and "Test Vinicola Toscana S.p.A." (exists)
+    mapping = {k: v for k, v in _aida_style_mapping().items() if v != "company:registration_number"}
+
+    result = apply_data_import(db, df, mapping, "Test Legal Name Match", country="Italy", dry_run=False)
+    assert result["created"] == 0  # never creates in legal-name mode
+    assert result["merged"] == 1
+    assert result["unmatched"] == ["Test Agrifood Italia S.r.l."]
+    assert db.query(Company).filter_by(legal_name="Test Agrifood Italia S.r.l.").first() is None
+
+    sig = db.query(SignalRecord).filter_by(company_id=existing.id, signal_key="leverage_ratio").first()
+    assert sig.status == "present"
+    assert sig.numeric_value == 2.5
 
 
 def test_apply_data_import_dry_run_makes_no_writes(db):
@@ -657,3 +688,172 @@ def test_import_company_people_conflict_then_overwrite(db):
     person = db.query(CompanyPerson).filter_by(company_id=company.id).first()
     assert person.full_name == "Updated Director"
     assert person.role == "AMMINISTRATORE DELEGATO"
+
+
+# --- Loose (non-'\n'-prefixed) stacked-column detection ---
+#
+# AIDA's shareholder-control and legal-ownership exports use the same
+# newline-stacked-cell convention as the director/advisor board roster
+# above, but DON'T mark every group column with a shared 'Prefix\n...'
+# header the way DM/ADV do — real headers mix 'Azionisti\nNome' (newline)
+# with 'Azionisti Numero BvD' (space) and 'Azionista - Ticker Symbol' (dash,
+# a singular/plural variant), and the ownership-chain's 'Livello' column
+# shares no header text with 'CSH' at all. These tests exercise
+# detect_loose_stacked_groups/detect_person_groups against that shape with
+# small min_multiline_cells/min_overlap so a handful of synthetic rows is
+# enough evidence, mirroring the thresholds verified against the real files.
+
+def test_strip_person_column_prefix_handles_separator_variants():
+    assert strip_person_column_prefix("DM\nCarica") == "Carica"
+    assert strip_person_column_prefix("Azionisti Numero BvD") == "Numero BvD"
+    assert strip_person_column_prefix("Azionista - Ticker Symbol") == "Ticker Symbol"
+    assert strip_person_column_prefix("Livello") == "Livello"  # nothing to strip
+
+
+def test_detect_loose_stacked_groups_by_broadened_prefix():
+    df = pd.DataFrame([
+        {"Owner Name": "Acme Holding\nAcme Parent\nAcme Group", "Owner Type": "Company\nCompany\nCompany"},
+        {"Owner Name": "Solo Owner", "Owner Type": "Person"},
+        {"Owner Name": "X\nY", "Owner Type": "Company\nPerson"},
+    ])
+    groups = detect_loose_stacked_groups(df, min_multiline_cells=2, min_overlap=2)
+    assert set(groups.keys()) == {"Owner"}
+    assert groups["Owner"] == ["Owner Name", "Owner Type"]
+
+
+def test_detect_loose_stacked_groups_excludes_same_prefix_scalar_column():
+    # "Data di apertura" is genuinely stacked; "Data di chiusura" shares the
+    # 'Data' prefix but is a real, always-single-valued scalar field that
+    # just happens to start with the same word — must not be swept in.
+    df = pd.DataFrame([
+        {"Data di apertura": "01/01/2020\n01/01/2021", "Data di chiusura": "31/12/2029"},
+        {"Data di apertura": "01/01/2019", "Data di chiusura": "31/12/2028"},
+        {"Data di apertura": "01/01/2018\n01/01/2017\n01/01/2016", "Data di chiusura": "31/12/2027"},
+        {"Data di apertura": "01/01/2015\n01/01/2014", "Data di chiusura": "31/12/2026"},
+    ])
+    groups = detect_loose_stacked_groups(df, min_multiline_cells=2, min_overlap=3)
+    assert groups == {}
+
+
+def test_detect_loose_stacked_groups_adopts_orphan_with_no_shared_prefix():
+    # "Level" shares no header text with "Owner Name"/"Owner Type" — same
+    # real-world shape as AIDA's ownership-chain 'Livello' next to 'CSH Nome'.
+    df = pd.DataFrame([
+        {"Owner Name": "Acme Holding\nAcme Parent\nAcme Group", "Owner Type": "Company\nCompany\nCompany", "Level": "3\n2\n1"},
+        {"Owner Name": "Solo Owner", "Owner Type": "Person", "Level": "1"},
+        {"Owner Name": "X\nY", "Owner Type": "Company\nPerson", "Level": "2\n1"},
+        {"Owner Name": "P\nQ\nR\nS", "Owner Type": "C\nC\nC\nC", "Level": "4\n3\n2\n1"},
+    ])
+    groups = detect_loose_stacked_groups(df, min_multiline_cells=2, min_overlap=3)
+    assert set(groups.keys()) == {"Owner"}
+    assert set(groups["Owner"]) == {"Owner Name", "Owner Type", "Level"}
+
+
+def test_detect_loose_stacked_groups_merges_spelling_variants_via_correlation():
+    # "Shareholders ..." (plural) and "Shareholder ..." (singular) don't
+    # share one exact prefix token but their content lines up row-for-row —
+    # same shape as AIDA's Azionisti/Azionista split.
+    df = pd.DataFrame([
+        {"Shareholders Name": "A\nB\nC", "Shareholders Country": "IT\nIT\nFR",
+         "Shareholder Type": "1\n2\n3", "Shareholder Source": "X\nY\nZ"},
+        {"Shareholders Name": "Solo", "Shareholders Country": "IT",
+         "Shareholder Type": "9", "Shareholder Source": "X"},
+        {"Shareholders Name": "X\nY", "Shareholders Country": "IT\nDE",
+         "Shareholder Type": "7\n8", "Shareholder Source": "A\nB"},
+        {"Shareholders Name": "P\nQ\nR\nS", "Shareholders Country": "IT\nIT\nIT\nIT",
+         "Shareholder Type": "4\n5\n6\n11", "Shareholder Source": "M\nN\nO\nP"},
+    ])
+    groups = detect_loose_stacked_groups(df, min_multiline_cells=2, min_overlap=3)
+    assert len(groups) == 1
+    cols = next(iter(groups.values()))
+    assert set(cols) == {"Shareholders Name", "Shareholders Country", "Shareholder Type", "Shareholder Source"}
+
+
+def test_detect_loose_stacked_groups_does_not_merge_independent_groups():
+    # Two genuinely independent stacked groups whose counts only
+    # coincidentally match on a minority of rows must stay separate — real
+    # Directors vs Advisors columns in production data matched on ~7% of
+    # rows; this synthetic case is deliberately similar (mostly mismatched
+    # counts, occasional coincidental agreement).
+    df = pd.DataFrame([
+        {"GroupA Name": "A\nB\nC", "GroupA Role": "1\n2\n3", "GroupB Name": "X", "GroupB Role": "9"},
+        {"GroupA Name": "A\nB", "GroupA Role": "1\n2", "GroupB Name": "X\nY\nZ", "GroupB Role": "9\n8\n7"},
+        {"GroupA Name": "A", "GroupA Role": "1", "GroupB Name": "X\nY", "GroupB Role": "9\n8"},
+        {"GroupA Name": "A\nB\nC\nD", "GroupA Role": "1\n2\n3\n4", "GroupB Name": "X\nY\nZ\nW\nV", "GroupB Role": "9\n8\n7\n6\n5"},
+        {"GroupA Name": "A\nB", "GroupA Role": "1\n2", "GroupB Name": "X\nY\nZ\nW", "GroupB Role": "9\n8\n7\n6"},
+    ])
+    groups = detect_loose_stacked_groups(df, min_multiline_cells=2, min_overlap=3)
+    assert set(groups.keys()) == {"GroupA", "GroupB"}
+    assert set(groups["GroupA"]) == {"GroupA Name", "GroupA Role"}
+    assert set(groups["GroupB"]) == {"GroupB Name", "GroupB Role"}
+
+
+def test_detect_person_groups_unions_header_and_loose_groups_with_same_label():
+    # "Azionisti\nCommenti"/"Azionisti\nNome" (literal '\n', found by
+    # detect_multivalue_groups) and "Azionisti Tipo"/"Azionisti Fonte"
+    # (space, found by detect_loose_stacked_groups) must end up as ONE
+    # unioned 'Azionisti' group — an earlier version of this merge blindly
+    # overwrote one detector's result with the other's, silently dropping
+    # 'Azionisti\nNome' (the shareholder's own name) from the final group.
+    df = pd.DataFrame([
+        {"Azionisti\nCommenti": None, "Azionisti\nNome": "Mario Rossi\nCDP Venture\nOther Co",
+         "Azionisti Tipo": "Persone fisiche\nSocietà\nSocietà", "Azionisti Fonte": "HO\nHO\nZP"},
+        {"Azionisti\nCommenti": None, "Azionisti\nNome": "Solo Holder",
+         "Azionisti Tipo": "Persone fisiche", "Azionisti Fonte": "HO"},
+        {"Azionisti\nCommenti": "note", "Azionisti\nNome": "A\nB",
+         "Azionisti Tipo": "X\nY", "Azionisti Fonte": "M\nN"},
+        {"Azionisti\nCommenti": None, "Azionisti\nNome": "P\nQ\nR\nS",
+         "Azionisti Tipo": "1\n2\n3\n4", "Azionisti Fonte": "A\nB\nC\nD"},
+    ])
+    groups = detect_person_groups(df)
+    assert set(groups.keys()) == {"Azionisti"}
+    assert set(groups["Azionisti"]) == {
+        "Azionisti\nCommenti", "Azionisti\nNome", "Azionisti Tipo", "Azionisti Fonte",
+    }
+
+
+def test_import_company_people_with_loosely_detected_shareholder_group(db):
+    """End-to-end: a shareholder-shaped file (mixed-separator group +
+    Livello-style orphan, no literal '\\n' anywhere) imports correctly
+    through the same import_company_people/CompanyPerson pipeline as the
+    board roster — 'Tipo' lands on .role via the alias table, 'Nome' lands
+    on .full_name via the existing nome/cognome fallback (no 'full name'
+    alias fires, so it joins whatever's under 'nome' alone), and 'Livello'
+    survives in raw_fields even though it has no structured column."""
+    company, err = create_company(db, {
+        "legal_name": "Test Shareholder Import S.p.A.", "registration_number": "IT77788899900",
+        "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    df = pd.DataFrame([
+        {"Ragione sociale": "Test Shareholder Import S.p.A.",
+         "Azionisti Nome": "Mario Rossi\nCDP Venture Capital\nOther Holder",
+         "Azionisti Tipo": "Persone fisiche\nSocietà\nSocietà",
+         "Livello": "1\n2\n3"},
+        {"Ragione sociale": "Some Unknown Shareholder Target",
+         "Azionisti Nome": "Nobody", "Azionisti Tipo": "Persone fisiche", "Livello": "1"},
+        {"Ragione sociale": "Padding Row One",
+         "Azionisti Nome": "X\nY", "Azionisti Tipo": "A\nB", "Livello": "2\n1"},
+        {"Ragione sociale": "Padding Row Two",
+         "Azionisti Nome": "P\nQ\nR\nS", "Azionisti Tipo": "1\n2\n3\n4", "Livello": "4\n3\n2\n1"},
+        {"Ragione sociale": "Padding Row Three",
+         "Azionisti Nome": "M\nN\nO", "Azionisti Tipo": "a\nb\nc", "Livello": "3\n2\n1"},
+        {"Ragione sociale": "Padding Row Four",
+         "Azionisti Nome": "Solo2", "Azionisti Tipo": "T", "Livello": "1"},
+    ])
+
+    result = import_company_people(db, df, "Test Shareholder Dataset", dry_run=False)
+    assert result["errors"] == []
+    assert result["matched"] == 1
+    assert result["people_created"] == 3
+
+    people = db.query(CompanyPerson).filter_by(company_id=company.id).order_by(CompanyPerson.position_in_row).all()
+    assert len(people) == 3
+    assert people[0].full_name == "Mario Rossi"
+    assert people[0].role == "Persone fisiche"
+    assert people[0].raw_fields["Livello"] == "1"
+    assert people[1].full_name == "CDP Venture Capital"
+    assert people[1].role == "Società"
+    assert people[2].full_name == "Other Holder"
+    assert people[2].raw_fields["Livello"] == "3"
