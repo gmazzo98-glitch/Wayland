@@ -37,6 +37,21 @@ SHORTLIST_STATUS_LABELS = {
 }
 
 
+def _progress_reporter(label: str = "row"):
+    """Creates a live st.progress bar + status line and returns a callback
+    of the shape company_service's import functions expect
+    (progress_callback(rows_done, total_rows)) to drive them."""
+    bar = st.progress(0)
+    status = st.empty()
+
+    def _callback(done: int, total: int):
+        pct = min(1.0, done / total) if total else 1.0
+        bar.progress(pct)
+        status.caption(f"Processing {label} {done} of {total}...")
+
+    return bar, status, _callback
+
+
 def _upsert_manual_signal(db: Session, company_id: str, key: str, defn: dict, status: str,
                            numeric_value, text_value):
     sig = db.query(SignalRecord).filter_by(company_id=company_id, signal_key=key).first()
@@ -261,16 +276,20 @@ def _render_flexible_import_tab(db: Session):
 
             if st.button("🚀 Confirm Import", key="flex_confirm_btn", use_container_width=True):
                 resolved_mapping = st.session_state.get("flex_resolved_mapping", {})
-                with st.spinner("Importing..."):
-                    file_sig = st.session_state.get("flex_file_sig")
-                    result = apply_data_import(
-                        db, df, resolved_mapping, dataset_name, country=flex_country,
-                        overwrite_conflicts=overwrite, dry_run=False,
-                        source_filename=file_sig[0] if file_sig else None,
-                    )
-                    save_mapping_profile(db, dataset_name, flex_country, resolved_mapping)
+                bar, status, progress_cb = _progress_reporter("company")
+                file_sig = st.session_state.get("flex_file_sig")
+                result = apply_data_import(
+                    db, df, resolved_mapping, dataset_name, country=flex_country,
+                    overwrite_conflicts=overwrite, dry_run=False,
+                    source_filename=file_sig[0] if file_sig else None,
+                    progress_callback=progress_cb,
+                )
+                save_mapping_profile(db, dataset_name, flex_country, resolved_mapping)
+                bar.empty()
+                status.empty()
                 st.success(
-                    f"✅ Import complete! **{result['created']}** created, **{result['merged']}** merged, "
+                    f"✅ **Import complete — {len(df)} row(s) processed.** "
+                    f"**{result['created']}** created, **{result['merged']}** merged, "
                     f"**{result['overwritten']}** overwritten, **{len(result['conflicts'])}** skipped as conflicts, "
                     f"**{len(result.get('unmatched', []))}** unmatched names."
                 )
@@ -376,13 +395,16 @@ def _render_people_import_tab(db: Session):
                     )
 
             if st.button("🚀 Confirm Import", key="people_confirm_btn", use_container_width=True):
-                with st.spinner("Importing..."):
-                    result = import_company_people(
-                        db, df, dataset_name, legal_name_column=legal_name_col,
-                        source_filename=file_sig[0], overwrite_conflicts=overwrite, dry_run=False,
-                    )
+                bar, status, progress_cb = _progress_reporter("company")
+                result = import_company_people(
+                    db, df, dataset_name, legal_name_column=legal_name_col,
+                    source_filename=file_sig[0], overwrite_conflicts=overwrite, dry_run=False,
+                    progress_callback=progress_cb,
+                )
+                bar.empty()
+                status.empty()
                 st.success(
-                    f"✅ Import complete! **{result['matched']}** companies matched — "
+                    f"✅ **Import complete — {len(df)} row(s) processed.** **{result['matched']}** companies matched — "
                     f"**{result['people_created']}** people created, **{result['people_updated']}** updated."
                 )
                 if result["unmatched"]:
@@ -1232,10 +1254,12 @@ def render_company_detail_page(db: Session):
 
                 if st.button("🚀 Process & Import Companies", key="btn_process_csv", use_container_width=True):
                     uploaded_file.seek(0)
-                    with st.spinner(f"Importing {len(preview_df)} companies..."):
-                        result = import_companies_from_csv(db, uploaded_file, auto_sync=auto_sync_csv)
+                    bar, status, progress_cb = _progress_reporter("company")
+                    result = import_companies_from_csv(db, uploaded_file, auto_sync=auto_sync_csv, progress_callback=progress_cb)
+                    bar.empty()
+                    status.empty()
 
-                    st.success(f"✅ Import complete! **{result['created']}** companies created, **{result['skipped']}** skipped.")
+                    st.success(f"✅ **Import complete — {len(preview_df)} row(s) processed.** **{result['created']}** companies created, **{result['skipped']}** skipped.")
                     if result["errors"]:
                         with st.expander("⚠️ Import Warnings & Skipped Rows", expanded=True):
                             for err in result["errors"]:

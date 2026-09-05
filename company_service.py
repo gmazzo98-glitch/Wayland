@@ -220,10 +220,14 @@ def get_csv_template() -> str:
     return output.getvalue()
 
 
-def import_companies_from_csv(db: Session, csv_content_or_file, auto_sync: bool = False) -> dict:
+def import_companies_from_csv(db: Session, csv_content_or_file, auto_sync: bool = False,
+                               progress_callback=None) -> dict:
     """
     Imports multiple companies from CSV file buffer or text.
     Handles German and Italian entries with column mapping and validation.
+
+    progress_callback, when given, is called as progress_callback(rows_done,
+    total_rows) once per row so a caller can track a long import live.
     """
     if hasattr(csv_content_or_file, "read"):
         content = csv_content_or_file.read()
@@ -254,7 +258,10 @@ def import_companies_from_csv(db: Session, csv_content_or_file, auto_sync: bool 
     skipped_count = 0
     errors = []
 
+    total_rows = len(df)
     for idx, row in df.iterrows():
+        if progress_callback:
+            progress_callback(idx + 1, total_rows)
         row_dict = row.to_dict()
         row_num = idx + 2  # 1-indexed header + 1
 
@@ -594,10 +601,15 @@ def _parse_date(val):
 
 def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name: str,
                        country: str = "Italy", overwrite_conflicts: bool = False,
-                       dry_run: bool = False, source_filename: str = None) -> dict:
+                       dry_run: bool = False, source_filename: str = None,
+                       progress_callback=None) -> dict:
     """
     Applies a reviewed column mapping ({group_base: 'company:<field>' |
     'indicator:<key>' | None}) to every row of df, one row per company.
+
+    progress_callback, when given, is called as progress_callback(rows_done,
+    total_rows) once per row (including skipped/errored ones) so a caller
+    (e.g. a Streamlit progress bar) can track a long import live.
 
     Reuses create_company() for brand-new companies (dedup check, segment/
     headcount derivation, full not-yet-checked signal scaffold), then writes
@@ -659,7 +671,10 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
 
     indicator_defs = fetch_indicator_defs(db)
 
+    total_rows = len(df)
     for idx, row in df.iterrows():
+        if progress_callback:
+            progress_callback(idx + 1, total_rows)
         row_dict = row.to_dict()
         row_num = idx + 2  # 1-indexed header + 1
 
@@ -1268,7 +1283,8 @@ def _person_structured_fields(raw_person: dict) -> dict:
 def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
                            legal_name_column: str = "Ragione sociale",
                            source_filename: str = None,
-                           overwrite_conflicts: bool = False, dry_run: bool = False) -> dict:
+                           overwrite_conflicts: bool = False, dry_run: bool = False,
+                           progress_callback=None) -> dict:
     """
     Explodes every detected multi-value group in df into CompanyPerson rows,
     matching each source row to an existing Company by exact legal_name
@@ -1279,6 +1295,9 @@ def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
     Conflict rule mirrors apply_data_import: a company that already has
     CompanyPerson rows under this exact dataset_name is a conflict — real
     runs skip it unless overwrite_conflicts, dry runs just report it.
+
+    progress_callback, when given, is called as progress_callback(rows_done,
+    total_rows) once per row so a caller can track a long import live.
 
     Returns {"matched", "people_created", "people_updated": int,
              "unmatched": [legal_name...], "conflicts": [{"legal_name",...}],
@@ -1301,7 +1320,10 @@ def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
         result["errors"].append("No multi-value stacked-cell column groups detected in this file.")
         return result
 
-    for _, row in df.iterrows():
+    total_rows = len(df)
+    for row_idx, (_, row) in enumerate(df.iterrows()):
+        if progress_callback:
+            progress_callback(row_idx + 1, total_rows)
         row_dict = row.to_dict()
         legal_name = _clean_str(row_dict.get(legal_name_column))
         if not legal_name:
