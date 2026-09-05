@@ -223,6 +223,61 @@ class IndicatorDefinition(Base):
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 
+class CompanyPerson(Base):
+    """
+    One person (director/manager, advisor, ...) associated with a company,
+    exploded from a source file that stacks multiple people's values in a
+    single cell — e.g. AIDA's 'DM\\nNome completo' / 'DM\\nCarica' / 'DM\\nEtà'
+    columns, one line per person, all in the same order (see
+    company_service.detect_multivalue_groups / explode_person_group).
+
+    Same twofold structured+blob pattern as RawImportRecord, applied per
+    person instead of per company-dataset: the columns below cover the
+    common fields, raw_fields (JSON) keeps every sub-column for this person
+    exactly as split from the source, so a field with no dedicated column
+    here isn't lost.
+
+    role_group is whatever the source file's own column-prefix convention
+    calls this group of people ("DM", "ADV", ...) — not a fixed enum, since
+    a different source could use different group names.
+
+    One row per (company, dataset, role_group, position_in_row) — a
+    re-import of the same dataset updates each person-slot in place rather
+    than duplicating, matching the conflict/overwrite convention
+    apply_data_import already established for the structured-signal side.
+    """
+    __tablename__ = "company_people"
+    __table_args__ = (
+        UniqueConstraint("company_id", "dataset_name", "role_group", "position_in_row",
+                          name="uq_company_person_slot"),
+    )
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+    dataset_name = Column(String(150), nullable=False, index=True)
+    role_group = Column(String(50), nullable=False)
+    position_in_row = Column(Integer, nullable=False)
+
+    full_name = Column(String(255), nullable=True)
+    role = Column(Text, nullable=True)
+    age = Column(Integer, nullable=True)
+    gender = Column(String(20), nullable=True)
+    nationality = Column(String(100), nullable=True)
+    appointment_date = Column(DateTime, nullable=True)
+    resignation_date = Column(DateTime, nullable=True)
+    current_or_former = Column(String(50), nullable=True)
+
+    raw_fields = Column(JSON, nullable=False)
+
+    imported_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    company = relationship("Company", backref="people")
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+
 class PipelineJob(Base):
     """
     Tracks pipeline execution runs, queue status, rate limits, and failure logs per source.

@@ -8,11 +8,12 @@ import io
 import csv
 import json
 import re
+import itertools
 from datetime import datetime
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, PilotOutcome, RawImportRecord
+from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, PilotOutcome, RawImportRecord, CompanyPerson
 from indicators import fetch_indicator_defs, TREND_INDICATOR_KEYS, CAT_CONTEXT
 from utils import normalize_registration_nr
 from adapters import epo_ops, euipo, destatis, eu_funding, arbeitsagentur, google_news
@@ -820,6 +821,7 @@ def delete_companies(db: Session, company_ids: list) -> dict:
     signals_deleted = 0
     pilots_deleted = 0
     raw_deleted = 0
+    people_deleted = 0
     for company_id in company_ids:
         company = db.query(Company).filter_by(id=company_id).first()
         if not company:
@@ -833,10 +835,262 @@ def delete_companies(db: Session, company_ids: list) -> dict:
         raw_deleted += len(raw_records)
         for rec in raw_records:
             db.delete(rec)
+        people = db.query(CompanyPerson).filter_by(company_id=company_id).all()
+        people_deleted += len(people)
+        for person in people:
+            db.delete(person)
         db.delete(company)
         deleted += 1
     db.commit()
     return {
         "deleted": deleted, "signals_deleted": signals_deleted,
         "pilot_outcomes_deleted": pilots_deleted, "raw_import_records_deleted": raw_deleted,
+        "people_deleted": people_deleted,
     }
+
+
+# =============================================================================
+# Management & board roster import
+#
+# A different shape from the flexible column-mapping feeder above: one source
+# row is still one company, but several columns each pack MULTIPLE people's
+# values into a single cell, newline-stacked in matching order across columns
+# (AIDA's own export convention — e.g. 'DM\nNome completo' holds N directors'
+# names, 'DM\nCarica' the same N people's roles, in the same order). That
+# can't go through a one-value-per-column mapper; it needs exploding into one
+# CompanyPerson row per person. See the "Management & Board Roster Import"
+# plan for the full design rationale, including why matching is done by
+# legal_name rather than the source file's own BvD ID column (verified
+# directly against real data: BvD ID doesn't reliably match the
+# registration_number already on file for the same company, legal_name does).
+# =============================================================================
+
+# Normalized (lower/strip) Italian sub-label -> CompanyPerson structured column.
+# Anything not listed here still survives in full inside raw_fields.
+_PERSON_FIELD_ALIASES = {
+    "nome completo": "full_name",
+    "carica": "role",
+    "età": "age",
+    "eta": "age",
+    "genere": "gender",
+    "paese di nazionalità": "nationality",
+    "paese di nazionalita": "nationality",
+    "data nomina": "appointment_date",
+    "data dimissioni": "resignation_date",
+    "attuale o precedente": "current_or_former",
+}
+
+
+def parse_roster_file(file_or_buffer, filename: str = None) -> pd.DataFrame:
+    """
+    Reads an uploaded management/board-style dataset (.xls/.xlsx/.csv) with
+    headers LEFT UNTOUCHED apart from stripping — deliberately not lowercased
+    or space-to-underscore normalized like parse_uploaded_file, because
+    detect_multivalue_groups needs the exact original 'Prefix\\n...' header
+    text to find the group boundary.
+
+    AIDA's own multi-sheet exports (verified against a real file) put a
+    small "search strategy" cover sheet first and the actual data on a
+    sheet named "Risultati" — pandas' default (first sheet) would silently
+    read the wrong, tiny sheet. When there's more than one sheet, this
+    prefers one named "risultati" (case-insensitive); otherwise falls back
+    to whichever sheet has the most rows, since the real data table is
+    essentially always the biggest sheet in these exports.
+    """
+    name = (filename or getattr(file_or_buffer, "name", "") or "").lower()
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        all_sheets = pd.read_excel(file_or_buffer, sheet_name=None)
+        if len(all_sheets) == 1:
+            df = next(iter(all_sheets.values()))
+        else:
+            risultati = next((n for n in all_sheets if n.strip().lower() == "risultati"), None)
+            sheet_name = risultati or max(all_sheets, key=lambda n: len(all_sheets[n]))
+            df = all_sheets[sheet_name]
+    else:
+        if hasattr(file_or_buffer, "read"):
+            content = file_or_buffer.read()
+            if isinstance(content, bytes):
+                content = content.decode("utf-8", errors="replace")
+        else:
+            content = str(file_or_buffer)
+        df = pd.read_csv(io.StringIO(content))
+    df = df.rename(columns={c: str(c).strip() for c in df.columns})
+    return df
+
+
+def detect_multivalue_groups(columns: list) -> dict:
+    """
+    Groups columns sharing a 'Prefix\\n...' header convention — the text
+    before a header's FIRST newline is the group name (e.g. 'DM\\nCarica' and
+    'DM\\nEtà' both belong to group 'DM'). A column with no '\\n' in its
+    header, or the only column under a given prefix, isn't a real roster
+    group (2+ columns required). Generic on purpose — not hardcoded to
+    'DM'/'ADV', so it also picks up whatever a future source calls its
+    groups, as long as it uses the same one-cell-per-attribute convention.
+
+    Returns {group_name: [original_column_name, ...]}.
+    """
+    groups = {}
+    for col in columns:
+        if "\n" in col:
+            prefix, _, _rest = col.partition("\n")
+            prefix = prefix.strip()
+            if prefix:
+                groups.setdefault(prefix, []).append(col)
+    return {g: cols for g, cols in groups.items() if len(cols) >= 2}
+
+
+def explode_person_group(row: dict, group_columns: list) -> list:
+    """
+    Splits each of this group's cells (for one company's row) on '\\n' and
+    zips them positionally into one raw dict per person — e.g. the 3rd line
+    of every column in the group together form person #2's record. Uses
+    zip_longest so one column having fewer stacked lines than another for
+    this row degrades to a None for that one field on the extra
+    person(s), rather than crashing or silently dropping the whole group.
+
+    Returns a list of {sub_label: value} dicts, sub_label being the
+    original column header with the group prefix stripped (e.g.
+    'Nome completo', 'Carica', 'Età').
+    """
+    split_by_col = {}
+    for col in group_columns:
+        val = row.get(col)
+        sub_label = col.partition("\n")[2].strip() or col
+        if isinstance(val, str) and val.strip():
+            split_by_col[sub_label] = [v.strip() for v in val.split("\n")]
+        else:
+            split_by_col[sub_label] = []
+
+    max_len = max((len(v) for v in split_by_col.values()), default=0)
+    if max_len == 0:
+        return []
+
+    people = []
+    for i in range(max_len):
+        person = {}
+        for sub_label, values in split_by_col.items():
+            person[sub_label] = values[i] if i < len(values) else None
+        people.append(person)
+    return people
+
+
+def _person_structured_fields(raw_person: dict) -> dict:
+    """Best-effort maps a raw {sub_label: value} dict onto CompanyPerson's
+    structured columns via _PERSON_FIELD_ALIASES; everything stays in
+    raw_fields regardless of whether it also got mapped here."""
+    structured = {}
+    for sub_label, value in raw_person.items():
+        # NOT _norm() — that replaces spaces with underscores (for the other
+        # importer's column-base names), but these alias keys are natural-
+        # language phrases ("nome completo") that need to stay space-separated.
+        field = _PERSON_FIELD_ALIASES.get(str(sub_label).strip().lower())
+        if not field or value in (None, ""):
+            continue
+        if field == "age":
+            try:
+                structured[field] = int(float(value))
+            except (TypeError, ValueError):
+                pass
+        elif field in ("appointment_date", "resignation_date"):
+            structured[field] = _parse_date(value)
+        else:
+            structured[field] = str(value)[:255]
+
+    # Some groups (e.g. AIDA's ADV group) split the name into separate
+    # 'Nome'/'Cognome' columns instead of one 'Nome completo' — and reuse
+    # those same two columns for a company-type advisor (Nome blank,
+    # Cognome holding the firm's name, e.g. "KPMG S.P.A."). Only synthesize
+    # when no alias already produced a full_name, so DM's own 'Nome
+    # completo' (already handled above) always wins where both exist.
+    if not structured.get("full_name"):
+        by_norm = {str(k).strip().lower(): v for k, v in raw_person.items()}
+        nome = by_norm.get("nome")
+        cognome = by_norm.get("cognome")
+        joined = " ".join(p for p in (nome, cognome) if p)
+        if joined:
+            structured["full_name"] = joined[:255]
+    return structured
+
+
+def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
+                           legal_name_column: str = "Ragione sociale",
+                           source_filename: str = None,
+                           overwrite_conflicts: bool = False, dry_run: bool = False) -> dict:
+    """
+    Explodes every detected multi-value group in df into CompanyPerson rows,
+    matching each source row to an existing Company by exact legal_name
+    (see module docstring above for why not the source's own BvD ID column).
+    Never creates a new Company from this file alone — a row that doesn't
+    match an existing company is reported in "unmatched", not guessed at.
+
+    Conflict rule mirrors apply_data_import: a company that already has
+    CompanyPerson rows under this exact dataset_name is a conflict — real
+    runs skip it unless overwrite_conflicts, dry runs just report it.
+
+    Returns {"matched", "people_created", "people_updated": int,
+             "unmatched": [legal_name...], "conflicts": [{"legal_name",...}],
+             "errors": [str...]}.
+    """
+    result = {"matched": 0, "people_created": 0, "people_updated": 0,
+              "unmatched": [], "conflicts": [], "errors": []}
+
+    if not dataset_name or not str(dataset_name).strip():
+        result["errors"].append("Dataset name is required.")
+        return result
+    dataset_name = str(dataset_name).strip()
+
+    if legal_name_column not in df.columns:
+        result["errors"].append(f"Column '{legal_name_column}' (company legal name) not found in the uploaded file.")
+        return result
+
+    groups = detect_multivalue_groups(list(df.columns))
+    if not groups:
+        result["errors"].append("No multi-value 'Prefix\\n...' column groups detected in this file.")
+        return result
+
+    for _, row in df.iterrows():
+        row_dict = row.to_dict()
+        legal_name = _clean_str(row_dict.get(legal_name_column))
+        if not legal_name:
+            continue
+
+        company = db.query(Company).filter_by(legal_name=legal_name).first()
+        if not company:
+            result["unmatched"].append(legal_name)
+            continue
+
+        is_conflict = db.query(CompanyPerson).filter_by(company_id=company.id, dataset_name=dataset_name).first() is not None
+        if is_conflict and not (overwrite_conflicts and not dry_run):
+            result["conflicts"].append({"legal_name": legal_name, "registration_number": company.registration_number})
+            continue
+
+        result["matched"] += 1
+        if dry_run:
+            continue
+
+        fetched_at = datetime.utcnow()
+        for role_group, group_columns in groups.items():
+            people = explode_person_group(row_dict, group_columns)
+            for position, raw_person in enumerate(people):
+                person = db.query(CompanyPerson).filter_by(
+                    company_id=company.id, dataset_name=dataset_name,
+                    role_group=role_group, position_in_row=position,
+                ).first()
+                if not person:
+                    person = CompanyPerson(
+                        company_id=company.id, dataset_name=dataset_name,
+                        role_group=role_group, position_in_row=position,
+                    )
+                    db.add(person)
+                    result["people_created"] += 1
+                else:
+                    result["people_updated"] += 1
+                for field, value in _person_structured_fields(raw_person).items():
+                    setattr(person, field, value)
+                person.raw_fields = {k: _json_safe(v) for k, v in raw_person.items()}
+                person.updated_at = fetched_at
+
+        db.commit()
+
+    return result

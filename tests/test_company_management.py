@@ -7,7 +7,7 @@ column-mapping data feeder.
 import pytest
 import pandas as pd
 from database import init_db, get_db_session
-from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, RawImportRecord
+from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, RawImportRecord, CompanyPerson
 from utils import normalize_registration_nr
 from company_service import (
     create_company,
@@ -23,12 +23,16 @@ from company_service import (
     save_mapping_profile,
     load_mapping_profile,
     create_ad_hoc_indicator,
+    detect_multivalue_groups,
+    explode_person_group,
+    import_company_people,
     delete_companies,
 )
 
 FLEX_TEST_REGS = ["IT11122233344", "IT99988877766"]
 FLEX_TEST_DATASET_NAMES = ["Test AIDA Financials", "Test Shareholder Data"]
 FLEX_TEST_INDICATOR_KEYS = ["a_brand_new_column"]
+PEOPLE_TEST_REGS = ["IT44455566677", "IT55566677788", "IT66677788899"]
 
 
 @pytest.fixture(scope="function")
@@ -36,14 +40,16 @@ def db():
     init_db()
     session = get_db_session()
     # Clean up any test records
-    test_regs = ["HRB-889900", "IT09988776655", "HRB-554433", "IT55443322110"] + FLEX_TEST_REGS
+    test_regs = ["HRB-889900", "IT09988776655", "HRB-554433", "IT55443322110"] + FLEX_TEST_REGS + PEOPLE_TEST_REGS
 
     def _cleanup():
         for reg in test_regs:
             c = session.query(Company).filter_by(registration_number=reg).first()
             if c:
                 session.query(RawImportRecord).filter_by(company_id=c.id).delete()
+                session.query(CompanyPerson).filter_by(company_id=c.id).delete()
                 session.delete(c)
+        session.query(Company).filter_by(legal_name="Some Unknown Company Not In DB").delete()
         for name in FLEX_TEST_DATASET_NAMES:
             p = session.query(ColumnMappingProfile).filter_by(dataset_name=name).first()
             if p:
@@ -508,4 +514,146 @@ def test_delete_companies_ignores_unknown_ids(db):
     assert result == {
         "deleted": 0, "signals_deleted": 0,
         "pilot_outcomes_deleted": 0, "raw_import_records_deleted": 0,
+        "people_deleted": 0,
     }
+
+
+# --- Management & board roster import (newline-stacked multi-value cells) ---
+
+def test_detect_multivalue_groups_by_header_prefix():
+    columns = [
+        "Ragione sociale", "BvD ID number",
+        "DM\nNome completo", "DM\nCarica", "DM\nEtà",
+        "ADV\nNome", "ADV\nCognome",
+        "Lone\nColumn",
+    ]
+    groups = detect_multivalue_groups(columns)
+    assert set(groups.keys()) == {"DM", "ADV"}
+    assert groups["DM"] == ["DM\nNome completo", "DM\nCarica", "DM\nEtà"]
+    assert groups["ADV"] == ["ADV\nNome", "ADV\nCognome"]
+    # "Lone\nColumn" has a \n but no sibling under that prefix -> not a group
+
+
+def test_explode_person_group_zips_positionally():
+    row = {
+        "DM\nNome completo": "Alice Rossi\nBob Bianchi\nCarla Verdi",
+        "DM\nCarica": "PRESIDENTE\nCONSIGLIERE\nCONSIGLIERE",
+        "DM\nEtà": "50\n40\n60",
+    }
+    people = explode_person_group(row, list(row.keys()))
+    assert len(people) == 3
+    assert people[0] == {"Nome completo": "Alice Rossi", "Carica": "PRESIDENTE", "Età": "50"}
+    assert people[2]["Nome completo"] == "Carla Verdi"
+
+
+def test_explode_person_group_handles_ragged_columns():
+    # "Età" has one fewer line than the other two columns for this row —
+    # must degrade to None for the missing person, not crash or drop rows.
+    row = {
+        "DM\nNome completo": "Alice Rossi\nBob Bianchi",
+        "DM\nCarica": "PRESIDENTE\nCONSIGLIERE",
+        "DM\nEtà": "50",
+    }
+    people = explode_person_group(row, list(row.keys()))
+    assert len(people) == 2
+    assert people[0]["Età"] == "50"
+    assert people[1]["Età"] is None
+
+
+def test_explode_person_group_single_person_no_newline():
+    row = {"DM\nNome completo": "Solo Direttore", "DM\nCarica": "AMMINISTRATORE UNICO"}
+    people = explode_person_group(row, list(row.keys()))
+    assert len(people) == 1
+    assert people[0]["Nome completo"] == "Solo Direttore"
+
+
+def test_import_company_people_creates_and_matches_by_legal_name(db):
+    company, err = create_company(db, {
+        "legal_name": "Test Board Import S.p.A.", "registration_number": "IT44455566677",
+        "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    df = pd.DataFrame([{
+        "Ragione sociale": "Test Board Import S.p.A.",
+        "DM\nNome completo": "Mario Rossi\nGiulia Bianchi",
+        "DM\nCarica": "PRESIDENTE\nCONSIGLIERE",
+        "DM\nEtà": "55\n42",
+    }, {
+        "Ragione sociale": "Some Unknown Company Not In DB",
+        "DM\nNome completo": "Nobody",
+        "DM\nCarica": "CONSIGLIERE",
+        "DM\nEtà": "30",
+    }])
+
+    result = import_company_people(db, df, "Test Roster Dataset", dry_run=False)
+    assert result["matched"] == 1
+    assert result["people_created"] == 2
+    assert result["unmatched"] == ["Some Unknown Company Not In DB"]
+    assert result["errors"] == []
+
+    people = db.query(CompanyPerson).filter_by(company_id=company.id).order_by(CompanyPerson.position_in_row).all()
+    assert len(people) == 2
+    assert people[0].full_name == "Mario Rossi"
+    assert people[0].role == "PRESIDENTE"
+    assert people[0].age == 55
+    assert people[0].raw_fields["Nome completo"] == "Mario Rossi"
+    assert people[1].full_name == "Giulia Bianchi"
+    assert people[1].age == 42
+
+    # No company was created for the unmatched name.
+    assert db.query(Company).filter_by(legal_name="Some Unknown Company Not In DB").first() is None
+
+
+def test_import_company_people_dry_run_makes_no_writes(db):
+    company, err = create_company(db, {
+        "legal_name": "Test Board Dry Run S.p.A.", "registration_number": "IT55566677788",
+        "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    df = pd.DataFrame([{
+        "Ragione sociale": "Test Board Dry Run S.p.A.",
+        "DM\nNome completo": "Someone",
+        "DM\nCarica": "CONSIGLIERE",
+    }])
+    result = import_company_people(db, df, "Dry Run Dataset", dry_run=True)
+    assert result["matched"] == 1
+    assert db.query(CompanyPerson).filter_by(company_id=company.id).count() == 0
+
+
+def test_import_company_people_conflict_then_overwrite(db):
+    company, err = create_company(db, {
+        "legal_name": "Test Board Conflict S.p.A.", "registration_number": "IT66677788899",
+        "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    df_v1 = pd.DataFrame([{
+        "Ragione sociale": "Test Board Conflict S.p.A.",
+        "DM\nNome completo": "Original Director",
+        "DM\nCarica": "PRESIDENTE",
+    }])
+    r1 = import_company_people(db, df_v1, "Conflict Dataset", dry_run=False)
+    assert r1["people_created"] == 1
+
+    df_v2 = pd.DataFrame([{
+        "Ragione sociale": "Test Board Conflict S.p.A.",
+        "DM\nNome completo": "Updated Director",
+        "DM\nCarica": "AMMINISTRATORE DELEGATO",
+    }])
+
+    # Without overwrite: flagged as a conflict, no change applied.
+    r2 = import_company_people(db, df_v2, "Conflict Dataset", dry_run=False, overwrite_conflicts=False)
+    assert r2["matched"] == 0
+    assert len(r2["conflicts"]) == 1
+    person = db.query(CompanyPerson).filter_by(company_id=company.id).first()
+    assert person.full_name == "Original Director"
+
+    # With overwrite: updates the existing person-slot in place, doesn't duplicate.
+    r3 = import_company_people(db, df_v2, "Conflict Dataset", dry_run=False, overwrite_conflicts=True)
+    assert r3["people_updated"] == 1
+    assert db.query(CompanyPerson).filter_by(company_id=company.id).count() == 1
+    person = db.query(CompanyPerson).filter_by(company_id=company.id).first()
+    assert person.full_name == "Updated Director"
+    assert person.role == "AMMINISTRATORE DELEGATO"

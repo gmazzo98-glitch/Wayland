@@ -15,7 +15,7 @@ import pandas as pd
 from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from models import Company, SignalRecord, PilotOutcome, RawImportRecord, SHORTLIST_STATUSES
+from models import Company, SignalRecord, PilotOutcome, RawImportRecord, CompanyPerson, SHORTLIST_STATUSES
 from indicators import fetch_indicator_defs
 from scoring import calculate_company_scores
 from utils import get_signal_display_status
@@ -270,6 +270,116 @@ def _render_flexible_import_tab(db: Session):
                 st.rerun()
 
 
+def _render_people_import_tab(db: Session):
+    st.subheader("👥 Import Board & Management")
+    st.caption(
+        "For source files that pack MULTIPLE people into a single cell, one line per person "
+        "(AIDA's own export convention — e.g. a 'DM' column group holding every director's name, "
+        "role, age, etc. newline-stacked in matching order). Detected automatically from the column "
+        "headers — no manual mapping step. Matches rows to existing companies by **legal name** "
+        "(not the file's own BvD ID column — verified against real data that it doesn't reliably "
+        "match the registration numbers already on file). Never creates a new company from this file "
+        "alone; unmatched names are listed so you can reconcile them."
+    )
+
+    from company_service import parse_roster_file, detect_multivalue_groups, import_company_people
+
+    dataset_name = st.text_input(
+        "Dataset Name *", placeholder="e.g. Directors & Board C28",
+        help="Same scoping rule as Flexible Data Import: re-uploading under the SAME name flags "
+             "companies that already have it (with an overwrite option); a DIFFERENT name just adds in.",
+        key="people_dataset_name",
+    )
+    legal_name_col = st.text_input(
+        "Legal Name Column", value="Ragione sociale",
+        help="The column in your file holding each company's legal name, used to match rows to existing companies.",
+        key="people_legal_name_col",
+    )
+    uploaded = st.file_uploader("Upload Dataset (.xls, .xlsx or .csv)", type=["xls", "xlsx", "csv"], key="people_uploader")
+
+    if uploaded is None:
+        st.session_state.pop("people_df", None)
+        return
+
+    file_sig = (uploaded.name, uploaded.size)
+    if st.session_state.get("people_file_sig") != file_sig:
+        try:
+            uploaded.seek(0)
+            df = parse_roster_file(uploaded, filename=uploaded.name)
+        except Exception as e:
+            st.error(f"Could not read file: {e}")
+            return
+        st.session_state["people_file_sig"] = file_sig
+        st.session_state["people_df"] = df
+        st.session_state["people_preview"] = None
+
+    df = st.session_state["people_df"]
+    groups = detect_multivalue_groups(list(df.columns))
+
+    st.markdown(f"##### {len(df)} row(s), **{len(groups)}** person group(s) detected")
+    if groups:
+        for name, cols in groups.items():
+            st.caption(f"**{name}**: {len(cols)} columns — {', '.join(c.partition(chr(10))[2] or c for c in cols[:5])}{', ...' if len(cols) > 5 else ''}")
+    else:
+        st.warning("No 'Prefix\\n...' multi-value column groups detected in this file's headers.")
+    st.dataframe(df.head(5), use_container_width=True)
+
+    st.markdown("---")
+
+    if st.button("🔍 Preview Import", key="people_preview_btn", disabled=not dataset_name.strip() or not groups, use_container_width=True):
+        with st.spinner("Analyzing..."):
+            preview = import_company_people(db, df, dataset_name, legal_name_column=legal_name_col, dry_run=True)
+        st.session_state["people_preview"] = preview
+
+    preview = st.session_state.get("people_preview")
+    if preview:
+        if preview["errors"]:
+            for err in preview["errors"]:
+                st.error(err)
+        else:
+            pc1, pc2, pc3 = st.columns(3)
+            pc1.metric("Matched Companies", preview["matched"])
+            pc2.metric("Unmatched Names", len(preview["unmatched"]))
+            pc3.metric("⚠️ Conflicts", len(preview["conflicts"]))
+
+            if preview["unmatched"]:
+                with st.expander(f"⚠️ {len(preview['unmatched'])} legal name(s) with no matching company", expanded=False):
+                    for name in preview["unmatched"]:
+                        st.write(f"- {name}")
+
+            overwrite = False
+            if preview["conflicts"]:
+                with st.expander(f"⚠️ {len(preview['conflicts'])} companies already have a '{dataset_name}' roster loaded", expanded=True):
+                    for c in preview["conflicts"]:
+                        st.write(f"- {c['legal_name']} ({c['registration_number']})")
+                    overwrite = st.checkbox(
+                        f"Overwrite existing '{dataset_name}' roster for the companies listed above",
+                        value=False, key="people_overwrite_checkbox",
+                    )
+
+            if st.button("🚀 Confirm Import", key="people_confirm_btn", use_container_width=True):
+                with st.spinner("Importing..."):
+                    result = import_company_people(
+                        db, df, dataset_name, legal_name_column=legal_name_col,
+                        source_filename=file_sig[0], overwrite_conflicts=overwrite, dry_run=False,
+                    )
+                st.success(
+                    f"✅ Import complete! **{result['matched']}** companies matched — "
+                    f"**{result['people_created']}** people created, **{result['people_updated']}** updated."
+                )
+                if result["unmatched"]:
+                    with st.expander(f"⚠️ {len(result['unmatched'])} unmatched name(s)", expanded=False):
+                        for name in result["unmatched"]:
+                            st.write(f"- {name}")
+                if result["errors"]:
+                    with st.expander("⚠️ Errors", expanded=True):
+                        for err in result["errors"]:
+                            st.warning(err)
+                for k in ("people_df", "people_file_sig", "people_preview"):
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+
 def _render_manage_companies_tab(db: Session):
     st.subheader("🗑️ Manage Master Company Database")
     st.caption(
@@ -520,6 +630,21 @@ def _provenance_rows(db: Session, company: Company) -> list:
     ]
 
 
+def _management_board_groups(db: Session, company: Company) -> dict:
+    """{role_group: [CompanyPerson, ...]} for this company, across every
+    imported roster dataset, ordered for stable display."""
+    people = (
+        db.query(CompanyPerson)
+        .filter_by(company_id=company.id)
+        .order_by(CompanyPerson.role_group, CompanyPerson.dataset_name, CompanyPerson.position_in_row)
+        .all()
+    )
+    groups = {}
+    for p in people:
+        groups.setdefault(p.role_group, []).append(p)
+    return groups
+
+
 def _pilot_rows(db: Session, company: Company) -> list:
     outcomes = db.query(PilotOutcome).filter_by(company_id=company.id).order_by(PilotOutcome.started_at.desc()).all()
     rows = []
@@ -759,6 +884,28 @@ def _render_tab1_content(db: Session):
                     st.markdown(f"**{rec.dataset_name}** — {rec.source_filename or 'filename not recorded'} · updated {rec.updated_at.strftime('%Y-%m-%d %H:%M') if rec.updated_at else '—'}")
                     st.json(rec.raw_row, expanded=False)
 
+        # Management & Board — exploded from newline-stacked multi-value
+        # cells (see company_service.import_company_people).
+        people_groups = _management_board_groups(db, company)
+        if people_groups:
+            with st.expander(f"👥 Management & Board ({sum(len(v) for v in people_groups.values())} people)"):
+                for role_group, people in people_groups.items():
+                    st.markdown(f"**{role_group}** ({len(people)})")
+                    rows = [{
+                        "Name": p.full_name or "—",
+                        "Role": p.role or "—",
+                        "Age": p.age if p.age is not None else "—",
+                        "Gender": p.gender or "—",
+                        "Nationality": p.nationality or "—",
+                        "Status": p.current_or_former or "—",
+                        "Dataset": p.dataset_name,
+                    } for p in people]
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    with st.expander(f"Full detail per person ({role_group})", expanded=False):
+                        for p in people:
+                            st.markdown(f"*{p.full_name or 'Unnamed'}*")
+                            st.json(p.raw_fields, expanded=False)
+
         # Pilot History
         pilot_rows = _pilot_rows(db, company)
         if pilot_rows:
@@ -861,11 +1008,12 @@ def render_company_detail_page(db: Session):
     st.title("🏢 Company Intelligence & Management")
     st.caption("Deep-dive company breakdown, tri-state signal audits, single company creation, and bulk CSV ingestion.")
 
-    tab_detail, tab_add, tab_import, tab_flex, tab_manage = st.tabs([
+    tab_detail, tab_add, tab_import, tab_flex, tab_people, tab_manage = st.tabs([
         "🏢 Company Intelligence & Audit",
         "➕ Add Single Company",
         "📁 Bulk CSV Import",
         "🔗 Flexible Data Import",
+        "👥 Import Board & Management",
         "🗑️ Manage Companies"
     ])
 
@@ -981,7 +1129,13 @@ def render_company_detail_page(db: Session):
         _render_flexible_import_tab(db)
 
     # --------------------------------------------------------------------------
-    # TAB 5: Manage / Delete Companies
+    # TAB 5: Board & Management Roster Import
+    # --------------------------------------------------------------------------
+    with tab_people:
+        _render_people_import_tab(db)
+
+    # --------------------------------------------------------------------------
+    # TAB 6: Manage / Delete Companies
     # --------------------------------------------------------------------------
     with tab_manage:
         _render_manage_companies_tab(db)
