@@ -6,7 +6,7 @@ column-mapping data feeder.
 
 import pytest
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from database import init_db, get_db_session
 from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, RawImportRecord, CompanyPerson
 from utils import normalize_registration_nr
@@ -33,6 +33,11 @@ from company_service import (
     delete_companies,
     detect_family_and_succession,
     sync_succession_signal,
+    suggest_person_mapping,
+    save_person_mapping_profile,
+    load_person_mapping_profile,
+    list_person_mapping_profile_names,
+    sync_management_composition_signals,
 )
 
 FLEX_TEST_REGS = ["IT11122233344", "IT99988877766"]
@@ -40,6 +45,9 @@ FLEX_TEST_DATASET_NAMES = ["Test AIDA Financials", "Test Shareholder Data"]
 FLEX_TEST_INDICATOR_KEYS = ["a_brand_new_column"]
 PEOPLE_TEST_REGS = ["IT44455566677", "IT55566677788", "IT66677788899", "IT77788899900"]
 SUCCESSION_TEST_REGS = ["IT10101010101", "IT20202020202", "IT30303030303", "IT40404040404", "IT50505050505"]
+PEOPLE_MAPPING_TEST_REGS = ["IT88899900011"]
+PEOPLE_MAPPING_TEST_DATASET_NAMES = ["Test Mapping Roster"]
+COMPOSITION_TEST_REGS = ["IT60606060606", "IT70707070707", "IT80808080808", "IT90909090909"]
 
 
 @pytest.fixture(scope="function")
@@ -48,7 +56,8 @@ def db():
     session = get_db_session()
     # Clean up any test records
     test_regs = (["HRB-889900", "IT09988776655", "HRB-554433", "IT55443322110"]
-                 + FLEX_TEST_REGS + PEOPLE_TEST_REGS + SUCCESSION_TEST_REGS)
+                 + FLEX_TEST_REGS + PEOPLE_TEST_REGS + SUCCESSION_TEST_REGS
+                 + PEOPLE_MAPPING_TEST_REGS + COMPOSITION_TEST_REGS)
 
     def _cleanup():
         for reg in test_regs:
@@ -60,6 +69,10 @@ def db():
         session.query(Company).filter_by(legal_name="Some Unknown Company Not In DB").delete()
         for name in FLEX_TEST_DATASET_NAMES:
             p = session.query(ColumnMappingProfile).filter_by(dataset_name=name).first()
+            if p:
+                session.delete(p)
+        for name in PEOPLE_MAPPING_TEST_DATASET_NAMES:
+            p = session.query(ColumnMappingProfile).filter_by(dataset_name=f"people::{name}").first()
             if p:
                 session.delete(p)
         for key in FLEX_TEST_INDICATOR_KEYS:
@@ -695,6 +708,69 @@ def test_import_company_people_conflict_then_overwrite(db):
     assert person.role == "AMMINISTRATORE DELEGATO"
 
 
+# --- People & Ownership column mapping (generalizes Flexible Data Import's
+# map-to-a-field + saved-preset behavior to the roster importer) ---
+
+def test_suggest_person_mapping_uses_builtin_alias_by_default():
+    groups = {"DM": ["DM\nNome completo", "DM\nCarica", "DM\nColonna Sconosciuta"]}
+    suggestions = suggest_person_mapping(groups)
+    assert suggestions["DM::Nome completo"] == "full_name"
+    assert suggestions["DM::Carica"] == "role"
+    assert suggestions["DM::Colonna Sconosciuta"] == ""  # unrecognized -> stays unmapped
+
+
+def test_suggest_person_mapping_saved_profile_overrides_builtin_alias():
+    groups = {"DM": ["DM\nCarica"]}
+    # A saved profile always wins over the built-in guess, even a deliberately
+    # odd one -- proves it's reviewed/re-appliable, not silently re-derived.
+    profile = {"DM::Carica": "gender"}
+    suggestions = suggest_person_mapping(groups, existing_profile=profile)
+    assert suggestions["DM::Carica"] == "gender"
+
+
+def test_person_mapping_profile_save_and_reload_round_trip(db):
+    mapping = {"DM::Nome completo": "full_name", "DM::Carica": "role"}
+    save_person_mapping_profile(db, "Test Mapping Roster", mapping)
+    reloaded = load_person_mapping_profile(db, "Test Mapping Roster")
+    assert reloaded == mapping
+    assert "Test Mapping Roster" in list_person_mapping_profile_names(db)
+
+    # Namespaced under the hood so it can never collide with a flexible-import
+    # profile that happens to reuse the same human-chosen dataset name.
+    profile = db.query(ColumnMappingProfile).filter_by(dataset_name="people::Test Mapping Roster").first()
+    assert profile is not None
+    assert db.query(ColumnMappingProfile).filter_by(dataset_name="Test Mapping Roster").first() is None
+
+
+def test_import_company_people_field_overrides_respected(db):
+    company, err = create_company(db, {
+        "legal_name": "Test Mapping Override S.p.A.", "registration_number": "IT88899900011",
+        "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    df = pd.DataFrame([{
+        "Ragione sociale": "Test Mapping Override S.p.A.",
+        "DM\nNome completo": "Mario Rossi",
+        "DM\nCarica": "PRESIDENTE",
+        "DM\nEtà": "55",
+    }])
+
+    # Deliberately un-map 'Carica' (would normally become role) and redirect
+    # 'Età' onto gender -- proves an explicit override wins over the alias,
+    # including an explicit "" (Ignore).
+    overrides = {"DM::Carica": "", "DM::Età": "gender"}
+    result = import_company_people(db, df, "Override Dataset", field_overrides=overrides, dry_run=False)
+    assert result["people_created"] == 1
+
+    person = db.query(CompanyPerson).filter_by(company_id=company.id).first()
+    assert person.full_name == "Mario Rossi"  # not overridden -> alias still applies
+    assert person.role is None                # explicitly ignored, not auto-mapped
+    assert person.age is None                 # 'Età' no longer maps to age...
+    assert person.gender == "55"              # ...it was redirected to gender instead
+    assert person.raw_fields["Carica"] == "PRESIDENTE"  # original value survives regardless
+
+
 # --- Loose (non-'\n'-prefixed) stacked-column detection ---
 #
 # AIDA's shareholder-control and legal-ownership exports use the same
@@ -867,10 +943,13 @@ def test_import_company_people_with_loosely_detected_shareholder_group(db):
 # --- Family ownership & generational succession detection ---
 
 def _add_person(db, company_id, full_name, age=None, cognome=None, appointment_date=None,
-                 role_group="DM", position=0, dataset="Test Succession Dataset"):
+                 role_group="DM", position=0, dataset="Test Succession Dataset",
+                 gender=None, nationality=None, resignation_date=None, current_or_former=None, role=None):
     person = CompanyPerson(
         company_id=company_id, dataset_name=dataset, role_group=role_group, position_in_row=position,
         full_name=full_name, age=age, appointment_date=appointment_date,
+        gender=gender, nationality=nationality, resignation_date=resignation_date,
+        current_or_former=current_or_former, role=role,
         raw_fields={"Cognome": cognome} if cognome else {},
     )
     db.add(person)
@@ -1028,3 +1107,144 @@ def test_import_company_people_auto_triggers_succession_signal(db):
     assert sig is not None
     assert sig.status == "present"
     assert sig.numeric_value == pytest.approx(5.0, abs=0.3)
+
+
+# --- Management/board composition indicators aggregated from the roster ---
+#
+# indicators.py carries several Leadership & Succession rows (age, gender/
+# national diversity, turnover, tenure, non-family board headcount) whose
+# raw material is exactly the CompanyPerson roster import_company_people
+# already writes. These tests confirm sync_management_composition_signals
+# actually turns that roster into the SignalRecords, honestly (nothing
+# faked when the underlying field was never populated).
+
+def test_sync_management_composition_signals_computes_age_gender_and_nationality(db):
+    company, err = create_company(db, {
+        "legal_name": "Composition Test One S.r.l.", "registration_number": "IT60606060606", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    _add_person(db, company.id, "Anna Verdi", age=40, gender="F", nationality="Italian",
+                dataset="Composition Dataset", position=0)
+    _add_person(db, company.id, "Marco Neri", age=60, gender="M", nationality="German",
+                dataset="Composition Dataset", position=1)
+
+    result = sync_management_composition_signals(db, company)
+
+    assert result["management_age"]["written"] is True
+    assert result["management_age"]["value"] == pytest.approx(50.0)
+
+    assert result["mgmt_gender_diversity"]["written"] is True
+    assert result["mgmt_gender_diversity"]["value"] == pytest.approx(50.0)  # 1 of 2 is female
+
+    assert result["mgmt_national_diversity"]["written"] is True
+    assert result["mgmt_national_diversity"]["value"] == pytest.approx(50.0)  # neither nationality dominates
+
+    for key in ("management_age", "mgmt_gender_diversity", "mgmt_national_diversity"):
+        sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key=key).first()
+        assert sig is not None
+        assert sig.status == "present"
+        assert sig.is_simulated is False
+
+
+def test_sync_management_composition_signals_computes_average_tenure(db):
+    company, err = create_company(db, {
+        "legal_name": "Composition Test Two S.r.l.", "registration_number": "IT70707070707", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    now = datetime.utcnow()
+    appt_a = now - timedelta(days=4 * 365)
+    appt_b = now - timedelta(days=10 * 365)
+
+    _add_person(db, company.id, "Anna Verdi", age=40, appointment_date=appt_a,
+                dataset="Tenure Dataset", position=0)
+    _add_person(db, company.id, "Marco Neri", age=60, appointment_date=appt_b,
+                dataset="Tenure Dataset", position=1)
+
+    expected = (((now - appt_a).days / 365.25) + ((now - appt_b).days / 365.25)) / 2
+    result = sync_management_composition_signals(db, company)
+    assert result["senior_mgmt_tenure"]["written"] is True
+    assert result["senior_mgmt_tenure"]["value"] == pytest.approx(expected, abs=0.05)
+
+
+def test_sync_management_composition_signals_counts_recent_turnover_events(db):
+    company, err = create_company(db, {
+        "legal_name": "Composition Test Three S.r.l.", "registration_number": "IT80808080808", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    now = datetime.utcnow()
+
+    # One recent arrival, one recent departure, one old appointment well
+    # outside the 3-year lookback -- only the first two should count.
+    _add_person(db, company.id, "Recent Arrival", age=45, appointment_date=now - timedelta(days=200),
+                dataset="Turnover Dataset", position=0)
+    _add_person(db, company.id, "Recent Departure", age=50, appointment_date=now - timedelta(days=1500),
+                resignation_date=now - timedelta(days=100), current_or_former="Precedente",
+                dataset="Turnover Dataset", position=1)
+    _add_person(db, company.id, "Long Tenured", age=58, appointment_date=now - timedelta(days=3000),
+                dataset="Turnover Dataset", position=2)
+
+    result = sync_management_composition_signals(db, company)
+    assert result["management_turnover"]["written"] is True
+    assert result["management_turnover"]["value"] == pytest.approx(2.0)
+
+
+def test_sync_management_composition_signals_counts_non_family_board_members(db):
+    company, err = create_company(db, {
+        "legal_name": "Bruni Holding S.r.l.", "registration_number": "IT90909090909", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    # Two Brunis share a surname -> family; the third person doesn't -> independent.
+    _add_person(db, company.id, "Paolo Bruni", age=62, cognome="Bruni", dataset="Board Dataset", position=0)
+    _add_person(db, company.id, "Elisa Bruni", age=35, cognome="Bruni", dataset="Board Dataset", position=1)
+    _add_person(db, company.id, "Giulia Conti", age=48, cognome="Conti", dataset="Board Dataset", position=2)
+
+    result = sync_management_composition_signals(db, company)
+    assert result["independent_board_members"]["written"] is True
+    assert result["independent_board_members"]["value"] == pytest.approx(1.0)
+
+
+def test_sync_management_composition_signals_writes_nothing_without_underlying_data(db):
+    company, err = create_company(db, {
+        "legal_name": "Composition Test Four S.r.l.", "registration_number": "IT60606060606", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    _add_person(db, company.id, "Someone", age=50, dataset="Sparse Dataset", position=0)
+
+    result = sync_management_composition_signals(db, company)
+    # Age is always computable off just 'age'; everything needing a field
+    # that was never populated stays untouched rather than faked as zero.
+    assert result["management_age"]["written"] is True
+    assert result["mgmt_gender_diversity"]["written"] is False
+    assert result["mgmt_national_diversity"]["written"] is False
+    assert result["management_turnover"]["written"] is False
+    assert result["senior_mgmt_tenure"]["written"] is False
+    # No family surname detected at all -> the lone current person still counts as independent.
+    assert result["independent_board_members"]["written"] is True
+    assert result["independent_board_members"]["value"] == pytest.approx(1.0)
+
+
+def test_import_company_people_auto_triggers_management_composition_signals(db):
+    """import_company_people should call sync_management_composition_signals
+    automatically per matched company, same as it already does for
+    sync_succession_signal -- no separate manual recompute step needed."""
+    company, err = create_company(db, {
+        "legal_name": "Auto Composition S.r.l.", "registration_number": "IT60606060606", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    df = pd.DataFrame([{
+        "Ragione sociale": "Auto Composition S.r.l.",
+        "DM\nNome completo": "Elena Bianchi\nMarco Bianchi",
+        "DM\nEtà": "45\n50",
+        "DM\nGenere": "F\nM",
+    }])
+    result = import_company_people(db, df, "Auto Composition Dataset", dry_run=False)
+    assert result["people_created"] == 2
+
+    sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="mgmt_gender_diversity").first()
+    assert sig is not None
+    assert sig.status == "present"
+    assert sig.numeric_value == pytest.approx(50.0)
+    assert sig.is_simulated is False

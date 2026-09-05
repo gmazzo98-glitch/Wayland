@@ -9,7 +9,8 @@ import csv
 import json
 import re
 import itertools
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, timedelta
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -941,6 +942,76 @@ _PERSON_FIELD_ALIASES = {
     "tipo": "role",
 }
 
+# Mirrors COMPANY_TARGET_LABELS' role for the people/roster importer: the
+# full set of targets the per-group column-mapping UI may offer for one
+# sub-column (a CompanyPerson structured field, or "" to leave it in
+# raw_fields only). Deliberately just the fixed structured columns rather
+# than IndicatorDefinition keys — an individual person's cell isn't itself
+# an indicator value; sync_management_composition_signals is what turns a
+# roster of these into the actual Leadership & Succession indicators.
+PERSON_TARGET_LABELS = {
+    "": "— Ignore (kept in raw data only) —",
+    "full_name": "Person: Full Name",
+    "role": "Person: Role / Title",
+    "age": "Person: Age",
+    "gender": "Person: Gender",
+    "nationality": "Person: Nationality",
+    "appointment_date": "Person: Appointment Date",
+    "resignation_date": "Person: Resignation Date",
+    "current_or_former": "Person: Current or Former",
+}
+
+# ColumnMappingProfile.dataset_name is unique across the whole table and is
+# also shared with the flexible importer's profiles above — this prefix
+# keeps a people-roster mapping (sub_label -> CompanyPerson field) from ever
+# colliding with a flexible-import mapping (column base -> company/indicator
+# target) that happens to reuse the same human-chosen dataset name. Purely
+# internal: the People & Ownership tab shows/accepts the plain name.
+PEOPLE_PROFILE_PREFIX = "people::"
+
+
+def _person_field_map_key(role_group: str, sub_label: str) -> str:
+    return f"{role_group}::{sub_label}"
+
+
+def suggest_person_mapping(groups: dict, existing_profile: dict = None) -> dict:
+    """
+    Auto-suggests a CompanyPerson field for each (role_group, sub-column)
+    pair detected in a roster file — a saved profile's assignment (reviewed,
+    never silently trusted, same as the flexible importer's suggest_mapping)
+    wins, else the built-in _PERSON_FIELD_ALIASES guess, else "" (genuinely
+    unrecognized — stays in raw_fields only until the user maps it).
+
+    groups: {role_group: [original_column_name, ...]} as returned by
+    detect_person_groups. Returns {"role_group::sub_label": target_field}.
+    """
+    suggestions = {}
+    for role_group, columns in groups.items():
+        for col in columns:
+            sub_label = strip_person_column_prefix(col)
+            map_key = _person_field_map_key(role_group, sub_label)
+            if existing_profile and map_key in existing_profile:
+                suggestions[map_key] = existing_profile[map_key]
+            else:
+                suggestions[map_key] = _PERSON_FIELD_ALIASES.get(sub_label.strip().lower(), "")
+    return suggestions
+
+
+def save_person_mapping_profile(db: Session, dataset_name: str, mapping: dict) -> ColumnMappingProfile:
+    return save_mapping_profile(db, f"{PEOPLE_PROFILE_PREFIX}{str(dataset_name).strip()}", "N/A", mapping)
+
+
+def load_person_mapping_profile(db: Session, dataset_name: str) -> dict:
+    return load_mapping_profile(db, f"{PEOPLE_PROFILE_PREFIX}{str(dataset_name).strip()}")
+
+
+def list_person_mapping_profile_names(db: Session) -> list:
+    return [
+        p.dataset_name[len(PEOPLE_PROFILE_PREFIX):]
+        for p in list_mapping_profiles(db)
+        if p.dataset_name.startswith(PEOPLE_PROFILE_PREFIX)
+    ]
+
 
 def parse_roster_file(file_or_buffer, filename: str = None) -> pd.DataFrame:
     """
@@ -1242,16 +1313,31 @@ def explode_person_group(row: dict, group_columns: list) -> list:
     return people
 
 
-def _person_structured_fields(raw_person: dict) -> dict:
+def _person_structured_fields(raw_person: dict, field_map: dict = None) -> dict:
     """Best-effort maps a raw {sub_label: value} dict onto CompanyPerson's
-    structured columns via _PERSON_FIELD_ALIASES; everything stays in
-    raw_fields regardless of whether it also got mapped here."""
+    structured columns; everything stays in raw_fields regardless of whether
+    it also got mapped here.
+
+    field_map, when given, is the (possibly user-edited) {sub_label: target}
+    mapping for THIS role_group only — see import_company_people, which
+    builds it from suggest_person_mapping/a saved ColumnMappingProfile. A
+    sub_label present in field_map is authoritative, including an explicit
+    "" (Ignore), so a user's deliberate un-mapping is respected rather than
+    falling back to the built-in alias guess. A sub_label absent from
+    field_map (e.g. field_map is None, no mapping step was run) falls back
+    to _PERSON_FIELD_ALIASES, preserving the original auto-detect-only
+    behavior."""
     structured = {}
     for sub_label, value in raw_person.items():
-        # NOT _norm() — that replaces spaces with underscores (for the other
-        # importer's column-base names), but these alias keys are natural-
-        # language phrases ("nome completo") that need to stay space-separated.
-        field = _PERSON_FIELD_ALIASES.get(str(sub_label).strip().lower())
+        sub_label_stripped = str(sub_label).strip()
+        if field_map is not None and sub_label_stripped in field_map:
+            field = field_map[sub_label_stripped] or None
+        else:
+            # NOT _norm() — that replaces spaces with underscores (for the
+            # other importer's column-base names), but these alias keys are
+            # natural-language phrases ("nome completo") that need to stay
+            # space-separated.
+            field = _PERSON_FIELD_ALIASES.get(sub_label_stripped.lower())
         if not field or value in (None, ""):
             continue
         if field == "age":
@@ -1284,13 +1370,20 @@ def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
                            legal_name_column: str = "Ragione sociale",
                            source_filename: str = None,
                            overwrite_conflicts: bool = False, dry_run: bool = False,
-                           progress_callback=None) -> dict:
+                           progress_callback=None, field_overrides: dict = None) -> dict:
     """
     Explodes every detected multi-value group in df into CompanyPerson rows,
     matching each source row to an existing Company by exact legal_name
     (see module docstring above for why not the source's own BvD ID column).
     Never creates a new Company from this file alone — a row that doesn't
     match an existing company is reported in "unmatched", not guessed at.
+
+    field_overrides, when given, is a {"role_group::sub_label": target_field}
+    dict — the same shape suggest_person_mapping returns/the People &
+    Ownership import UI edits — used instead of the built-in
+    _PERSON_FIELD_ALIASES guess for any sub-column it covers (including an
+    explicit "" to deliberately leave a column unmapped). None (the default)
+    preserves the original auto-detect-only behavior.
 
     Conflict rule mirrors apply_data_import: a company that already has
     CompanyPerson rows under this exact dataset_name is a conflict — real
@@ -1320,6 +1413,20 @@ def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
         result["errors"].append("No multi-value stacked-cell column groups detected in this file.")
         return result
 
+    # Per-role_group {sub_label: target_field}, sliced out of the flat
+    # "role_group::sub_label" override dict so _person_structured_fields
+    # doesn't need to know about the group namespacing.
+    group_field_maps = {}
+    if field_overrides:
+        for role_group, group_columns in groups.items():
+            field_map = {}
+            for col in group_columns:
+                sub_label = strip_person_column_prefix(col)
+                map_key = _person_field_map_key(role_group, sub_label)
+                if map_key in field_overrides:
+                    field_map[sub_label] = field_overrides[map_key] or None
+            group_field_maps[role_group] = field_map
+
     total_rows = len(df)
     for row_idx, (_, row) in enumerate(df.iterrows()):
         if progress_callback:
@@ -1346,6 +1453,7 @@ def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
         fetched_at = datetime.utcnow()
         for role_group, group_columns in groups.items():
             people = explode_person_group(row_dict, group_columns)
+            field_map = group_field_maps.get(role_group)
             for position, raw_person in enumerate(people):
                 person = db.query(CompanyPerson).filter_by(
                     company_id=company.id, dataset_name=dataset_name,
@@ -1360,13 +1468,14 @@ def import_company_people(db: Session, df: pd.DataFrame, dataset_name: str,
                     result["people_created"] += 1
                 else:
                     result["people_updated"] += 1
-                for field, value in _person_structured_fields(raw_person).items():
+                for field, value in _person_structured_fields(raw_person, field_map).items():
                     setattr(person, field, value)
                 person.raw_fields = {k: _json_safe(v) for k, v in raw_person.items()}
                 person.updated_at = fetched_at
 
         db.commit()
         sync_succession_signal(db, company, source=dataset_name)
+        sync_management_composition_signals(db, company, source=dataset_name)
 
     return result
 
@@ -1527,3 +1636,167 @@ def sync_succession_signal(db: Session, company: Company, source: str = "Board R
         db.commit()
         result["signal_written"] = True
     return result
+
+
+# =============================================================================
+# Management/board composition signals
+#
+# indicators.py's Leadership & Succession catalog carries several rows
+# (Management Age, Management Gender/National Diversity, Turnover of
+# Management, Average Tenure of Senior Management, Independent (Non-Family)
+# Board Members) whose raw data — age, gender, nationality, appointment/
+# resignation dates — is exactly what import_company_people already writes
+# into CompanyPerson, one row per director/advisor. Nothing aggregated that
+# roster into these indicators until now: the underlying per-person facts
+# sat in the database but the company-level SignalRecords stayed at
+# whatever status they started (usually not_yet_checked). This is that
+# aggregation step, run automatically after every real people-roster import
+# (same hook point as sync_succession_signal) and re-runnable on demand from
+# the Company Profile page.
+#
+# Deliberately does NOT touch mgmt_cultural_diversity or the mgmt_education_*
+# indicators — no roster column captures education history or cultural
+# background (see indicators.py's own note on this at the
+# management_diversity/"Leadership Page Transparency" row), so there is
+# nothing honest to compute for them from this data source.
+# =============================================================================
+
+FEMALE_GENDER_MARKERS = {"f", "female", "femmina", "donna", "w", "woman"}
+MALE_GENDER_MARKERS = {"m", "male", "maschio", "uomo"}
+FORMER_STATUS_MARKERS = ("former", "precedente", "past", "ex-", "resigned", "dimission")
+TURNOVER_LOOKBACK_DAYS = 3 * 365
+
+MANAGEMENT_COMPOSITION_INDICATOR_KEYS = (
+    "management_age", "mgmt_gender_diversity", "mgmt_national_diversity",
+    "management_turnover", "senior_mgmt_tenure", "independent_board_members",
+)
+
+
+def _person_gender_category(raw_gender) -> str:
+    """Best-effort 'F'/'M'/None from whatever free-text gender value the
+    source file used (AIDA's own "Genere" is typically a bare M/F, but
+    English-language rosters spell it out) — anything unrecognized is left
+    out of the gender-diversity denominator rather than guessed."""
+    if not raw_gender:
+        return None
+    val = str(raw_gender).strip().lower()
+    if val in FEMALE_GENDER_MARKERS:
+        return "F"
+    if val in MALE_GENDER_MARKERS:
+        return "M"
+    return None
+
+
+def _person_is_current(person: CompanyPerson) -> bool:
+    """A person counts as current management unless the roster explicitly
+    says otherwise — a known resignation_date, or a current_or_former value
+    containing a 'former'-style marker (AIDA's own 'Attuale o precedente'
+    column included)."""
+    if person.resignation_date is not None:
+        return False
+    val = (person.current_or_former or "").strip().lower()
+    return not any(marker in val for marker in FORMER_STATUS_MARKERS)
+
+
+def sync_management_composition_signals(db: Session, company: Company, source: str = "Board Roster Analysis") -> dict:
+    """
+    Aggregates the CompanyPerson roster already imported for this company
+    into the management/board-composition indicators listed in
+    MANAGEMENT_COMPOSITION_INDICATOR_KEYS. Same tri-state honesty rule as
+    sync_succession_signal: an indicator is only written (is_simulated=False)
+    when the underlying field was actually present on at least one relevant
+    person; otherwise it's left at whatever status it already had rather
+    than being faked as zero/absent.
+
+    Only looks at CompanyPerson rows with a known age (the same rule
+    detect_family_and_succession uses to separate named individuals from
+    shareholder/subsidiary entity rows exploded from the ownership imports,
+    which never carry an age).
+
+    Returns {indicator_key: {"written": bool, "value": float or None}} for
+    every key in MANAGEMENT_COMPOSITION_INDICATOR_KEYS.
+    """
+    results = {key: {"written": False, "value": None} for key in MANAGEMENT_COMPOSITION_INDICATOR_KEYS}
+
+    people = (
+        db.query(CompanyPerson)
+        .filter_by(company_id=company.id)
+        .filter(CompanyPerson.age.isnot(None))
+        .all()
+    )
+    if not people:
+        return results
+    current = [p for p in people if _person_is_current(p)]
+
+    def _write(key: str, value: float, payload: dict):
+        sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key=key).first()
+        if not sig:
+            sig = SignalRecord(company_id=company.id, signal_key=key, source=source)
+            db.add(sig)
+        sig.status = "present"
+        sig.numeric_value = round(value, 2)
+        sig.confidence = 1.0
+        sig.is_simulated = False
+        sig.source = source
+        sig.fetched_at = datetime.utcnow()
+        sig.raw_payload_ref = json.dumps(payload)
+        results[key] = {"written": True, "value": sig.numeric_value}
+
+    if current:
+        # Management Age — average age of current management/board members.
+        _write("management_age", sum(p.age for p in current) / len(current),
+               {"basis": "average_age_of_current_people", "n": len(current)})
+
+        # Management Gender Diversity — % women among current people with a
+        # recognized gender marker.
+        known_genders = [g for g in (_person_gender_category(p.gender) for p in current) if g]
+        if known_genders:
+            pct_female = 100.0 * sum(1 for g in known_genders if g == "F") / len(known_genders)
+            _write("mgmt_gender_diversity", pct_female,
+                   {"basis": "pct_female_of_current_people_with_known_gender", "n": len(known_genders)})
+
+        # Management National Diversity — a concentration-based proxy: % of
+        # current people (with a known nationality) whose nationality is NOT
+        # the single most common one in the group. Not a demographic census,
+        # just "how homogeneous is this team" from whatever the roster gives.
+        nationalities = [p.nationality.strip() for p in current if p.nationality and p.nationality.strip()]
+        if nationalities:
+            counts = Counter(n.lower() for n in nationalities)
+            _, dominant_count = counts.most_common(1)[0]
+            pct_diverse = 100.0 * (len(nationalities) - dominant_count) / len(nationalities)
+            _write("mgmt_national_diversity", pct_diverse,
+                   {"basis": "pct_not_in_most_common_nationality", "n": len(nationalities)})
+
+        # Independent (Non-Family) Board Members — reuses the same surname-
+        # match family detection the succession signal is built on; when no
+        # family surname is detected at all, every current person counts.
+        family_result = detect_family_and_succession(db, company)
+        family_surnames_lower = {s.lower() for s in family_result["family_surnames"]}
+        independent_count = sum(1 for p in current if _person_surname(p).lower() not in family_surnames_lower)
+        _write("independent_board_members", float(independent_count),
+               {"basis": "current_people_not_sharing_a_family_surname", "n": len(current)})
+
+        # Average Tenure of Senior Management — years since appointment for
+        # current people with a known appointment_date.
+        tenured = [p for p in current if p.appointment_date]
+        if tenured:
+            avg_tenure = sum((datetime.utcnow() - p.appointment_date).days / 365.25 for p in tenured) / len(tenured)
+            _write("senior_mgmt_tenure", avg_tenure,
+                   {"basis": "average_years_since_appointment_date", "n": len(tenured)})
+
+    # Turnover of Management — appointment/resignation events in the last 3
+    # years, counted across EVERY known person (not just current ones — a
+    # departure is itself a turnover event).
+    cutoff = datetime.utcnow() - timedelta(days=TURNOVER_LOOKBACK_DAYS)
+    dated_people = [p for p in people if p.appointment_date or p.resignation_date]
+    if dated_people:
+        turnover_events = sum(
+            1 for p in people
+            if (p.appointment_date and p.appointment_date >= cutoff)
+            or (p.resignation_date and p.resignation_date >= cutoff)
+        )
+        _write("management_turnover", float(turnover_events),
+               {"basis": "appointment_or_resignation_events_in_last_3_years", "n": len(dated_people)})
+
+    db.commit()
+    return results

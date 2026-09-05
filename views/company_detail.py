@@ -311,21 +311,31 @@ def _render_people_import_tab(db: Session):
         "director's name, role, age, etc. newline-stacked in matching order; the same convention "
         "AIDA uses for shareholders, ultimate owners, and subsidiaries). Groups are detected "
         "automatically — from a shared column-header prefix where the file uses one consistently, "
-        "and from matching stacked-cell patterns where it doesn't — no manual mapping step. Matches "
-        "rows to existing companies by **legal name** (not the file's own BvD ID column — verified "
-        "against real data that it doesn't reliably match the registration numbers already on file). "
-        "Never creates a new company from this file alone; unmatched names are listed so you can "
-        "reconcile them."
+        "and from matching stacked-cell patterns where it doesn't. Each group's sub-columns are "
+        "pre-mapped onto the matching person field below (name/role/age/gender/...) — review or "
+        "change any of them; the mapping is saved under the dataset name so re-uploading the same "
+        "shape later re-applies it automatically (same behavior as Flexible Data Import's mapping "
+        "presets). Matches rows to existing companies by **legal name** (not the file's own BvD ID "
+        "column — verified against real data that it doesn't reliably match the registration numbers "
+        "already on file). Never creates a new company from this file alone; unmatched names are "
+        "listed so you can reconcile them."
     )
 
-    from company_service import parse_roster_file, detect_person_groups, import_company_people, strip_person_column_prefix
+    from company_service import (
+        parse_roster_file, detect_person_groups, import_company_people, strip_person_column_prefix,
+        suggest_person_mapping, save_person_mapping_profile, load_person_mapping_profile,
+        list_person_mapping_profile_names, PERSON_TARGET_LABELS,
+    )
 
+    existing_names = list_person_mapping_profile_names(db)
     dataset_name = st.text_input(
         "Dataset Name *", placeholder="e.g. Directors & Board C28",
         help="Same scoping rule as Flexible Data Import: re-uploading under the SAME name flags "
              "companies that already have it (with an overwrite option); a DIFFERENT name just adds in.",
         key="people_dataset_name",
     )
+    if existing_names:
+        st.caption(f"Previously saved dataset names: {', '.join(existing_names)}")
     legal_name_col = st.text_input(
         "Legal Name Column", value="Ragione sociale",
         help="The column in your file holding each company's legal name, used to match rows to existing companies.",
@@ -348,15 +358,40 @@ def _render_people_import_tab(db: Session):
         st.session_state["people_file_sig"] = file_sig
         st.session_state["people_df"] = df
         st.session_state["people_preview"] = None
+        groups = detect_person_groups(df)
+        profile_mapping = load_person_mapping_profile(db, dataset_name) if dataset_name.strip() else {}
+        st.session_state["people_mapping"] = suggest_person_mapping(groups, existing_profile=profile_mapping)
 
     df = st.session_state["people_df"]
     groups = detect_person_groups(df)
+    mapping_state = st.session_state.setdefault("people_mapping", suggest_person_mapping(groups))
 
     st.markdown(f"##### {len(df)} row(s), **{len(groups)}** person/entity group(s) detected")
     if groups:
-        for name, cols in groups.items():
-            sub_labels = ", ".join(strip_person_column_prefix(c) for c in cols[:5])
-            st.caption(f"**{name}**: {len(cols)} columns — {sub_labels}{', ...' if len(cols) > 5 else ''}")
+        st.markdown("###### Column Mapping (per detected group)")
+        option_keys = list(PERSON_TARGET_LABELS.keys())
+        for role_group, cols in groups.items():
+            with st.expander(f"**{role_group}** — {len(cols)} column(s)", expanded=True):
+                for col in cols:
+                    sub_label = strip_person_column_prefix(col)
+                    map_key = f"{role_group}::{sub_label}"
+                    current = mapping_state.get(map_key, "")
+                    if current not in option_keys:
+                        current = ""
+                    default_idx = option_keys.index(current)
+
+                    row_c1, row_c2 = st.columns([2, 3])
+                    with row_c1:
+                        st.caption(f"**{sub_label}**  \n`{col}`")
+                    with row_c2:
+                        picked = st.selectbox(
+                            f"Map '{sub_label}' to", options=option_keys,
+                            format_func=lambda k: PERSON_TARGET_LABELS.get(k, k),
+                            index=default_idx, key=f"people_map_{role_group}_{sub_label}",
+                            label_visibility="collapsed",
+                        )
+                        mapping_state[map_key] = picked
+        st.session_state["people_mapping"] = mapping_state
     else:
         st.warning("No multi-value stacked-cell column groups detected in this file's headers/content.")
     st.dataframe(df.head(5), use_container_width=True)
@@ -365,7 +400,10 @@ def _render_people_import_tab(db: Session):
 
     if st.button("🔍 Preview Import", key="people_preview_btn", disabled=not dataset_name.strip() or not groups, use_container_width=True):
         with st.spinner("Analyzing..."):
-            preview = import_company_people(db, df, dataset_name, legal_name_column=legal_name_col, dry_run=True)
+            preview = import_company_people(
+                db, df, dataset_name, legal_name_column=legal_name_col,
+                field_overrides=mapping_state, dry_run=True,
+            )
         st.session_state["people_preview"] = preview
 
     preview = st.session_state.get("people_preview")
@@ -399,8 +437,9 @@ def _render_people_import_tab(db: Session):
                 result = import_company_people(
                     db, df, dataset_name, legal_name_column=legal_name_col,
                     source_filename=file_sig[0], overwrite_conflicts=overwrite, dry_run=False,
-                    progress_callback=progress_cb,
+                    progress_callback=progress_cb, field_overrides=mapping_state,
                 )
+                save_person_mapping_profile(db, dataset_name, mapping_state)
                 bar.empty()
                 status.empty()
                 st.success(
@@ -415,7 +454,7 @@ def _render_people_import_tab(db: Session):
                     with st.expander("⚠️ Errors", expanded=True):
                         for err in result["errors"]:
                             st.warning(err)
-                for k in ("people_df", "people_file_sig", "people_preview"):
+                for k in ("people_df", "people_file_sig", "people_preview", "people_mapping"):
                     st.session_state.pop(k, None)
                 st.rerun()
 
@@ -1048,6 +1087,42 @@ def _render_tab1_content(db: Session):
                         )
                 if st.button("🔄 Recompute Family & Succession", key="recompute_succession_btn"):
                     sync_succession_signal(db, company)
+                    st.rerun()
+
+        # Management Composition — the rest of the Leadership & Succession
+        # indicators (age/gender/nationality mix, turnover, tenure,
+        # non-family headcount) computed from the same CompanyPerson roster.
+        # See company_service.sync_management_composition_signals for why
+        # Management Cultural Diversity / Level & Diversity of Education
+        # aren't included here (no roster column captures either yet).
+        if has_aged_people:
+            from company_service import sync_management_composition_signals
+            with st.expander("🧑‍💼 Management Composition Indicators"):
+                st.caption(
+                    "Computed directly from the imported board/management roster above — nothing "
+                    "manually entered. Re-run after re-importing an updated roster; a dash means the "
+                    "roster doesn't carry that field for anyone yet."
+                )
+                composition = sync_management_composition_signals(db, company)
+                metric_specs = [
+                    ("management_age", "Management Age (avg, yrs)", "{:.1f}"),
+                    ("mgmt_gender_diversity", "Gender Diversity (% women)", "{:.0f}%"),
+                    ("mgmt_national_diversity", "National Diversity (%)", "{:.0f}%"),
+                    ("management_turnover", "Turnover (changes, last 3y)", "{:.0f}"),
+                    ("senior_mgmt_tenure", "Avg. Tenure (yrs)", "{:.1f}"),
+                    ("independent_board_members", "Independent (Non-Family)", "{:.0f}"),
+                ]
+                metric_cols = st.columns(3)
+                for i, (key, label, fmt) in enumerate(metric_specs):
+                    entry = composition.get(key, {})
+                    with metric_cols[i % 3]:
+                        st.metric(label, fmt.format(entry["value"]) if entry.get("written") else "—")
+                st.caption(
+                    "Not computed (no data source): Management Cultural Diversity, Level of Education, "
+                    "Diversity of Education — no roster column captures education or cultural background."
+                )
+                if st.button("🔄 Recompute Management Composition", key="recompute_mgmt_composition_btn"):
+                    sync_management_composition_signals(db, company)
                     st.rerun()
 
         # Pilot History
