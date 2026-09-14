@@ -12,6 +12,7 @@ import itertools
 from collections import Counter
 from datetime import datetime, timedelta
 import pandas as pd
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, PilotOutcome, RawImportRecord, CompanyPerson
@@ -306,6 +307,7 @@ _GROUP_SUFFIX_RE = re.compile(r'^(?P<base>.+)_(?P<suffix>latest|y-\d+)$')
 COMPANY_FIELD_ALIASES = {
     "legal_name": "company:legal_name", "ragione_sociale": "company:legal_name",
     "company_name": "company:legal_name", "name": "company:legal_name",
+    "company_legal_name": "company:legal_name",
     "registration_number": "company:registration_number", "partita_iva": "company:registration_number",
     "vat_number": "company:registration_number", "p_iva": "company:registration_number",
     "nace_code": "company:nace_code", "ateco_code": "company:nace_code",
@@ -1013,6 +1015,231 @@ def list_person_mapping_profile_names(db: Session) -> list:
     ]
 
 
+# =============================================================================
+# Flexible people import — ONE ROW PER PERSON
+#
+# import_company_people above requires the AIDA-style convention: one row per
+# COMPANY, with multiple people's values newline-stacked inside each cell.
+# That's the right shape for AIDA's own exports, but it's a genuinely hard
+# target for any other source to hit correctly — in particular an LLM-assisted
+# extraction pipeline (e.g. a LinkedIn-profile-to-CSV Gem), where getting
+# embedded-newline CSV quoting exactly right across many stacked values,
+# perfectly positionally aligned across several columns, is an easy thing to
+# get subtly wrong.
+#
+# This mirrors the Flexible Data Import feeder's own architecture instead
+# (apply_data_import/suggest_mapping/valid_targets_for_group below) — arbitrary
+# column names, auto-suggested + human-reviewed + saved mapping — but for
+# CompanyPerson rows, one row per person, company repeated on every row. Any
+# source that can produce a flat CSV (which is nearly all of them, including
+# an LLM) can be piped in with zero pre-processing.
+# =============================================================================
+
+FLAT_IMPORT_ROLE_GROUP = "Flat Import"
+
+# Normalized (via _norm) column name -> target. Deliberately does NOT include
+# aliases for education level/field, a "digital/innovation lead" title match,
+# or free-text confidence notes — CompanyPerson has no dedicated column for
+# any of those yet (see sync_management_composition_signals' own docstring on
+# this same gap). They still survive in full inside raw_fields below, ready
+# for a future aggregation step without needing the file re-uploaded.
+PERSON_FLAT_COLUMN_ALIASES = {
+    "company_legal_name": "match:legal_name", "legal_name": "match:legal_name",
+    "company": "match:legal_name", "company_name": "match:legal_name",
+    "ragione_sociale": "match:legal_name",
+    "full_name": "person:full_name", "name": "person:full_name",
+    "role": "person:role", "title": "person:role", "role_title": "person:role",
+    "estimated_age": "person:age", "age": "person:age",
+    "gender": "person:gender",
+    "nationality": "person:nationality",
+    "appointment_date": "person:appointment_date",
+    "resignation_date": "person:resignation_date",
+    "current_or_former": "person:current_or_former",
+}
+
+PERSON_FLAT_TARGET_LABELS = {
+    "": "— Ignore (kept in raw data only) —",
+    "match:legal_name": "Match: Company Legal Name (required, exactly one)",
+    "person:full_name": "Person: Full Name",
+    "person:role": "Person: Role / Title",
+    "person:age": "Person: Age",
+    "person:gender": "Person: Gender",
+    "person:nationality": "Person: Nationality",
+    "person:appointment_date": "Person: Appointment Date",
+    "person:resignation_date": "Person: Resignation Date",
+    "person:current_or_former": "Person: Current or Former",
+}
+
+FLAT_PEOPLE_PROFILE_PREFIX = "flatpeople::"
+
+
+def suggest_flat_person_mapping(columns: list, existing_profile: dict = None) -> dict:
+    """Auto-suggests a target for each column: a saved profile's assignment
+    (reviewed, never silently trusted — same rule every other mapping UI in
+    this module follows) wins, else the built-in alias guess, else "" —
+    genuinely unrecognized, stays in raw_fields until the user maps it."""
+    suggestions = {}
+    for col in columns:
+        if existing_profile and col in existing_profile:
+            suggestions[col] = existing_profile[col]
+        else:
+            suggestions[col] = PERSON_FLAT_COLUMN_ALIASES.get(_norm(col), "")
+    return suggestions
+
+
+def save_flat_person_mapping_profile(db: Session, dataset_name: str, mapping: dict) -> ColumnMappingProfile:
+    return save_mapping_profile(db, f"{FLAT_PEOPLE_PROFILE_PREFIX}{str(dataset_name).strip()}", "N/A", mapping)
+
+
+def load_flat_person_mapping_profile(db: Session, dataset_name: str) -> dict:
+    return load_mapping_profile(db, f"{FLAT_PEOPLE_PROFILE_PREFIX}{str(dataset_name).strip()}")
+
+
+def list_flat_person_mapping_profile_names(db: Session) -> list:
+    return [
+        p.dataset_name[len(FLAT_PEOPLE_PROFILE_PREFIX):]
+        for p in list_mapping_profiles(db)
+        if p.dataset_name.startswith(FLAT_PEOPLE_PROFILE_PREFIX)
+    ]
+
+
+def apply_person_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name: str,
+                              source_filename: str = None, overwrite_conflicts: bool = False,
+                              dry_run: bool = False, progress_callback=None) -> dict:
+    """
+    Applies a reviewed {column: 'match:legal_name' | 'person:<field>' | None}
+    mapping to every row of df — one row per PERSON, company legal name
+    repeated on every row belonging to it.
+
+    Matches to an EXISTING company by exact legal_name only (same rule and
+    same reasoning as import_company_people: a third-party source's own ID
+    column isn't reliably trustworthy — never creates a new company from this
+    file alone; unmatched names are reported instead).
+
+    Conflict rule mirrors import_company_people: a company that already has
+    CompanyPerson rows under this exact dataset_name (role_group
+    FLAT_IMPORT_ROLE_GROUP) is a conflict — real runs skip it unless
+    overwrite_conflicts, dry runs just report it. Reported once per company
+    even though several person-rows can share that company.
+
+    position_in_row is assigned by encounter order within this company across
+    THIS call — re-uploading the same file in the same row order updates the
+    same person-slots in place rather than duplicating (same semantics as
+    explode_person_group's own ordering for the stacked-cell importer).
+
+    Every column value for a row is preserved verbatim in that person's
+    raw_fields, whether or not it was mapped to a dedicated column.
+
+    progress_callback, when given, is called as progress_callback(rows_done,
+    total_rows) once per row so a caller can track a long import live.
+
+    Returns {"matched", "people_created", "people_updated": int,
+             "unmatched": [legal_name...], "conflicts": [{"legal_name",...}],
+             "errors": [str...]}.
+    """
+    result = {"matched": 0, "people_created": 0, "people_updated": 0,
+              "unmatched": [], "conflicts": [], "errors": []}
+
+    if not dataset_name or not str(dataset_name).strip():
+        result["errors"].append("Dataset name is required.")
+        return result
+    dataset_name = str(dataset_name).strip()
+
+    match_cols = [col for col, target in mapping.items() if target == "match:legal_name"]
+    if len(match_cols) != 1:
+        result["errors"].append(
+            f"Exactly one column must be mapped to Match: Company Legal Name (found {len(match_cols)})."
+        )
+        return result
+    match_col = match_cols[0]
+
+    field_cols = {col: target.split(":", 1)[1] for col, target in mapping.items()
+                  if target and target.startswith("person:")}
+
+    conflict_by_company = {}  # company_id -> bool
+    reported_conflict_ids = set()
+    position_counters = {}  # company_id -> next position_in_row
+    touched_companies = {}  # company_id -> Company, for the post-loop signal sync
+
+    total_rows = len(df)
+    for idx, row in df.iterrows():
+        if progress_callback:
+            progress_callback(idx + 1, total_rows)
+        row_dict = row.to_dict()
+        row_num = idx + 2  # 1-indexed header + 1
+
+        legal_name = _clean_str(row_dict.get(match_col))
+        if not legal_name:
+            result["errors"].append(f"Row {row_num}: could not read a company legal name.")
+            continue
+
+        company = db.query(Company).filter_by(legal_name=legal_name).first()
+        if not company:
+            result["unmatched"].append(legal_name)
+            continue
+
+        if company.id not in conflict_by_company:
+            conflict_by_company[company.id] = db.query(CompanyPerson).filter_by(
+                company_id=company.id, dataset_name=dataset_name, role_group=FLAT_IMPORT_ROLE_GROUP,
+            ).first() is not None
+        is_conflict = conflict_by_company[company.id]
+
+        if is_conflict and not (overwrite_conflicts and not dry_run):
+            if company.id not in reported_conflict_ids:
+                reported_conflict_ids.add(company.id)
+                result["conflicts"].append({"legal_name": legal_name, "registration_number": company.registration_number})
+            continue
+
+        result["matched"] += 1
+        if dry_run:
+            continue
+
+        position = position_counters.get(company.id, 0)
+        position_counters[company.id] = position + 1
+
+        person = db.query(CompanyPerson).filter_by(
+            company_id=company.id, dataset_name=dataset_name,
+            role_group=FLAT_IMPORT_ROLE_GROUP, position_in_row=position,
+        ).first()
+        if not person:
+            person = CompanyPerson(
+                company_id=company.id, dataset_name=dataset_name,
+                role_group=FLAT_IMPORT_ROLE_GROUP, position_in_row=position,
+            )
+            db.add(person)
+            result["people_created"] += 1
+        else:
+            result["people_updated"] += 1
+
+        for col, field in field_cols.items():
+            value = row_dict.get(col)
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                continue
+            if field == "age":
+                try:
+                    person.age = int(float(value))
+                except (TypeError, ValueError):
+                    pass
+            elif field in ("appointment_date", "resignation_date"):
+                parsed = _parse_date(value)
+                if parsed is not None:
+                    setattr(person, field, parsed)
+            else:
+                setattr(person, field, str(value)[:255])
+
+        person.raw_fields = {str(k): _json_safe(v) for k, v in row_dict.items()}
+        person.updated_at = datetime.utcnow()
+        touched_companies[company.id] = company
+        db.commit()
+
+    if not dry_run:
+        for company in touched_companies.values():
+            sync_succession_signal(db, company, source=dataset_name)
+            sync_management_composition_signals(db, company, source=dataset_name)
+
+    return result
+
+
 def parse_roster_file(file_or_buffer, filename: str = None) -> pd.DataFrame:
     """
     Reads an uploaded management/board-style dataset (.xls/.xlsx/.csv) with
@@ -1536,11 +1763,19 @@ def _normalize_for_name_match(text: str) -> str:
 
 def detect_family_and_succession(db: Session, company: Company) -> dict:
     """
-    Only looks at CompanyPerson rows with a known age — this is what
-    distinguishes a named individual (director/advisor) from a shareholder/
-    subsidiary entity row exploded from the same-shaped ownership imports,
-    which never carry an age (see detect_loose_stacked_groups's module
-    docstring: Azionisti/CSH/Partecipate have no age sub-field at all).
+    Looks at CompanyPerson rows with a known age, OR rows from the flexible
+    one-row-per-person importer (FLAT_IMPORT_ROLE_GROUP) regardless of age.
+    The age requirement exists to distinguish a named individual (director/
+    advisor) from a shareholder/subsidiary entity row exploded from the
+    AIDA-shaped ownership imports, which never carry an age (see
+    detect_loose_stacked_groups's module docstring: Azionisti/CSH/Partecipate
+    have no age sub-field at all) — that ambiguity structurally doesn't exist
+    for the flexible importer (every row there is always a real, named
+    person, e.g. from a LinkedIn extraction pipeline that often can't
+    determine age at all), so excluding its age-less rows would silently
+    drop real people rather than filter out entities. The young/old-manager
+    checks below still require age on the specific candidate either way —
+    this only affects which rows are eligible to be *considered*.
 
     Returns {"is_family_company": bool, "family_surnames": [str, ...],
              "new_generation": {"detected": bool, "surname": str or None,
@@ -1550,7 +1785,7 @@ def detect_family_and_succession(db: Session, company: Company) -> dict:
     people = (
         db.query(CompanyPerson)
         .filter_by(company_id=company.id)
-        .filter(CompanyPerson.age.isnot(None))
+        .filter(or_(CompanyPerson.age.isnot(None), CompanyPerson.role_group == FLAT_IMPORT_ROLE_GROUP))
         .all()
     )
 
@@ -1708,10 +1943,14 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
     person; otherwise it's left at whatever status it already had rather
     than being faked as zero/absent.
 
-    Only looks at CompanyPerson rows with a known age (the same rule
-    detect_family_and_succession uses to separate named individuals from
-    shareholder/subsidiary entity rows exploded from the ownership imports,
-    which never carry an age).
+    Uses the same relaxed age rule as detect_family_and_succession: a known
+    age, OR a row from the flexible one-row-per-person importer
+    (FLAT_IMPORT_ROLE_GROUP), which never carries the AIDA-shaped ownership-
+    entity ambiguity the age check exists for in the first place — a
+    LinkedIn-sourced person with no disclosed age still has a real role,
+    nationality, and tenure worth counting. management_age itself further
+    narrows to whichever of those people actually have a known age (see
+    below), same honest-denominator pattern gender/nationality already use.
 
     Returns {indicator_key: {"written": bool, "value": float or None}} for
     every key in MANAGEMENT_COMPOSITION_INDICATOR_KEYS.
@@ -1721,7 +1960,7 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
     people = (
         db.query(CompanyPerson)
         .filter_by(company_id=company.id)
-        .filter(CompanyPerson.age.isnot(None))
+        .filter(or_(CompanyPerson.age.isnot(None), CompanyPerson.role_group == FLAT_IMPORT_ROLE_GROUP))
         .all()
     )
     if not people:
@@ -1743,9 +1982,14 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
         results[key] = {"written": True, "value": sig.numeric_value}
 
     if current:
-        # Management Age — average age of current management/board members.
-        _write("management_age", sum(p.age for p in current) / len(current),
-               {"basis": "average_age_of_current_people", "n": len(current)})
+        # Management Age — average age of current management/board members
+        # WITH a known age (not every current person necessarily has one,
+        # now that flat-imported people without a disclosed age are included
+        # above — same honest-denominator pattern as gender/nationality below).
+        aged_current = [p for p in current if p.age is not None]
+        if aged_current:
+            _write("management_age", sum(p.age for p in aged_current) / len(aged_current),
+                   {"basis": "average_age_of_current_people_with_known_age", "n": len(aged_current)})
 
         # Management Gender Diversity — % women among current people with a
         # recognized gender marker.

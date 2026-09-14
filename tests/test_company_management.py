@@ -38,6 +38,12 @@ from company_service import (
     load_person_mapping_profile,
     list_person_mapping_profile_names,
     sync_management_composition_signals,
+    suggest_flat_person_mapping,
+    apply_person_data_import,
+    save_flat_person_mapping_profile,
+    load_flat_person_mapping_profile,
+    list_flat_person_mapping_profile_names,
+    FLAT_IMPORT_ROLE_GROUP,
 )
 
 FLEX_TEST_REGS = ["IT11122233344", "IT99988877766"]
@@ -48,6 +54,8 @@ SUCCESSION_TEST_REGS = ["IT10101010101", "IT20202020202", "IT30303030303", "IT40
 PEOPLE_MAPPING_TEST_REGS = ["IT88899900011"]
 PEOPLE_MAPPING_TEST_DATASET_NAMES = ["Test Mapping Roster"]
 COMPOSITION_TEST_REGS = ["IT60606060606", "IT70707070707", "IT80808080808", "IT90909090909"]
+FLAT_PEOPLE_TEST_REGS = ["IT11111000011", "IT22222000022", "IT33333000033"]
+FLAT_PEOPLE_TEST_DATASET_NAMES = ["Test Flat Roster"]
 
 
 @pytest.fixture(scope="function")
@@ -57,7 +65,7 @@ def db():
     # Clean up any test records
     test_regs = (["HRB-889900", "IT09988776655", "HRB-554433", "IT55443322110"]
                  + FLEX_TEST_REGS + PEOPLE_TEST_REGS + SUCCESSION_TEST_REGS
-                 + PEOPLE_MAPPING_TEST_REGS + COMPOSITION_TEST_REGS)
+                 + PEOPLE_MAPPING_TEST_REGS + COMPOSITION_TEST_REGS + FLAT_PEOPLE_TEST_REGS)
 
     def _cleanup():
         for reg in test_regs:
@@ -73,6 +81,10 @@ def db():
                 session.delete(p)
         for name in PEOPLE_MAPPING_TEST_DATASET_NAMES:
             p = session.query(ColumnMappingProfile).filter_by(dataset_name=f"people::{name}").first()
+            if p:
+                session.delete(p)
+        for name in FLAT_PEOPLE_TEST_DATASET_NAMES:
+            p = session.query(ColumnMappingProfile).filter_by(dataset_name=f"flatpeople::{name}").first()
             if p:
                 session.delete(p)
         for key in FLEX_TEST_INDICATOR_KEYS:
@@ -361,6 +373,18 @@ def test_apply_data_import_legal_name_match_never_creates(db):
     sig = db.query(SignalRecord).filter_by(company_id=existing.id, signal_key="leverage_ratio").first()
     assert sig.status == "present"
     assert sig.numeric_value == 2.5
+
+
+def test_suggest_mapping_recognizes_company_legal_name_header_and_indicator_key_columns(db):
+    """"Company Legal Name" (the header both LinkedIn Gem CSV formats use) must
+    auto-suggest company:legal_name, and a column literally named after an
+    existing indicator key (e.g. "external_collaboration") must auto-map onto
+    it with zero manual mapping -- this is what lets a flat, indicator-key-named
+    CSV (like the LinkedIn feed-signals export) round-trip with no new code."""
+    groups = detect_column_groups(["Company Legal Name", "external_collaboration"])
+    mapping = suggest_mapping(db, groups)
+    assert mapping["Company Legal Name"] == "company:legal_name"
+    assert mapping["external_collaboration"] == "indicator:external_collaboration"
 
 
 def test_apply_data_import_dry_run_makes_no_writes(db):
@@ -1248,3 +1272,190 @@ def test_import_company_people_auto_triggers_management_composition_signals(db):
     assert sig.status == "present"
     assert sig.numeric_value == pytest.approx(50.0)
     assert sig.is_simulated is False
+
+
+# =============================================================================
+# Flexible people import (one row per person) -- mirrors the flexible
+# column-mapping feeder's own tests above, applied to CompanyPerson instead
+# of Company/SignalRecord.
+# =============================================================================
+
+def _flat_people_df(legal_name):
+    return pd.DataFrame([
+        {
+            "Company Legal Name": legal_name, "Full Name": "Jane Doe", "Role": "Chief Financial Officer",
+            "Estimated Age": 47, "Gender": "F", "Nationality": "Germany",
+            "Education Level": "Master's", "Appointment Date": "2019-03-01", "Current or Former": "current",
+            "Digital Lead Role Match": "No",
+        },
+        {
+            # No age/gender on purpose -- the realistic LinkedIn case: role,
+            # tenure, and nationality are known, birthdate never is.
+            "Company Legal Name": legal_name, "Full Name": "Tom Weber", "Role": "Head of Digital",
+            "Estimated Age": None, "Gender": None, "Nationality": "Germany",
+            "Education Level": "Bachelor's", "Appointment Date": "2021-06-01", "Current or Former": "current",
+            "Digital Lead Role Match": "Yes",
+        },
+    ])
+
+
+def test_suggest_flat_person_mapping_recognizes_standard_headers():
+    columns = ["Company Legal Name", "Full Name", "Role", "Estimated Age", "Gender",
+               "Nationality", "Appointment Date", "Current or Former",
+               "Education Level", "Digital Lead Role Match", "Notes"]
+    mapping = suggest_flat_person_mapping(columns)
+    assert mapping["Company Legal Name"] == "match:legal_name"
+    assert mapping["Full Name"] == "person:full_name"
+    assert mapping["Role"] == "person:role"
+    assert mapping["Estimated Age"] == "person:age"
+    assert mapping["Gender"] == "person:gender"
+    assert mapping["Nationality"] == "person:nationality"
+    assert mapping["Appointment Date"] == "person:appointment_date"
+    assert mapping["Current or Former"] == "person:current_or_former"
+    # No dedicated CompanyPerson column exists for these yet -- must stay
+    # unmapped (not silently dropped -- see raw_fields assertions below).
+    assert mapping["Education Level"] == ""
+    assert mapping["Digital Lead Role Match"] == ""
+    assert mapping["Notes"] == ""
+
+
+def test_suggest_flat_person_mapping_reuses_saved_profile_over_alias_guess():
+    saved = {"Full Name": "person:role"}  # deliberately unusual, must win over the alias
+    mapping = suggest_flat_person_mapping(["Full Name", "Role"], existing_profile=saved)
+    assert mapping["Full Name"] == "person:role"
+    assert mapping["Role"] == "person:role"
+
+
+def test_apply_person_data_import_requires_exactly_one_match_column(db):
+    df = _flat_people_df("Doesn't Matter GmbH")
+    result = apply_person_data_import(db, df, {}, "Test Flat Roster", dry_run=True)
+    assert result["matched"] == 0
+    assert any("Match: Company Legal Name" in e for e in result["errors"])
+
+
+def test_apply_person_data_import_dry_run_makes_no_writes(db):
+    company, err = create_company(db, {
+        "legal_name": "Flat Dry Run GmbH", "registration_number": "IT11111000011", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    df = _flat_people_df("Flat Dry Run GmbH")
+    mapping = suggest_flat_person_mapping(list(df.columns))
+
+    preview = apply_person_data_import(db, df, mapping, "Test Flat Roster", dry_run=True)
+    assert preview["matched"] == 2
+    assert preview["people_created"] == 0
+    assert db.query(CompanyPerson).filter_by(company_id=company.id).count() == 0
+
+
+def test_apply_person_data_import_creates_people_and_preserves_raw_fields(db):
+    company, err = create_company(db, {
+        "legal_name": "Flat Import GmbH", "registration_number": "IT22222000022", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    df = _flat_people_df("Flat Import GmbH")
+    mapping = suggest_flat_person_mapping(list(df.columns))
+
+    result = apply_person_data_import(db, df, mapping, "Test Flat Roster", dry_run=False)
+    assert result["matched"] == 2
+    assert result["people_created"] == 2
+    assert result["unmatched"] == []
+    assert result["conflicts"] == []
+
+    people = {p.full_name: p for p in db.query(CompanyPerson).filter_by(company_id=company.id).all()}
+    assert people["Jane Doe"].role == "Chief Financial Officer"
+    assert people["Jane Doe"].age == 47
+    assert people["Jane Doe"].gender == "F"
+    assert people["Jane Doe"].role_group == FLAT_IMPORT_ROLE_GROUP
+    # Honesty rule: Tom's age/gender were never provided -> stay None, not faked.
+    assert people["Tom Weber"].age is None
+    assert people["Tom Weber"].gender is None
+    assert people["Tom Weber"].nationality == "Germany"
+    # Every column -- mapped or not -- survives in raw_fields (Education
+    # Level and Digital Lead Role Match have no dedicated column yet).
+    assert people["Tom Weber"].raw_fields["Education Level"] == "Bachelor's"
+    assert people["Tom Weber"].raw_fields["Digital Lead Role Match"] == "Yes"
+
+
+def test_apply_person_data_import_unmatched_name_not_created(db):
+    df = _flat_people_df("Some Unknown Company Not In DB")
+    mapping = suggest_flat_person_mapping(list(df.columns))
+    result = apply_person_data_import(db, df, mapping, "Test Flat Roster", dry_run=False)
+    assert result["matched"] == 0
+    assert result["unmatched"] == ["Some Unknown Company Not In DB", "Some Unknown Company Not In DB"]
+    assert db.query(Company).filter_by(legal_name="Some Unknown Company Not In DB").first() is None
+
+
+def test_apply_person_data_import_reupload_conflicts_once_per_company_not_per_row(db):
+    company, err = create_company(db, {
+        "legal_name": "Flat Conflict GmbH", "registration_number": "IT33333000033", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    df = _flat_people_df("Flat Conflict GmbH")
+    mapping = suggest_flat_person_mapping(list(df.columns))
+    apply_person_data_import(db, df, mapping, "Test Flat Roster", dry_run=False)
+    assert db.query(CompanyPerson).filter_by(company_id=company.id).count() == 2
+
+    result = apply_person_data_import(db, df, mapping, "Test Flat Roster", overwrite_conflicts=False, dry_run=False)
+    assert result["matched"] == 0
+    assert len(result["conflicts"]) == 1  # not 2, even though 2 rows belong to this company
+    assert db.query(CompanyPerson).filter_by(company_id=company.id).count() == 2  # unchanged, no duplicates
+
+    result = apply_person_data_import(db, df, mapping, "Test Flat Roster", overwrite_conflicts=True, dry_run=False)
+    assert result["matched"] == 2
+    assert db.query(CompanyPerson).filter_by(company_id=company.id).count() == 2  # updated in place, still 2
+
+
+def test_apply_person_data_import_flat_import_triggers_composition_signals(db):
+    """Same auto-trigger contract as import_company_people, and the whole
+    point of the age-filter relaxation below: Tom Weber (no age) must still
+    count towards nationality diversity, tenure, and independent-board-member
+    signals, while management_age correctly averages only Jane (the one
+    person with a known age) rather than crashing or being skipped entirely."""
+    company, err = create_company(db, {
+        "legal_name": "Flat Composition GmbH", "registration_number": "IT11111000011", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    df = _flat_people_df("Flat Composition GmbH")
+    mapping = suggest_flat_person_mapping(list(df.columns))
+    apply_person_data_import(db, df, mapping, "Test Flat Roster", dry_run=False)
+
+    def _sig(key):
+        return db.query(SignalRecord).filter_by(company_id=company.id, signal_key=key).first()
+
+    assert _sig("management_age").numeric_value == pytest.approx(47.0)  # Jane only
+    assert _sig("mgmt_national_diversity").numeric_value == pytest.approx(0.0)  # both Germany
+    # Both Jane and Tom count as independent (no shared surname) even though
+    # Tom's age is unknown -- this is the fix: previously an age-less person
+    # was invisible to every composition signal, not just age-based ones.
+    assert _sig("independent_board_members").numeric_value == pytest.approx(2.0)
+    tenure_sig = _sig("senior_mgmt_tenure")
+    assert tenure_sig is not None and tenure_sig.numeric_value > 0
+
+
+def test_flat_import_age_relaxation_does_not_affect_aida_stacked_import(db):
+    """Regression guard: the age-filter relaxation is scoped to
+    FLAT_IMPORT_ROLE_GROUP only -- an age-less person from the AIDA-style
+    stacked-cell importer (role_group 'DM') must still be excluded entirely,
+    since that's the only signal distinguishing a real director from a
+    shareholder/subsidiary entity row in that data shape."""
+    company, err = create_company(db, {
+        "legal_name": "Aida Unaffected S.r.l.", "registration_number": "IT22222000022", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    _add_person(db, company.id, "No Age Person", age=None, gender="M", nationality="Italian",
+                role_group="DM", dataset="Aida Age Regression Dataset", position=0)
+    _add_person(db, company.id, "Known Age Person", age=50, gender="F", nationality="German",
+                role_group="DM", dataset="Aida Age Regression Dataset", position=1)
+
+    result = sync_management_composition_signals(db, company)
+    # Only the aged person is visible -- gender diversity should be 100% F
+    # (1 of 1 counted), not 50% (which would mean the age-less person leaked in).
+    assert result["mgmt_gender_diversity"]["value"] == pytest.approx(100.0)
+    assert result["independent_board_members"]["value"] == pytest.approx(1.0)
+
+
+def test_flat_person_mapping_profile_round_trip(db):
+    mapping = {"Company Legal Name": "match:legal_name", "Full Name": "person:full_name"}
+    save_flat_person_mapping_profile(db, "Test Flat Roster", mapping)
+    assert load_flat_person_mapping_profile(db, "Test Flat Roster") == mapping
+    assert "Test Flat Roster" in list_flat_person_mapping_profile_names(db)

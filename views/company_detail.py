@@ -303,6 +303,158 @@ def _render_flexible_import_tab(db: Session):
                 st.rerun()
 
 
+def _render_flexible_people_import_tab(db: Session):
+    st.subheader("🧑‍💼 Flexible People Import")
+    st.caption(
+        "For sources that give ONE ROW PER PERSON in any column layout — e.g. output from a "
+        "LinkedIn-profile extraction pipeline. Mirrors 🔗 Flexible Data Import's own approach "
+        "(any column names, auto-suggested + reviewed mapping, saved under the dataset name) "
+        "but for people instead of company signals — far more robust than the stacked-cell "
+        "'👥 Import People & Ownership' tab for a source that isn't natively shaped like AIDA's "
+        "exports, since there's no embedded-newline CSV quoting to get right. Company Legal "
+        "Name is repeated on every person's row. Matches to an existing company by **exact "
+        "legal name** — never creates a new company from this file; unmatched names are listed."
+    )
+
+    from company_service import (
+        parse_uploaded_file, suggest_flat_person_mapping, apply_person_data_import,
+        save_flat_person_mapping_profile, load_flat_person_mapping_profile,
+        list_flat_person_mapping_profile_names, PERSON_FLAT_TARGET_LABELS,
+    )
+
+    existing_names = list_flat_person_mapping_profile_names(db)
+    dataset_name = st.text_input(
+        "Dataset Name *", placeholder="e.g. LinkedIn Roster",
+        help="Same scoping rule as the other import tabs: re-uploading under the SAME name "
+             "flags companies that already have it (with an overwrite option); a DIFFERENT "
+             "name just adds in.",
+        key="flatppl_dataset_name",
+    )
+    if existing_names:
+        st.caption(f"Previously saved dataset names: {', '.join(existing_names)}")
+
+    uploaded = st.file_uploader("Upload Dataset (.csv or .xlsx)", type=["csv", "xlsx", "xls"], key="flatppl_uploader")
+
+    if uploaded is None:
+        st.session_state.pop("flatppl_df", None)
+        return
+
+    file_sig = (uploaded.name, uploaded.size)
+    if st.session_state.get("flatppl_file_sig") != file_sig:
+        try:
+            uploaded.seek(0)
+            df = parse_uploaded_file(uploaded, filename=uploaded.name)
+        except Exception as e:
+            st.error(f"Could not read file: {e}")
+            return
+        st.session_state["flatppl_file_sig"] = file_sig
+        st.session_state["flatppl_df"] = df
+        profile_mapping = load_flat_person_mapping_profile(db, dataset_name) if dataset_name.strip() else {}
+        st.session_state["flatppl_mapping"] = suggest_flat_person_mapping(list(df.columns), existing_profile=profile_mapping)
+        st.session_state["flatppl_preview"] = None
+
+    df = st.session_state["flatppl_df"]
+    mapping_state = st.session_state.setdefault("flatppl_mapping", suggest_flat_person_mapping(list(df.columns)))
+
+    st.markdown(f"##### {len(df)} row(s) — one person per row")
+    st.dataframe(df.head(5), use_container_width=True)
+    st.markdown("###### Column Mapping")
+
+    option_keys = list(PERSON_FLAT_TARGET_LABELS.keys())
+    for col in df.columns:
+        current = mapping_state.get(col, "")
+        if current not in option_keys:
+            current = ""
+        default_idx = option_keys.index(current)
+
+        row_c1, row_c2 = st.columns([2, 3])
+        with row_c1:
+            st.caption(f"**{col}**")
+        with row_c2:
+            picked = st.selectbox(
+                f"Map '{col}' to", options=option_keys,
+                format_func=lambda k: PERSON_FLAT_TARGET_LABELS.get(k, k),
+                index=default_idx, key=f"flatppl_map_{col}", label_visibility="collapsed",
+            )
+            mapping_state[col] = picked
+    st.session_state["flatppl_mapping"] = mapping_state
+
+    match_cols = [c for c, t in mapping_state.items() if t == "match:legal_name"]
+    has_match_key = len(match_cols) == 1
+    if not has_match_key:
+        st.warning("Map exactly one column to **Match: Company Legal Name** before previewing.")
+
+    st.markdown("---")
+
+    if st.button(
+        "🔍 Preview Import", key="flatppl_preview_btn",
+        disabled=not has_match_key or not dataset_name.strip(), use_container_width=True,
+    ):
+        with st.spinner("Analyzing..."):
+            preview = apply_person_data_import(db, df, mapping_state, dataset_name, dry_run=True)
+        st.session_state["flatppl_preview"] = preview
+
+    preview = st.session_state.get("flatppl_preview")
+    if preview:
+        if preview["errors"] and not (preview["matched"] or preview["conflicts"]):
+            for err in preview["errors"]:
+                st.error(err)
+        else:
+            pc1, pc2, pc3 = st.columns(3)
+            pc1.metric("Matched People (rows)", preview["matched"])
+            pc2.metric("⚠️ Unmatched Names", len(preview["unmatched"]))
+            pc3.metric("⚠️ Conflicts", len(preview["conflicts"]))
+
+            if preview["unmatched"]:
+                with st.expander(f"⚠️ {len(preview['unmatched'])} legal name(s) with no matching company", expanded=False):
+                    for name in preview["unmatched"]:
+                        st.write(f"- {name}")
+            if preview["errors"]:
+                with st.expander(f"⚠️ {len(preview['errors'])} row(s) with issues", expanded=False):
+                    for err in preview["errors"]:
+                        st.warning(err)
+
+            overwrite = False
+            if preview["conflicts"]:
+                with st.expander(
+                    f"⚠️ {len(preview['conflicts'])} companies already have a '{dataset_name}' roster loaded",
+                    expanded=True,
+                ):
+                    for c in preview["conflicts"]:
+                        st.write(f"- {c['legal_name']} ({c['registration_number']})")
+                    overwrite = st.checkbox(
+                        f"Overwrite existing '{dataset_name}' roster for the companies listed above",
+                        value=False, key="flatppl_overwrite_checkbox",
+                    )
+
+            if st.button("🚀 Confirm Import", key="flatppl_confirm_btn", use_container_width=True):
+                bar, status, progress_cb = _progress_reporter("person")
+                result = apply_person_data_import(
+                    db, df, mapping_state, dataset_name,
+                    source_filename=file_sig[0], overwrite_conflicts=overwrite, dry_run=False,
+                    progress_callback=progress_cb,
+                )
+                save_flat_person_mapping_profile(db, dataset_name, mapping_state)
+                bar.empty()
+                status.empty()
+                st.success(
+                    f"✅ **Import complete — {len(df)} row(s) processed.** "
+                    f"**{result['matched']}** people matched to companies — "
+                    f"**{result['people_created']}** created, **{result['people_updated']}** updated."
+                )
+                if result["unmatched"]:
+                    with st.expander(f"⚠️ {len(result['unmatched'])} legal name(s) with no matching company", expanded=False):
+                        for name in result["unmatched"]:
+                            st.write(f"- {name}")
+                if result["errors"]:
+                    with st.expander("⚠️ Import Warnings & Skipped Rows", expanded=True):
+                        for err in result["errors"]:
+                            st.warning(err)
+                for k in ("flatppl_df", "flatppl_file_sig", "flatppl_mapping", "flatppl_preview"):
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+
 def _render_people_import_tab(db: Session):
     st.subheader("👥 Import People & Ownership")
     st.caption(
@@ -1227,12 +1379,13 @@ def render_company_detail_page(db: Session):
     st.title("🏢 Company Intelligence & Management")
     st.caption("Deep-dive company breakdown, tri-state signal audits, single company creation, and bulk CSV ingestion.")
 
-    tab_detail, tab_add, tab_import, tab_flex, tab_people, tab_manage = st.tabs([
+    tab_detail, tab_add, tab_import, tab_flex, tab_people, tab_flat_people, tab_manage = st.tabs([
         "🏢 Company Intelligence & Audit",
         "➕ Add Single Company",
         "📁 Bulk CSV Import",
         "🔗 Flexible Data Import",
         "👥 Import People & Ownership",
+        "🧑‍💼 Flexible People Import",
         "🗑️ Manage Companies"
     ])
 
@@ -1356,7 +1509,13 @@ def render_company_detail_page(db: Session):
         _render_people_import_tab(db)
 
     # --------------------------------------------------------------------------
-    # TAB 6: Manage / Delete Companies
+    # TAB 6: Flexible (one-row-per-person) People Import
+    # --------------------------------------------------------------------------
+    with tab_flat_people:
+        _render_flexible_people_import_tab(db)
+
+    # --------------------------------------------------------------------------
+    # TAB 7: Manage / Delete Companies
     # --------------------------------------------------------------------------
     with tab_manage:
         _render_manage_companies_tab(db)
