@@ -8,9 +8,26 @@ from models import Base, SourceHealth, IndicatorDefinition
 from config import SQLALCHEMY_DATABASE_URI
 from indicators import seed_indicator_definitions
 
-# Setup engine with multi-thread safety for Streamlit
-connect_args = {"check_same_thread": False} if SQLALCHEMY_DATABASE_URI.startswith("sqlite") else {}
-engine = create_engine(SQLALCHEMY_DATABASE_URI, connect_args=connect_args, echo=False)
+# Setup engine with multi-thread safety for Streamlit and robust pooling for cloud PostgreSQL / Supabase
+is_sqlite = SQLALCHEMY_DATABASE_URI.startswith("sqlite")
+if is_sqlite:
+    connect_args = {"check_same_thread": False}
+else:
+    connect_args = {
+        "connect_timeout": 10,
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    }
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URI,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    echo=False
+)
 
 SessionFactory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 ScopedSession = scoped_session(SessionFactory)
@@ -19,6 +36,8 @@ from sqlalchemy import inspect, text
 
 def _migrate_sqlite_schema(target_engine):
     """Automatically adds missing columns to existing SQLite tables if models have changed."""
+    if not str(target_engine.url).startswith("sqlite"):
+        return
     inspector = inspect(target_engine)
     with target_engine.begin() as conn:
         for table_name, table in Base.metadata.tables.items():
