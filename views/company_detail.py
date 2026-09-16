@@ -1028,7 +1028,7 @@ def _render_tab1_content(db: Session):
                 st.write("**Subsidiaries:**", ", ".join(s.legal_name for s in subsidiaries))
 
             st.markdown("&nbsp;")
-            col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
+            col_s1, col_s2, col_s3, col_s4 = st.columns([2, 1, 1, 1])
             with col_s1:
                 new_status = st.selectbox(
                     "Shortlist status", SHORTLIST_STATUSES,
@@ -1051,6 +1051,16 @@ def _render_tab1_content(db: Session):
                     with st.spinner(f"Syncing applicable APIs for {company.legal_name} ({company.country})..."):
                         sync_company_applicable_sources(company, db, phases=[1, 4])
                     st.success(f"Synced applicable APIs for {company.legal_name}!")
+                    st.rerun()
+            with col_s4:
+                st.markdown("&nbsp;")
+                if st.button("🕸️ Run Deep Crawlers", use_container_width=True,
+                             help="Phase 7 — 8 Node-based crawlers (company site, jobs, reviews, news, "
+                                  "directories, innovation participation, digital maturity). Can take several minutes."):
+                    from company_service import sync_company_applicable_sources
+                    with st.spinner(f"Running Phase 7 crawlers for {company.legal_name} — this can take several minutes..."):
+                        sync_company_applicable_sources(company, db, phases=[7])
+                    st.success(f"Phase 7 crawler enrichment done for {company.legal_name}!")
                     st.rerun()
 
         # Financial Profile — plain-language headline metrics + the complete table

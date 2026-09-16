@@ -38,7 +38,14 @@ def _call_with_hard_timeout(fn: Callable, company, timeout: int = HARD_FETCH_TIM
 def get_or_create_source_health(db: Session, source_name: str, phase: int) -> SourceHealth:
     sh = db.query(SourceHealth).filter_by(source_name=source_name).first()
     if not sh:
-        sh = SourceHealth(source_name=source_name, phase=phase)
+        # Column defaults (default=0) only materialize at flush/INSERT time, not on
+        # Python object construction — every previously-existing source got past
+        # this only because database.init_db() always seeds its SourceHealth row
+        # ahead of the first real call. A source with no matching IndicatorDefinition
+        # row (e.g. the Phase 7 crawler wrappers) hits this branch on its very first
+        # run instead, so the counters are set explicitly here rather than relying on
+        # the column default.
+        sh = SourceHealth(source_name=source_name, phase=phase, total_calls=0, total_cost=0.0, error_count=0)
         db.add(sh)
     return sh
 
@@ -71,6 +78,7 @@ def run_adapter(
     fetch_live: Callable[[Any], Dict[str, Any]],
     simulate: Callable[[Any], Dict[str, Any]],
     cost_per_call: float = 0.0,
+    timeout: int = HARD_FETCH_TIMEOUT_SECONDS,
 ) -> Dict[str, Any]:
     """
     fetch_live(company) / simulate(company) must both return:
@@ -79,6 +87,12 @@ def run_adapter(
     fetch_live may raise any Exception on failure (network, auth, parsing) — that's
     expected and handled by falling back to simulate() with the real error surfaced
     on SourceHealth rather than swallowed.
+
+    timeout overrides the default 20s wall-clock budget — the Node-based crawler
+    wrappers under scrapers/*_crawler.py spawn a subprocess (npm/node startup,
+    sometimes a Playwright browser and an LLM call) that routinely takes longer
+    than a plain HTTP fetch, so they pass a larger value here explicitly rather
+    than changing the shared default for every other adapter.
     """
     source_health = get_or_create_source_health(db, source_name, phase)
     source_health.total_calls += 1
@@ -89,7 +103,7 @@ def run_adapter(
     used_live = False
     try:
         if credentials_ok:
-            result = _call_with_hard_timeout(fetch_live, company)
+            result = _call_with_hard_timeout(fetch_live, company, timeout=timeout)
             used_live = True
         else:
             result = simulate(company)

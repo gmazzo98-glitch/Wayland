@@ -20,6 +20,11 @@ from indicators import fetch_indicator_defs, TREND_INDICATOR_KEYS, CAT_CONTEXT
 from utils import normalize_registration_nr
 from adapters import epo_ops, euipo, destatis, eu_funding, arbeitsagentur, google_news
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
+from scrapers import (
+    company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
+    directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler,
+    linkedin_profile_crawler,
+)
 
 SUPPORTED_COUNTRIES = ["Germany", "Italy"]
 
@@ -27,6 +32,14 @@ SUPPORTED_COUNTRIES = ["Germany", "Italy"]
 # - Universal / EU: EPO OPS, EUIPO, EU Funding Portal, Wappalyzer, Google News, Own-Site Scrape
 # - Germany only: Destatis, Arbeitsagentur, Handelsregister Free Snapshot, Bundesanzeiger, Kununu Reseller
 # - Italy only: Italian national registers / ISTAT (future integration hooks)
+# Phase 7 (Node-based crawlers, see scrapers/*_crawler.py) is universal too — none of
+# the 8 are Germany/Italy-specific by construction, so both country rows list all 8.
+PHASE_7_SOURCES = [
+    "Company Website Crawler", "Job Postings Crawler", "Review Crawler",
+    "News Signals Crawler", "Directory Listing Crawler", "Innovation Participation Crawler",
+    "Digital Maturity Crawler", "LinkedIn Profile Crawler",
+]
+
 COUNTRY_SOURCE_MAP = {
     "Germany": {
         "Phase 1": ["EPO OPS", "EUIPO", "Destatis", "EU Funding Portal", "Arbeitsagentur"],
@@ -34,6 +47,7 @@ COUNTRY_SOURCE_MAP = {
         "Phase 3": ["Bundesanzeiger"],
         "Phase 4": ["Wappalyzer", "Google News", "Own-Site Scrape"],
         "Phase 5": ["Kununu Reseller"],
+        "Phase 7": PHASE_7_SOURCES,
     },
     "Italy": {
         "Phase 1": ["EPO OPS", "EUIPO", "EU Funding Portal"],
@@ -41,6 +55,7 @@ COUNTRY_SOURCE_MAP = {
         "Phase 3": [],  # Bundesanzeiger not applicable
         "Phase 4": ["Wappalyzer", "Google News", "Own-Site Scrape"],
         "Phase 5": [],  # Kununu (DACH focus) not applicable
+        "Phase 7": PHASE_7_SOURCES,
     }
 }
 
@@ -98,6 +113,19 @@ def sync_company_applicable_sources(company: Company, db: Session, phases: list 
         results["Management Diversity"] = management_diversity.sync_management_diversity(company, db)
         results["Partnership News"] = google_news.sync_partnership_news(company, db)
         results["Innovation Statements"] = google_news.sync_innovation_statements(company, db)
+
+    if 7 in phases:
+        # Phase 7 — Node/Crawlee crawlers (Scraper/crawlers/), both DE & IT. Slower
+        # than every other phase (each call spawns a subprocess), so never part of
+        # the default auto_sync=[1, 4] path — always an explicit trigger.
+        results["Company Website Crawler"] = company_website_crawler.sync_company_website(company, db)
+        results["Job Postings Crawler"] = job_postings_crawler.sync_job_postings(company, db)
+        results["Review Crawler"] = review_crawler.sync_reviews(company, db)
+        results["News Signals Crawler"] = news_signals_crawler.sync_news_signals(company, db)
+        results["Directory Listing Crawler"] = directory_listing_crawler.sync_directory_listing(company, db)
+        results["Innovation Participation Crawler"] = innovation_participation_crawler.sync_innovation_participation(company, db)
+        results["Digital Maturity Crawler"] = digital_maturity_crawler.sync_digital_maturity(company, db)
+        results["LinkedIn Profile Crawler"] = linkedin_profile_crawler.sync_linkedin_profiles(company, db)
 
     return results
 

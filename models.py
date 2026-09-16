@@ -266,6 +266,11 @@ class CompanyPerson(Base):
     appointment_date = Column(DateTime, nullable=True)
     resignation_date = Column(DateTime, nullable=True)
     current_or_former = Column(String(50), nullable=True)
+    # Optional — lets scrapers/linkedin_profile_crawler.py know which people to fetch
+    # for this company. Populated by hand or via the flexible import, never scraped
+    # to derive it (see config.LINKEDIN_CRAWLER_ENABLED's docstring on why LinkedIn
+    # itself stays off by default).
+    linkedin_url = Column(String(500), nullable=True)
 
     raw_fields = Column(JSON, nullable=False)
 

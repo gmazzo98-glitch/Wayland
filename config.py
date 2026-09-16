@@ -4,6 +4,7 @@ Strictly based on GG_Dashboard_Technical_Brief.docx & GG_Signal_Sourcing_Plan.do
 """
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()  # loads .env if present — see .env.example for what it can set
@@ -49,6 +50,50 @@ ARBEITSAGENTUR_API_KEY = os.getenv("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche
 GOOGLE_CSE_API_KEY = os.getenv("GOOGLE_CSE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
 
+# ---------------------------------------------------------------------------
+# Node-based crawlers (scrapers/*_crawler.py) — the 8 independent Crawlee
+# packages under the sibling Scraper/crawlers/ folder (not part of this git
+# repo). Same honest-pipeline contract as everything else: each wrapper falls
+# back to run_adapter's simulate() path whenever the crawler folder, Node, or
+# a required key is missing, rather than guessing.
+# ---------------------------------------------------------------------------
+# Defaults to the sibling "Scraper/crawlers" folder next to this project
+# (".../Wayland/Project Vienna" and ".../Wayland/Scraper" are siblings on this
+# machine). Override if the crawlers ever move or run from a different host.
+SCRAPER_CRAWLERS_DIR = os.getenv("SCRAPER_CRAWLERS_DIR") or str(
+    Path(__file__).resolve().parent.parent / "Scraper" / "crawlers"
+)
+
+# Shared by company-website-crawler and news-signals-crawler/innovation-participation-crawler
+# for LLM field extraction — same key naming as the Claude API itself.
+CRAWLER_ANTHROPIC_API_KEY = os.getenv("CRAWLER_ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+
+# news-signals-crawler / innovation-participation-crawler: without a real key
+# these default to SEARCH_PROVIDER=mock, which returns FIXED FAKE Wikipedia
+# search results — that is never acceptable to present as a live pull, so the
+# wrappers below only ever invoke the crawler with SEARCH_PROVIDER=newsapi,
+# and skip straight to simulate() when this is unset (see scrapers/news_signals_crawler.py).
+NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
+
+# digital-maturity-crawler: optional, improves cms_platform/has_ecommerce detection.
+# Missing key just means data_source="heuristic" for that company, not a failure.
+BUILTWITH_API_KEY = os.getenv("BUILTWITH_API_KEY")
+
+# linkedin-profile-crawler stays off by default — the sourcing plan explicitly
+# names LinkedIn a "highest-risk scrape target" and says to buy via a compliant
+# reseller rather than scrape directly (see vienna-api-integration-status memory).
+# Flipping this on is a deliberate per-deployment decision, not a credential check.
+LINKEDIN_CRAWLER_ENABLED = os.getenv("LINKEDIN_CRAWLER_ENABLED", "false").lower() == "true"
+LINKEDIN_LI_AT = os.getenv("LINKEDIN_LI_AT")
+
+# review-crawler's Mode B (Kununu/Glassdoor employer reviews) is a direct,
+# robots.txt-respecting scrape — a different risk profile than the paid-reseller
+# path scrapers/kununu_light.py is deliberately gated behind, but still a fresh
+# decision worth its own explicit flag rather than defaulting to on. Mode A
+# (Google/Trustpilot product reviews -> product_quality_trend) has no such
+# caveat and always runs.
+KUNUNU_CRAWLER_ENABLED = os.getenv("KUNUNU_CRAWLER_ENABLED", "false").lower() == "true"
+
 # Real per-document/reseller pulls are a genuine build (headless-browser PDF parsing,
 # compliant reseller contracts) that's out of scope for this pass — see
 # scrapers/bundesanzeiger_paid.py and scrapers/kununu_light.py for what's missing.
@@ -69,13 +114,26 @@ SOURCE_CREDENTIAL_VARS = {
     "Google News": ["GOOGLE_CSE_API_KEY", "GOOGLE_CSE_ID"],
     "Own-Site Scrape": [],
     "Handelsregister Free Snapshot": [],
+    # Phase 7 — Node-based Crawlee crawlers (scrapers/*_crawler.py). Empty list means
+    # "runs without a key, just with weaker extraction" (matches each crawler's own
+    # graceful-degradation behavior); News Signals / Innovation Participation hard-gate
+    # on NEWSAPI_KEY because their un-keyed default is a FAKE fixture provider, not a
+    # plain absence of enrichment — see scrapers/news_signals_crawler.py.
+    "Company Website Crawler": [],
+    "Job Postings Crawler": [],
+    "Review Crawler": [],
+    "News Signals Crawler": ["NEWSAPI_KEY"],
+    "Directory Listing Crawler": [],
+    "Innovation Participation Crawler": ["NEWSAPI_KEY"],
+    "Digital Maturity Crawler": [],
 }
 
-# Paid sources (Phase 3/5) are gated by an explicit enable flag, not a credential var —
-# "real" here means a compliant scraper/contract being switched on, not just a key.
+# Paid/flag-gated sources are switched on by an explicit enable flag rather than a
+# credential var — "real" here means a deliberate risk/ToS decision, not just a key.
 SOURCE_PAID_ENABLE_FLAGS = {
     "Bundesanzeiger": BUNDESANZEIGER_PAID_ENABLED,
     "Kununu Reseller": KUNUNU_RESELLER_ENABLED,
+    "LinkedIn Profile Crawler": LINKEDIN_CRAWLER_ENABLED,
 }
 
 def has_credentials(source_name: str) -> bool:
@@ -101,6 +159,14 @@ PHASE_CONFIG = {
     4: {"name": "Phase 4: Website & Light Social Layer", "auto_run": True, "requires_approval": False},
     5: {"name": "Phase 5: Paid Social & Review Data", "auto_run": False, "requires_approval": True},
     6: {"name": "Phase 6: Manual / First-Contact Data", "auto_run": False, "requires_approval": False},
+    # Phase 7 — the 8 Node/Crawlee crawlers under Scraper/crawlers/. Deliberately
+    # NOT auto_run: each call spawns a subprocess (Node/Playwright startup, sometimes
+    # an LLM extraction call) that can take tens of seconds per company, so it must
+    # stay an explicit, on-demand trigger rather than firing on every company creation
+    # like Phase 1/4 do. requires_approval=False because nothing here is a paid/gated
+    # pull by default — the two ToS-sensitive sources (LinkedIn, Kununu-via-crawler)
+    # have their own dedicated off-by-default flags instead (see config.py above).
+    7: {"name": "Phase 7: Crawler Deep Enrichment (slower, Node-based)", "auto_run": False, "requires_approval": False},
 }
 
 # Shortlist Gate Thresholds

@@ -20,10 +20,19 @@ from config import PHASE_CONFIG, SOURCE_CREDENTIAL_VARS, SOURCE_PAID_ENABLE_FLAG
 MODE_BADGES = {"live": "🟢 Live", "simulated": "🧪 Simulated"}
 
 
+FLAG_ENV_VAR_NAMES = {
+    "Bundesanzeiger": "BUNDESANZEIGER_PAID_ENABLED",
+    "Kununu Reseller": "KUNUNU_RESELLER_ENABLED",
+    "LinkedIn Profile Crawler": "LINKEDIN_CRAWLER_ENABLED",
+}
+
+
 def _credential_note(source_name: str) -> str:
     if source_name in SOURCE_PAID_ENABLE_FLAGS:
-        flag = "BUNDESANZEIGER_PAID_ENABLED" if source_name == "Bundesanzeiger" else "KUNUNU_RESELLER_ENABLED"
-        return "Real puller not built yet" if not has_credentials(source_name) else f"{flag}=true"
+        flag = FLAG_ENV_VAR_NAMES.get(source_name, "?")
+        if has_credentials(source_name):
+            return f"{flag}=true"
+        return "Real puller not built yet" if source_name == "Bundesanzeiger" else f"Needs: {flag}=true"
     required = SOURCE_CREDENTIAL_VARS.get(source_name, [])
     if not required:
         return "None required"
@@ -92,6 +101,26 @@ def render_pipeline_health_page(db: Session):
                 for comp in target_companies:
                     sync_company_applicable_sources(comp, db, phases=[4])
                 st.success(f"Phase 4 pass complete across {len(target_companies)} companies!")
+                st.rerun()
+
+    st.markdown("&nbsp;")
+    st.markdown("**🕸️ Phase 7 — Crawler Deep Enrichment (Node-based, slower)**")
+    st.caption(
+        "Each of the 8 crawlers under Scraper/crawlers/ spawns its own subprocess per company "
+        "(Node/Playwright startup, sometimes an LLM call) — tens of seconds each, run sequentially. "
+        "Cap the batch size below; this is meant for a handful of shortlisted companies at a time, not the full list."
+    )
+    col_p7a, col_p7b = st.columns([1, 2])
+    with col_p7a:
+        p7_limit = st.number_input("Max companies this run", min_value=1, max_value=50, value=5, key="p7_limit")
+    with col_p7b:
+        st.markdown("&nbsp;")
+        if st.button("🕸️ Run Phase 7 Crawler Enrichment", use_container_width=True):
+            batch = target_companies[:int(p7_limit)]
+            with st.spinner(f"Running 8 crawlers for {len(batch)} companies — this can take several minutes..."):
+                for comp in batch:
+                    sync_company_applicable_sources(comp, db, phases=[7])
+                st.success(f"Phase 7 pass complete for {len(batch)} companies! Check the mode column below.")
                 st.rerun()
 
     st.caption(
