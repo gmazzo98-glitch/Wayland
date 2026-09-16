@@ -12,6 +12,18 @@ Scraper/CRAWLER_AUDIT.md): `npm run build` -> dist/main.js, `node dist/main.js
 one JSON file per row under storage/datasets/default/. CRAWLEE_STORAGE_DIR is
 pointed at a fresh temp dir per call specifically so concurrent/rerun calls
 never read a stale file left over from a previous invocation.
+
+One convention these wrappers deliberately do NOT inherit from the older
+adapters: their simulate() paths write **no signals at all**, rather than a
+value derived from a hash of the company name. scoring.py reads
+SignalRecord.numeric_value without consulting is_simulated, so a placeholder
+value is scored exactly like a verified one — harmless when the whole DB was
+seeded demo data, actively wrong now that these run against real prospects
+(a fabricated external_collaboration=0 sits on a weight-5.0 readiness row and
+is indistinguishable in the score from a checked, genuine zero). The four-state
+signal model already has an honest representation for "we haven't checked":
+not_yet_checked. So an unavailable crawler leaves the signal untouched, and
+SourceHealth still records mode=simulated so the Pipeline Health page shows why.
 """
 
 import csv

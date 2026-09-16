@@ -34,29 +34,32 @@ PHASE = 7
 
 
 def _derive_signals(row: dict) -> dict:
+    """
+    A 'not_found' here only counts as a confirmed absence when every search
+    actually ran — the crawler logs this itself ("search failed — not_found may
+    just mean couldn't search") and reports the failures in search_errors.
+    Treating a failed search as "confirmed: no university partnership" would put
+    a fabricated zero on a weight-5.0 readiness row, so when search_errors is
+    non-empty only positive findings are written.
+    """
     signals = {}
     field_status = row.get("field_status") or {}
+    searches_all_ran = not (row.get("search_errors") or [])
 
-    collabs = row.get("external_collaboration") or []
-    if collabs:
-        signals["external_collaboration"] = {"value": 1.0, "status": "present"}
-    elif field_status.get("external_collaboration") == "not_found":
-        signals["external_collaboration"] = {"value": 0.0, "status": "absent"}
+    def _flag(field: str, key: str, value_when_found: float):
+        items = row.get(field) or []
+        if items:
+            signals[key] = {"value": value_when_found if value_when_found is not None else float(len(items)),
+                            "status": "present"}
+        elif searches_all_ran and field_status.get(field) == "not_found":
+            signals[key] = {"value": 0.0, "status": "absent"}
 
-    uni = row.get("university_partnership") or []
-    if uni:
-        signals["university_partnership"] = {"value": 1.0, "status": "present"}
-    elif field_status.get("university_partnership") == "not_found":
-        signals["university_partnership"] = {"value": 0.0, "status": "absent"}
-
-    launches = row.get("product_launch_mentions") or []
-    if launches:
-        signals["press_launch_mentions"] = {"value": float(len(launches)), "status": "present"}
-    elif field_status.get("product_launch_mentions") == "not_found":
-        signals["press_launch_mentions"] = {"value": 0.0, "status": "absent"}
+    _flag("external_collaboration", "external_collaboration", 1.0)
+    _flag("university_partnership", "university_partnership", 1.0)
+    _flag("product_launch_mentions", "press_launch_mentions", None)
 
     precedent = row.get("sector_pilot_precedent") or {}
-    if precedent.get("count") is not None:
+    if field_status.get("sector_pilot_precedent") == "value" and precedent.get("count") is not None:
         signals["sector_pilot_precedent"] = {"value": float(precedent["count"]), "status": "present"}
 
     return signals
@@ -87,9 +90,8 @@ def sync_news_signals(company, db_session: Session) -> dict:
         }
 
     def _simulate(c):
-        char_sum = sum(ord(ch) for ch in c.legal_name)
         return {
-            "signals": {"external_collaboration": {"value": float(char_sum % 2), "status": "present"}},
+            "signals": {},
             "raw_payload": {"note": "NEWSAPI_KEY not configured — news-signals-crawler not invoked"},
             "confidence": 0.5,
         }

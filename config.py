@@ -119,7 +119,9 @@ SOURCE_CREDENTIAL_VARS = {
     # graceful-degradation behavior); News Signals / Innovation Participation hard-gate
     # on NEWSAPI_KEY because their un-keyed default is a FAKE fixture provider, not a
     # plain absence of enrichment — see scrapers/news_signals_crawler.py.
-    "Company Website Crawler": [],
+    # Company Website Crawler's fields are all LLM-extracted — no key means it
+    # returns not_found for every one of them, so it's a real gate, not an enhancement.
+    "Company Website Crawler": ["CRAWLER_ANTHROPIC_API_KEY"],
     "Job Postings Crawler": [],
     "Review Crawler": [],
     "News Signals Crawler": ["NEWSAPI_KEY"],

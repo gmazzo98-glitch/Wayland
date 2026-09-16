@@ -78,10 +78,8 @@ def sync_reviews(company, db_session: Session) -> dict:
         }
 
     def _simulate(c):
-        char_sum = sum(ord(ch) for ch in c.legal_name)
-        delta = ((char_sum % 20) - 10) / 10.0
         return {
-            "signals": {"product_quality_trend": {"value": float(delta), "status": "present"}},
+            "signals": {},
             "raw_payload": {"note": "review-crawler unavailable"},
             "confidence": 0.5,
         }

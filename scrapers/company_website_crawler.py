@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from adapters.base import run_adapter
+from config import CRAWLER_ANTHROPIC_API_KEY
 from models import RawImportRecord
 from scrapers.node_crawler_base import (
     CrawlerRunError, run_ts_crawler, rows_for_company, save_crawler_blob,
@@ -45,39 +46,44 @@ def _stores_trend(db: Session, company, new_count):
 
 
 def _derive_signals(db: Session, company, row: dict) -> dict:
+    """
+    Only writes a signal where field_status == 'value'. This crawler's own audit
+    notes are explicit that a failed/missing LLM extraction marks a field
+    'not_found' rather than claiming stores or reports are absent — so
+    'not_found' must NOT become SignalRecord status 'absent', which in this
+    codebase means "actively checked, confirmed no record exists". Anything
+    unextracted is simply left not_yet_checked for a later pass.
+    """
     signals = {}
     field_status = row.get("field_status") or {}
 
     product_lines = row.get("product_lines_count")
-    if product_lines is not None:
+    if field_status.get("product_lines_count") == "value" and product_lines is not None:
         signals["product_portfolio_diversity"] = {"value": float(product_lines), "status": "present"}
-    elif field_status.get("product_lines_count") == "not_found":
-        signals["product_portfolio_diversity"] = {"value": None, "status": "absent"}
 
     report = row.get("has_sustainability_report") or {}
-    if report.get("present"):
+    if field_status.get("has_sustainability_report") == "value":
         year = report.get("first_publication_year")
-        if year:
+        if report.get("present") and year:
             signals["esg_reporting_recency"] = {"value": float(datetime.utcnow().year - int(year)), "status": "present"}
-    elif report.get("present") is False:
-        signals["esg_reporting_recency"] = {"value": 99.0, "status": "absent"}
+        elif not report.get("present"):
+            # Sustainability pages were crawled and carry no report — a real absence.
+            signals["esg_reporting_recency"] = {"value": None, "status": "absent"}
 
     founding_year = row.get("founding_or_product_launch_year")
-    if founding_year:
+    if field_status.get("founding_or_product_launch_year") == "value" and founding_year:
         signals["product_age"] = {"value": float(datetime.utcnow().year - int(founding_year)), "status": "present"}
 
+    # 'not_applicable' here means pure B2B / no retail footprint — the indicator's own
+    # comment says to treat that as null, never as "zero stores = need".
     store_regions = row.get("store_regions") or []
-    store_count = row.get("store_count")
-    if store_regions:
+    if field_status.get("store_regions") == "value" and store_regions:
         signals["store_geo_distribution"] = {"value": float(len(store_regions)), "status": "present"}
-    elif field_status.get("store_regions") == "not_applicable":
-        pass  # pure B2B / no retail footprint — leave not_yet_checked rather than scoring "zero = need"
-    elif field_status.get("store_regions") == "not_found":
-        signals["store_geo_distribution"] = {"value": None, "status": "absent"}
 
-    trend = _stores_trend(db, company, store_count)
-    if trend is not None:
-        signals["physical_stores_trend"] = {"value": float(trend), "status": "present"}
+    if field_status.get("store_count") == "value":
+        trend = _stores_trend(db, company, row.get("store_count"))
+        if trend is not None:
+            signals["physical_stores_trend"] = {"value": float(trend), "status": "present"}
 
     return signals
 
@@ -86,7 +92,10 @@ def sync_company_website(company, db_session: Session) -> dict:
     captured = {}
 
     def _fetch_live(c):
-        rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}])
+        # subprocess env values must be strings — never hand it a None.
+        env = {"ANTHROPIC_API_KEY": CRAWLER_ANTHROPIC_API_KEY} if CRAWLER_ANTHROPIC_API_KEY else {}
+        rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}],
+                               env_overrides=env)
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("company-website-crawler returned no row for this company")
@@ -101,16 +110,22 @@ def sync_company_website(company, db_session: Session) -> dict:
         }
 
     def _simulate(c):
-        char_sum = sum(ord(ch) for ch in c.legal_name)
         return {
-            "signals": {"product_portfolio_diversity": {"value": float((char_sum % 8) + 1), "status": "present"}},
-            "raw_payload": {"note": "company-website-crawler unavailable or no website_url on record"},
+            "signals": {},
+            "raw_payload": {"note": "company-website-crawler unavailable, no website_url on record, "
+                                     "or CRAWLER_ANTHROPIC_API_KEY not configured"},
             "confidence": 0.5,
         }
 
+    # Every signal-bearing field this crawler produces is LLM-extracted — without a
+    # key it still crawls, but returns field_status='not_found' for all of them and
+    # can never yield a signal. Verified live against a real company: all 7 fields
+    # came back not_found with no key set. Gating here keeps Pipeline Health honest
+    # (it reports simulated + "needs a key") rather than showing a green "live" for
+    # a source that is structurally incapable of producing anything.
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
-        credentials_ok=bool(company.website_url),
+        credentials_ok=bool(company.website_url and CRAWLER_ANTHROPIC_API_KEY),
         fetch_live=_fetch_live, simulate=_simulate, timeout=90,
     )
 

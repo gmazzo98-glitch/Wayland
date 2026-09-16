@@ -29,21 +29,28 @@ PHASE = 7
 
 
 def _derive_signals(row: dict) -> dict:
+    """
+    Same field_status-first rule as the other Phase 7 wrappers: Wayback coverage
+    is patchy for smaller company sites, and this indicator's own catalog comment
+    says to treat "no snapshot found" as inconclusive, NOT as evidence of an old
+    site — so a not_found redesign estimate writes nothing at all.
+    """
     signals = {}
     field_status = row.get("field_status") or {}
 
     redesign = row.get("last_major_redesign_estimate") or {}
     year = redesign.get("estimated_year")
-    if year:
+    if field_status.get("last_major_redesign_estimate") == "value" and year:
         age = float(min(datetime.utcnow().year - int(year), 8))
         signals["website_digital_maturity"] = {"value": age, "status": "present"}
-    elif field_status.get("last_major_redesign_estimate") == "not_found":
-        signals["website_digital_maturity"] = {"value": None, "status": "absent"}
 
+    # The 0-5 composite is only meaningful if the homepage was actually fetched —
+    # has_ecommerce defaults to false on a failed fetch, which would otherwise
+    # read as a confirmed "no online presence" and score maximum need.
     has_ecommerce = row.get("has_ecommerce")
     social_links = row.get("social_presence_links") or []
     snapshot_count = row.get("snapshot_count_last_5_years")
-    if has_ecommerce is not None or social_links or snapshot_count is not None:
+    if field_status.get("has_ecommerce") == "value" or field_status.get("social_presence_links") == "value":
         score = (2.0 if has_ecommerce else 0.0) + min(len(social_links), 2) + (1.0 if (snapshot_count or 0) >= 10 else 0.0)
         signals["online_market_presence"] = {"value": min(score, 5.0), "status": "present" if score > 0 else "absent"}
 
@@ -73,9 +80,8 @@ def sync_digital_maturity(company, db_session: Session) -> dict:
         }
 
     def _simulate(c):
-        char_sum = sum(ord(ch) for ch in c.legal_name)
         return {
-            "signals": {"website_digital_maturity": {"value": float(char_sum % 8), "status": "present"}},
+            "signals": {},
             "raw_payload": {"note": "digital-maturity-crawler unavailable or no website_url on record"},
             "confidence": 0.5,
         }

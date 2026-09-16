@@ -28,10 +28,17 @@ PHASE = 7
 
 
 def _derive_signals(row: dict) -> dict:
+    """
+    Absence is only asserted when the searches actually ran — the crawler warns
+    that a 'not_found' after a failed search "may just mean couldn't search",
+    and this indicator carries weight 4.0 on the readiness axis, so a fabricated
+    zero here is expensive.
+    """
     field_status = row.get("field_status") or {}
     if row.get("has_prior_innovation_participation"):
         return {"prior_open_innovation_usage": {"value": 1.0, "status": "present"}}
-    if field_status.get("events_found") == "not_found":
+    searches_all_ran = not (row.get("search_errors") or [])
+    if searches_all_ran and field_status.get("events_found") == "not_found":
         return {"prior_open_innovation_usage": {"value": 0.0, "status": "absent"}}
     return {}
 
@@ -56,9 +63,8 @@ def sync_innovation_participation(company, db_session: Session) -> dict:
         }
 
     def _simulate(c):
-        char_sum = sum(ord(ch) for ch in c.legal_name)
         return {
-            "signals": {"prior_open_innovation_usage": {"value": float(char_sum % 2), "status": "present"}},
+            "signals": {},
             "raw_payload": {"note": "NEWSAPI_KEY not configured — innovation-participation-crawler not invoked"},
             "confidence": 0.5,
         }

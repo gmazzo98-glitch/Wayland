@@ -61,9 +61,8 @@ def sync_directory_listing(company, db_session: Session) -> dict:
         }
 
     def _simulate(c):
-        char_sum = sum(ord(ch) for ch in c.legal_name)
         return {
-            "signals": {"trade_fair_participation": {"value": float(char_sum % 3), "status": "present"}},
+            "signals": {},
             "raw_payload": {"note": "directory-listing-crawler unavailable"},
             "confidence": 0.5,
         }

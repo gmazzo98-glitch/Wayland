@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+import requests
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -44,6 +45,24 @@ def company(memory_session):
 
 
 # ---------------------------------------------------------------- node_crawler_base
+
+def test_no_phase7_wrapper_fabricates_a_value_when_unavailable():
+    """scoring.py reads numeric_value without consulting is_simulated, so a
+    placeholder would be scored exactly like verified data. Every Phase 7
+    simulate() must therefore write no signals and leave the row
+    not_yet_checked — the honest state for 'we couldn't check'."""
+    import inspect
+    from scrapers import (company_website_crawler, job_postings_crawler, review_crawler,
+                          news_signals_crawler, directory_listing_crawler,
+                          innovation_participation_crawler, digital_maturity_crawler)
+
+    modules = [company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
+               directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler]
+    for mod in modules:
+        src = inspect.getsource(mod)
+        assert "char_sum" not in src, f"{mod.__name__} still derives a placeholder value from the company name"
+        assert '"signals": {}' in src, f"{mod.__name__}'s simulate() should return no signals"
+
 
 def test_rows_for_company_filters_by_id():
     rows = [{"company_id": "a", "x": 1}, {"company_id": "b", "x": 2}, {"company_id": "a", "x": 3}]
@@ -115,7 +134,10 @@ def test_company_website_derive_signals_basic():
         "has_sustainability_report": {"present": True, "first_publication_year": datetime.utcnow().year - 3},
         "founding_or_product_launch_year": datetime.utcnow().year - 20,
         "store_regions": ["Bavaria", "Hesse"],
-        "field_status": {},
+        "field_status": {
+            "product_lines_count": "value", "has_sustainability_report": "value",
+            "founding_or_product_launch_year": "value", "store_regions": "value",
+        },
     }
     signals = company_website_crawler._derive_signals(None, None, row)
     assert signals["product_portfolio_diversity"] == {"value": 6.0, "status": "present"}
@@ -123,6 +145,33 @@ def test_company_website_derive_signals_basic():
     assert signals["product_age"] == {"value": 20.0, "status": "present"}
     assert signals["store_geo_distribution"] == {"value": 2.0, "status": "present"}
     assert "physical_stores_trend" not in signals  # no prior snapshot to diff against
+
+
+def test_company_website_not_found_is_never_written_as_absent():
+    """'not_found' means the extraction failed, not that the company has no
+    stores/report — writing it as 'absent' would assert a confirmed negative."""
+    row = {
+        "product_lines_count": None,
+        "has_sustainability_report": {"present": False, "first_publication_year": None},
+        "founding_or_product_launch_year": None,
+        "store_regions": [],
+        "store_count": None,
+        "field_status": {
+            "product_lines_count": "not_found", "has_sustainability_report": "not_found",
+            "founding_or_product_launch_year": "not_found", "store_regions": "not_found",
+            "store_count": "not_found",
+        },
+    }
+    assert company_website_crawler._derive_signals(None, None, row) == {}
+
+
+def test_company_website_crawled_sustainability_page_with_no_report_is_absent():
+    row = {
+        "has_sustainability_report": {"present": False, "first_publication_year": None},
+        "field_status": {"has_sustainability_report": "value"},
+    }
+    signals = company_website_crawler._derive_signals(None, None, row)
+    assert signals["esg_reporting_recency"] == {"value": None, "status": "absent"}
 
 
 def test_company_website_stores_trend_needs_prior_snapshot(memory_session, company):
@@ -142,6 +191,8 @@ def test_job_postings_derive_signals_digital_lead_keyword_match():
         "technical_qualification_share": 0.6,
         "roles_sample": [{"title": "Head of Digital Transformation"}, {"title": "Warehouse Assistant"}],
         "careers_url": "https://example.com/careers",
+        "sources_used": [{"id": "careers", "kind": "careers_page", "listings_found": 12}],
+        "field_status": {"technical_digital_roles_count": "value", "technical_qualification_share": "value"},
     }
     signals = job_postings_crawler._derive_signals(row)
     assert signals["digital_job_postings"] == {"value": 4.0, "status": "present"}
@@ -150,9 +201,73 @@ def test_job_postings_derive_signals_digital_lead_keyword_match():
 
 
 def test_job_postings_no_digital_lead_when_no_match():
-    row = {"roles_sample": [{"title": "Warehouse Assistant"}], "careers_url": "https://example.com/careers"}
+    row = {
+        "roles_sample": [{"title": "Warehouse Assistant"}],
+        "careers_url": "https://example.com/careers",
+        "sources_used": [{"id": "careers", "kind": "careers_page", "listings_found": 1}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    }
     signals = job_postings_crawler._derive_signals(row)
-    assert signals["digital_lead_role_present"] == {"value": 0.0, "status": "present"}
+    assert signals["digital_lead_role_present"] == {"value": 0.0, "status": "absent"}
+
+
+def test_job_postings_unreachable_careers_page_writes_nothing():
+    """The crawler still emits count=0 when no source was reachable and flags it
+    via field_status/sources_used — that 0 must never become a scored signal,
+    least of all digital_lead_role_present, which gates the readiness axis."""
+    row = {
+        "technical_digital_roles_count": 0,
+        "total_open_roles": 0,
+        "technical_qualification_share": None,
+        "roles_sample": [],
+        "careers_url": "https://example.com",
+        "sources_used": [],
+        "sources_skipped": [{"id": "careers", "url": "https://example.com", "reason": "robots.txt disallow"}],
+        "field_status": {
+            "total_open_roles": "not_found", "technical_digital_roles_count": "not_found",
+            "technical_qualification_share": "not_found", "roles_sample": "not_found",
+        },
+    }
+    assert job_postings_crawler._derive_signals(row) == {}
+
+
+def test_find_careers_url_returns_none_for_unreachable_domain(monkeypatch):
+    def boom(*args, **kwargs):
+        raise requests.RequestException("dead domain")
+    monkeypatch.setattr(job_postings_crawler.requests, "get", boom)
+    assert job_postings_crawler._find_careers_url("www.example.com") is None
+
+
+def test_find_careers_url_picks_first_reachable_path(monkeypatch):
+    class Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+    seen = []
+
+    def fake_get(url, **kwargs):
+        seen.append(url)
+        if url.endswith("/lavora-con-noi"):
+            return Resp(200)
+        return Resp(404)
+
+    monkeypatch.setattr(job_postings_crawler.requests, "get", fake_get)
+    assert job_postings_crawler._find_careers_url("www.example.com") == "https://www.example.com/lavora-con-noi"
+    assert seen[0] == "https://www.example.com"  # base probed first, fails fast on dead domains
+
+
+def test_job_postings_crawled_board_with_zero_roles_is_a_real_absent():
+    row = {
+        "technical_digital_roles_count": 0,
+        "total_open_roles": 0,
+        "roles_sample": [],
+        "sources_used": [{"id": "careers", "kind": "careers_page", "listings_found": 0}],
+        "field_status": {"total_open_roles": "value", "technical_digital_roles_count": "not_applicable",
+                          "roles_sample": "not_applicable"},
+    }
+    signals = job_postings_crawler._derive_signals(row)
+    assert signals["digital_job_postings"] == {"value": 0.0, "status": "absent"}
+    assert "digital_lead_role_present" not in signals  # no postings retrieved to scan
 
 
 def test_review_crawler_derive_signals_mode_a_and_b():
@@ -176,13 +291,29 @@ def test_news_signals_derive_signals():
         "university_partnership": [],
         "product_launch_mentions": [{"product_name": "X1"}, {"product_name": "X2"}],
         "sector_pilot_precedent": {"count": 3},
-        "field_status": {"university_partnership": "not_found"},
+        "field_status": {"university_partnership": "not_found", "sector_pilot_precedent": "value"},
+        "search_errors": [],
     }
     signals = news_signals_crawler._derive_signals(row)
     assert signals["external_collaboration"] == {"value": 1.0, "status": "present"}
     assert signals["university_partnership"] == {"value": 0.0, "status": "absent"}
     assert signals["press_launch_mentions"] == {"value": 2.0, "status": "present"}
     assert signals["sector_pilot_precedent"] == {"value": 3.0, "status": "present"}
+
+
+def test_news_signals_failed_search_does_not_assert_absence():
+    """The crawler warns its own 'not_found' may just mean 'couldn't search' —
+    external_collaboration/university_partnership are weight-5.0 readiness rows,
+    so a failed search must write nothing rather than a confirmed zero."""
+    row = {
+        "external_collaboration": [],
+        "university_partnership": [],
+        "product_launch_mentions": [],
+        "field_status": {"external_collaboration": "not_found", "university_partnership": "not_found",
+                          "product_launch_mentions": "not_found"},
+        "search_errors": [{"query_id": "collab", "error": "429 rate limited"}],
+    }
+    assert news_signals_crawler._derive_signals(row) == {}
 
 
 def test_directory_listing_derive_signals_hit_and_miss():
@@ -201,8 +332,17 @@ def test_innovation_participation_derive_signals():
         "prior_open_innovation_usage": {"value": 1.0, "status": "present"}
     }
     assert innovation_participation_crawler._derive_signals(
-        {"has_prior_innovation_participation": False, "field_status": {"events_found": "not_found"}}
+        {"has_prior_innovation_participation": False, "field_status": {"events_found": "not_found"},
+         "search_errors": []}
     ) == {"prior_open_innovation_usage": {"value": 0.0, "status": "absent"}}
+
+
+def test_innovation_participation_failed_search_does_not_assert_absence():
+    assert innovation_participation_crawler._derive_signals({
+        "has_prior_innovation_participation": False,
+        "field_status": {"events_found": "not_found"},
+        "search_errors": [{"source": "general_search", "error": "missing API credentials"}],
+    }) == {}
 
 
 def test_digital_maturity_derive_signals():
@@ -211,7 +351,23 @@ def test_digital_maturity_derive_signals():
         "has_ecommerce": True,
         "social_presence_links": [{"platform": "linkedin", "url": "x"}, {"platform": "instagram", "url": "y"}],
         "snapshot_count_last_5_years": 15,
+        "field_status": {"last_major_redesign_estimate": "value", "has_ecommerce": "value",
+                          "social_presence_links": "value"},
     }
     signals = digital_maturity_crawler._derive_signals(row)
     assert signals["website_digital_maturity"] == {"value": 5.0, "status": "present"}
     assert signals["online_market_presence"]["value"] == pytest.approx(5.0)  # 2 (ecommerce) + 2 (social, capped) + 1 (active)
+
+
+def test_digital_maturity_no_wayback_coverage_writes_nothing():
+    """This indicator's own catalog comment says to treat 'no snapshot found' as
+    inconclusive, not as evidence of an outdated site."""
+    row = {
+        "last_major_redesign_estimate": {"estimated_year": None, "comparisons": []},
+        "has_ecommerce": None,
+        "social_presence_links": [],
+        "snapshot_count_last_5_years": None,
+        "field_status": {"last_major_redesign_estimate": "not_found", "has_ecommerce": "not_found",
+                          "social_presence_links": "not_found"},
+    }
+    assert digital_maturity_crawler._derive_signals(row) == {}
