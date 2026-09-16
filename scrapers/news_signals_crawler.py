@@ -45,22 +45,52 @@ def _derive_signals(row: dict) -> dict:
     signals = {}
     field_status = row.get("field_status") or {}
     searches_all_ran = not (row.get("search_errors") or [])
+    articles = row.get("articles_considered")
 
-    def _flag(field: str, key: str, value_when_found: float):
+    def _flag(field: str, key: str, value_when_found, describe):
+        """describe(item) -> short label, so the evidence names the actual partner/
+        institution/product found rather than just asserting a count."""
         items = row.get(field) or []
         if items:
-            signals[key] = {"value": value_when_found if value_when_found is not None else float(len(items)),
-                            "status": "present"}
+            cited = [{"label": describe(i), "url": i.get("source_url")} for i in items]
+            signals[key] = {
+                "value": value_when_found if value_when_found is not None else float(len(items)),
+                "status": "present",
+                "summary": "; ".join(c["label"] for c in cited[:3]) + ("" if len(cited) <= 3 else f" (+{len(cited)-3} more)"),
+                "evidence": {
+                    "method": "LLM extraction over news-search results, one article at a time",
+                    "found": cited, "articles_considered": articles,
+                },
+            }
         elif searches_all_ran and field_status.get(field) == "not_found":
-            signals[key] = {"value": 0.0, "status": "absent"}
+            signals[key] = {
+                "value": 0.0, "status": "absent",
+                "summary": f"searched {articles} articles, nothing found",
+                "evidence": {"method": "LLM extraction over news-search results",
+                              "found": [], "articles_considered": articles},
+            }
 
-    _flag("external_collaboration", "external_collaboration", 1.0)
-    _flag("university_partnership", "university_partnership", 1.0)
-    _flag("product_launch_mentions", "press_launch_mentions", None)
+    _flag("external_collaboration", "external_collaboration", 1.0,
+          lambda i: f"{i.get('partner_name')} ({i.get('partner_type')}) — {i.get('purpose')}")
+    _flag("university_partnership", "university_partnership", 1.0,
+          lambda i: f"{i.get('institution_name')} — {i.get('topic')}")
+    _flag("product_launch_mentions", "press_launch_mentions", None,
+          lambda i: f"{i.get('product_name')} ({i.get('launch_date') or 'date unknown'})")
 
     precedent = row.get("sector_pilot_precedent") or {}
     if field_status.get("sector_pilot_precedent") == "value" and precedent.get("count") is not None:
-        signals["sector_pilot_precedent"] = {"value": float(precedent["count"]), "status": "present"}
+        mentions = precedent.get("mentions") or []
+        signals["sector_pilot_precedent"] = {
+            "value": float(precedent["count"]), "status": "present",
+            "summary": f"{precedent['count']} sector peer(s) with documented pilots: "
+                        + ", ".join((precedent.get("companies") or [])[:3]),
+            "evidence": {
+                "method": "sector-level news search, shared across companies in the same sector",
+                "companies": precedent.get("companies") or [],
+                "found": [{"label": f"{m.get('company_name')} — {m.get('program_description')}",
+                            "url": m.get("source_url")} for m in mentions],
+            },
+        }
 
     return signals
 

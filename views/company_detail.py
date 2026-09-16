@@ -777,6 +777,66 @@ def _is_financial_field(name: str) -> bool:
     return any(kw in norm for kw in keywords)
 
 
+def _render_signal_evidence(sig_dict: dict, indicator_defs: dict):
+    """
+    Item-by-item provenance for every signal that carries it: the specific roles,
+    partners, directories or review figures behind the number, each with a link to
+    check it against. A counter on its own ("1 digital role") isn't verifiable;
+    this is the difference between reading a score and auditing it.
+    """
+    with_evidence = []
+    for key, sig in sig_dict.items():
+        defn = indicator_defs.get(key)
+        if not defn or not sig or sig.status == "not_yet_checked" or not sig.raw_payload_ref:
+            continue
+        try:
+            payload = json.loads(sig.raw_payload_ref)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(payload, dict) and payload.get("evidence"):
+            with_evidence.append((key, defn, sig, payload["evidence"]))
+
+    if not with_evidence:
+        return
+
+    st.markdown("---")
+    st.subheader("🔍 Evidence — what exactly was counted")
+    st.caption(
+        f"{len(with_evidence)} signal(s) carry item-level provenance. Everything below was retrieved from the "
+        "named source; follow the links to verify any number yourself."
+    )
+
+    for key, defn, sig, ev in sorted(with_evidence, key=lambda x: x[1]["label"]):
+        value_str = _format_indicator_value(key, sig.numeric_value, defn)
+        with st.expander(f"**{defn['label']}** — {value_str}  ·  {sig.text_value or ''}"):
+            st.caption(f"Source: {sig.source} · fetched {sig.fetched_at:%Y-%m-%d %H:%M} · "
+                        f"{'🧪 simulated' if sig.is_simulated else '🟢 live'}")
+            if ev.get("method"):
+                st.markdown(f"**How it was derived:** {ev['method']}")
+
+            items = ev.get("found") or ev.get("open_roles_sample") or []
+            if items:
+                label_hdr = "Items counted" if ev.get("found") else "Open roles found (sample)"
+                st.markdown(f"**{label_hdr}:**")
+                for it in items:
+                    lbl = it.get("label") or "—"
+                    st.markdown(f"- [{lbl}]({it['url']})" if it.get("url") else f"- {lbl}")
+
+            for social in (ev.get("social_profiles") or []):
+                st.markdown(f"- {social.get('label')}: {social.get('url')}")
+
+            for url in (ev.get("source_urls") or []):
+                st.markdown(f"**Check against:** {url}")
+
+            if ev.get("note"):
+                st.info(ev["note"])
+
+            rest = {k: v for k, v in ev.items()
+                    if k not in ("method", "found", "open_roles_sample", "source_urls", "note", "social_profiles")}
+            if rest:
+                st.json(rest, expanded=False)
+
+
 def _format_indicator_value(key: str, val, defn: dict = None) -> str:
     """Formats an indicator/field value with appropriate units, adding 'k' for monetary financials in thousands."""
     if val is None or val == "" or val == "—":
@@ -1319,9 +1379,18 @@ def _render_tab1_content(db: Session):
                 mode_badge = "—"
             elif sig_rec:
                 disp_status = get_signal_display_status(sig_rec.status, defn.get("freshness_days"), sig_rec.fetched_at)
-                val = sig_rec.text_value if defn["axis"] == "context" and sig_rec.text_value else sig_rec.numeric_value
+                # text_value now doubles as the provenance summary written by the
+                # Phase 7 crawlers, so prefer a real number when there is one — only
+                # fall back to text for the context rows that are genuinely textual
+                # (manual entries like product_type_tag, which carry no number).
+                if sig_rec.numeric_value is not None:
+                    val = sig_rec.numeric_value
+                elif defn["axis"] == "context" and sig_rec.text_value:
+                    val = sig_rec.text_value
+                else:
+                    val = None
                 fetched_str = sig_rec.fetched_at.strftime("%Y-%m-%d %H:%M") if sig_rec.fetched_at else "N/A"
-                raw_ref = sig_rec.raw_payload_ref or ""
+                raw_ref = sig_rec.text_value or ""
                 mode_badge = MODE_BADGES.get(sig_rec.is_simulated, "—")
             else:
                 disp_status, val, fetched_str, raw_ref, mode_badge = "not_yet_checked", None, "Never", "", "—"
@@ -1343,7 +1412,7 @@ def _render_tab1_content(db: Session):
                 "Caveat": caveat_note,
                 "Freshness Window": f"{fresh_window} days",
                 "Last Fetched": fetched_str,
-                "Raw Payload": raw_ref,
+                "What was counted": raw_ref,
             }
 
         # Scored signals, grouped by category
@@ -1368,11 +1437,16 @@ def _render_tab1_content(db: Session):
                         "Value": "Populated Value",
                         "Modifier": st.column_config.TextColumn("Modifier"),
                         "Caveat": st.column_config.TextColumn("Caveat", width="large"),
-                        "Raw Payload": st.column_config.TextColumn("Raw Payload Pointer", width="medium"),
+                        "What was counted": st.column_config.TextColumn(
+                            "What was counted", width="large",
+                            help="Plain-language provenance for this value. Full item-by-item evidence, "
+                                 "with links to check it against, is in the Evidence section below."),
                     },
                     use_container_width=True,
                     hide_index=True,
                 )
+
+        _render_signal_evidence(sig_dict, indicator_defs)
 
         # Context tags
         context_defs = {k: d for k, d in indicator_defs.items() if d["axis"] == "context"}

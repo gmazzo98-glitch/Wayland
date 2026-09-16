@@ -37,12 +37,23 @@ def _derive_signals(row: dict) -> dict:
     """
     signals = {}
     field_status = row.get("field_status") or {}
+    homepage = row.get("homepage_url")
 
     redesign = row.get("last_major_redesign_estimate") or {}
     year = redesign.get("estimated_year")
     if field_status.get("last_major_redesign_estimate") == "value" and year:
         age = float(min(datetime.utcnow().year - int(year), 8))
-        signals["website_digital_maturity"] = {"value": age, "status": "present"}
+        signals["website_digital_maturity"] = {
+            "value": age, "status": "present",
+            "summary": f"last major redesign estimated {int(year)} ({int(age)} years ago)",
+            "evidence": {
+                "method": "structural diff between Wayback Machine snapshots year over year",
+                "estimated_redesign_year": int(year),
+                "snapshot_comparisons": redesign.get("comparisons") or [],
+                "earliest_snapshot_date": row.get("earliest_snapshot_date"),
+                "source_urls": [f"https://web.archive.org/web/*/{homepage}"] if homepage else [],
+            },
+        }
 
     # The 0-5 composite is only meaningful if the homepage was actually fetched —
     # has_ecommerce defaults to false on a failed fetch, which would otherwise
@@ -51,8 +62,26 @@ def _derive_signals(row: dict) -> dict:
     social_links = row.get("social_presence_links") or []
     snapshot_count = row.get("snapshot_count_last_5_years")
     if field_status.get("has_ecommerce") == "value" or field_status.get("social_presence_links") == "value":
-        score = (2.0 if has_ecommerce else 0.0) + min(len(social_links), 2) + (1.0 if (snapshot_count or 0) >= 10 else 0.0)
-        signals["online_market_presence"] = {"value": min(score, 5.0), "status": "present" if score > 0 else "absent"}
+        ecom_pts = 2.0 if has_ecommerce else 0.0
+        social_pts = float(min(len(social_links), 2))
+        activity_pts = 1.0 if (snapshot_count or 0) >= 10 else 0.0
+        score = min(ecom_pts + social_pts + activity_pts, 5.0)
+        parts = [f"e-commerce {'detected' if has_ecommerce else 'not detected'} (+{ecom_pts:.0f})",
+                 f"{len(social_links)} social profile(s) (+{social_pts:.0f})",
+                 f"{snapshot_count if snapshot_count is not None else 'unknown'} archive snapshots (+{activity_pts:.0f})"]
+        signals["online_market_presence"] = {
+            "value": score, "status": "present" if score > 0 else "absent",
+            "summary": f"{score:.0f}/5 — " + "; ".join(parts),
+            "evidence": {
+                "method": "composite: e-commerce +2, each social profile +1 (max 2), 10+ archive snapshots +1",
+                "score_breakdown": {"ecommerce": ecom_pts, "social_profiles": social_pts, "archive_activity": activity_pts},
+                "has_ecommerce": has_ecommerce,
+                "social_profiles": [{"label": s.get("platform"), "url": s.get("url")} for s in social_links],
+                "snapshot_count_last_5_years": snapshot_count,
+                "data_source": row.get("data_source"),
+                "source_urls": [homepage] if homepage else [],
+            },
+        }
 
     return signals
 

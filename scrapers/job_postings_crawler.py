@@ -80,6 +80,9 @@ def _derive_signals(row: dict) -> dict:
     "we couldn't look" into "confirmed: this company isn't hiring for digital
     roles", which is exactly the distinction SignalRecord's four-state status
     exists to preserve. Nothing is written unless a source was actually crawled.
+
+    Every signal carries the postings behind it, so "1 digital role" can be
+    checked against the actual titles and their URLs rather than taken on faith.
     """
     signals = {}
     field_status = row.get("field_status") or {}
@@ -87,27 +90,69 @@ def _derive_signals(row: dict) -> dict:
     if not sources_used:
         return signals  # no source reached — every field below would be a fabricated zero
 
+    source_urls = [s.get("url") for s in sources_used if s.get("url")]
+    roles_sample = row.get("roles_sample") or []
+    total_roles = row.get("total_open_roles")
+    sampled = [{"label": r.get("title"), "url": r.get("url")} for r in roles_sample if r.get("title")]
+
     roles_status = field_status.get("technical_digital_roles_count")
     tech_roles = row.get("technical_digital_roles_count")
     if roles_status == "value" and tech_roles is not None:
-        signals["digital_job_postings"] = {"value": float(tech_roles), "status": "present"}
+        # The crawler matches keywords against title + snippet + full description,
+        # but roles_sample carries titles only and is capped at 10 — so the sample
+        # can legitimately show fewer title-matches than the count. Say so rather
+        # than presenting the sample as the definitive list of what was counted.
+        signals["digital_job_postings"] = {
+            "value": float(tech_roles), "status": "present",
+            "summary": f"{int(tech_roles)} of {total_roles} open roles matched digital/technical keywords",
+            "evidence": {
+                "method": "keyword match over each posting's title, snippet and description",
+                "counted": int(tech_roles), "considered": total_roles,
+                "source_urls": source_urls,
+                "open_roles_sample": sampled,
+                "note": "sample shows up to 10 titles; matches can also come from description text not shown here",
+            },
+        }
     elif roles_status == "not_applicable":
         # A source was crawled and it advertises no open roles at all — a real,
         # established zero for a hiring-velocity signal, not a failed lookup.
-        signals["digital_job_postings"] = {"value": 0.0, "status": "absent"}
+        signals["digital_job_postings"] = {
+            "value": 0.0, "status": "absent",
+            "summary": "careers page crawled, advertises no open roles at all",
+            "evidence": {"method": "careers page crawled, zero listings found",
+                          "counted": 0, "considered": 0, "source_urls": source_urls},
+        }
 
     qual_share = row.get("technical_qualification_share")
     if field_status.get("technical_qualification_share") == "value" and qual_share is not None:
         pct = float(qual_share) * 100.0 if qual_share <= 1.0 else float(qual_share)
-        signals["skilled_labour_share"] = {"value": pct, "status": "present"}
+        signals["skilled_labour_share"] = {
+            "value": pct, "status": "present",
+            "summary": f"{pct:.0f}% of the postings whose description was fetched require a technical/university qualification",
+            "evidence": {
+                "method": "qualification-keyword match, over postings whose full description was retrieved",
+                "share_pct": round(pct, 1), "source_urls": source_urls,
+                "open_roles_sample": sampled,
+            },
+        }
 
     # Gating indicator (gate_penalty_multiplier=0.7) — only ever asserted off the
-    # back of postings actually retrieved, never off an empty/failed crawl.
-    roles_sample = row.get("roles_sample") or []
+    # back of postings actually retrieved, never off an empty/failed crawl. Here the
+    # match happens locally on titles, so the exact matching title can be named.
     if roles_sample:
-        found = any(DIGITAL_LEAD_TITLE_RE.search(r.get("title") or "") for r in roles_sample)
-        signals["digital_lead_role_present"] = {"value": 1.0 if found else 0.0,
-                                                 "status": "present" if found else "absent"}
+        matched = [r.get("title") for r in roles_sample if DIGITAL_LEAD_TITLE_RE.search(r.get("title") or "")]
+        found = bool(matched)
+        signals["digital_lead_role_present"] = {
+            "value": 1.0 if found else 0.0,
+            "status": "present" if found else "absent",
+            "summary": (f"matched open role: {matched[0]}" if found
+                        else f"no digital/innovation-lead title among {len(roles_sample)} open roles"),
+            "evidence": {
+                "method": f"title regex over open roles: {DIGITAL_LEAD_TITLE_RE.pattern}",
+                "matched_titles": matched, "source_urls": source_urls,
+                "open_roles_sample": sampled,
+            },
+        }
 
     return signals
 

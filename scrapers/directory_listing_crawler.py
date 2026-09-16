@@ -32,13 +32,39 @@ DEFAULT_DIRECTORY_URLS = ["https://www.mecspe.com/portale/it/espositori"]
 
 def _derive_signals(rows: list) -> dict:
     signals = {}
-    hits = sum(1 for r in rows if r.get("appears_in_directory"))
-    possible = sum(1 for r in rows if r.get("possible_match") and not r.get("appears_in_directory"))
-    checked = any(r.get("status") == "ok" for r in rows)
-    if hits:
-        signals["trade_fair_participation"] = {"value": float(hits), "status": "present"}
-    elif checked:
-        signals["trade_fair_participation"] = {"value": 0.0 if not possible else 0.5, "status": "absent"}
+    hit_rows = [r for r in rows if r.get("appears_in_directory")]
+    maybe_rows = [r for r in rows if r.get("possible_match") and not r.get("appears_in_directory")]
+    checked_rows = [r for r in rows if r.get("status") == "ok"]
+    if not checked_rows:
+        return signals
+
+    directories_checked = [{"label": r.get("directory_name") or r.get("directory_url"),
+                             "url": r.get("listing_url") or r.get("directory_url")} for r in checked_rows]
+
+    if hit_rows:
+        listed = [{"label": f"{r.get('directory_name')}"
+                            + (f" (member/exhibitor since {r.get('membership_or_exhibitor_since')})"
+                               if r.get("membership_or_exhibitor_since") else ""),
+                    "url": r.get("listing_url") or r.get("directory_url")} for r in hit_rows]
+        signals["trade_fair_participation"] = {
+            "value": float(len(hit_rows)), "status": "present",
+            "summary": "listed in " + ", ".join(str(l["label"]) for l in listed),
+            "evidence": {"method": "exact name match in each directory's own exhibitor/member search",
+                          "found": listed, "directories_checked": directories_checked},
+        }
+    else:
+        # A fuzzy-only match is explicitly flagged for human verification by the
+        # crawler, so it scores half rather than counting as a confirmed listing.
+        near = [{"label": f"possible match in {r.get('directory_name')} — needs human verification",
+                  "url": r.get("listing_url") or r.get("directory_url")} for r in maybe_rows]
+        signals["trade_fair_participation"] = {
+            "value": 0.5 if maybe_rows else 0.0, "status": "absent",
+            "summary": (f"no confirmed listing; {len(maybe_rows)} fuzzy match(es) need checking"
+                        if maybe_rows else
+                        "searched " + ", ".join(str(d["label"]) for d in directories_checked) + " — not listed"),
+            "evidence": {"method": "exact name match in each directory's own exhibitor/member search",
+                          "found": near, "directories_checked": directories_checked},
+        }
     return signals
 
 

@@ -38,8 +38,20 @@ def _derive_signals(rows_by_source: dict) -> dict:
             continue
         trend = row.get("rating_trend")
         if trend and trend.get("last_12_months_avg") is not None and trend.get("prior_12_months_avg") is not None:
-            delta = trend["last_12_months_avg"] - trend["prior_12_months_avg"]
-            signals["product_quality_trend"] = {"value": float(delta), "status": "present"}
+            last, prior = trend["last_12_months_avg"], trend["prior_12_months_avg"]
+            delta = last - prior
+            signals["product_quality_trend"] = {
+                "value": float(delta), "status": "present",
+                "summary": f"{src}: {prior:.2f} → {last:.2f} ({delta:+.2f}) over the last 12 months "
+                            f"across {row.get('review_count')} reviews",
+                "evidence": {
+                    "method": "mean customer rating, last 12 months vs the 12 months before",
+                    "platform": src, "last_12_months_avg": last, "prior_12_months_avg": prior,
+                    "delta": round(delta, 3), "review_count": row.get("review_count"),
+                    "recent_review_snippets": row.get("recent_review_snippets") or [],
+                    "source_urls": [row.get("profile_url")] if row.get("profile_url") else [],
+                },
+            }
             break
 
     for src in MODE_B_SOURCES:
@@ -48,7 +60,18 @@ def _derive_signals(rows_by_source: dict) -> dict:
             continue
         rating = row.get("avg_employer_rating")
         if rating is not None:
-            signals["kununu_rating"] = {"value": float(rating), "status": "present"}
+            samples = row.get("reviews_sample") or []
+            signals["kununu_rating"] = {
+                "value": float(rating), "status": "present",
+                "summary": f"{src}: {rating:.2f}/5 across {row.get('review_count')} employer reviews",
+                "evidence": {
+                    "method": "mean employer rating from the platform's own profile page",
+                    "platform": src, "avg_employer_rating": rating, "review_count": row.get("review_count"),
+                    "reviews_sample": [{"label": (r.get("title") or "")[:120],
+                                         "body": (r.get("body") or "")[:300]} for r in samples[:5]],
+                    "source_urls": [row.get("profile_url")] if row.get("profile_url") else [],
+                },
+            }
             break
 
     return signals

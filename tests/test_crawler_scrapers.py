@@ -19,12 +19,22 @@ import requests
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, Company, RawImportRecord
+from models import Base, Company, RawImportRecord, SignalRecord
 from scrapers import node_crawler_base
 from scrapers.node_crawler_base import CrawlerRunError, rows_for_company, save_crawler_blob
 from scrapers import company_website_crawler, job_postings_crawler, review_crawler
 from scrapers import news_signals_crawler, directory_listing_crawler, innovation_participation_crawler
 from scrapers import digital_maturity_crawler
+
+
+
+def assert_signal(sig, value, status):
+    """Signals also carry summary/evidence now, so assert on the scored fields only."""
+    assert sig["status"] == status, f"expected status {status}, got {sig['status']}"
+    if value is None:
+        assert sig["value"] is None
+    else:
+        assert sig["value"] == pytest.approx(value)
 
 
 @pytest.fixture
@@ -62,6 +72,78 @@ def test_no_phase7_wrapper_fabricates_a_value_when_unavailable():
         src = inspect.getsource(mod)
         assert "char_sum" not in src, f"{mod.__name__} still derives a placeholder value from the company name"
         assert '"signals": {}' in src, f"{mod.__name__}'s simulate() should return no signals"
+
+
+def test_every_asserted_signal_carries_verifiable_evidence():
+    """A bare counter isn't auditable. Every signal a Phase 7 wrapper asserts must
+    ship a plain-language summary and an evidence dict saying how it was derived."""
+    cases = [
+        job_postings_crawler._derive_signals({
+            "technical_digital_roles_count": 1, "total_open_roles": 12,
+            "technical_qualification_share": 0.5,
+            "roles_sample": [{"title": "Head of Digital", "url": "https://x/1"}],
+            "sources_used": [{"url": "https://x/careers"}],
+            "field_status": {"technical_digital_roles_count": "value", "technical_qualification_share": "value"},
+        }),
+        news_signals_crawler._derive_signals({
+            "external_collaboration": [{"partner_name": "TU Munich", "partner_type": "university",
+                                         "purpose": "joint research", "source_url": "https://n/1"}],
+            "field_status": {}, "search_errors": [], "articles_considered": 8,
+        }),
+        directory_listing_crawler._derive_signals([
+            {"appears_in_directory": True, "status": "ok", "directory_name": "MECSPE",
+             "listing_url": "https://m/1", "directory_url": "https://m"},
+        ]),
+        digital_maturity_crawler._derive_signals({
+            "has_ecommerce": True, "social_presence_links": [{"platform": "linkedin", "url": "https://l/1"}],
+            "snapshot_count_last_5_years": 12, "homepage_url": "https://x",
+            "field_status": {"has_ecommerce": "value", "social_presence_links": "value"},
+        }),
+        review_crawler._derive_signals({
+            "google": {"status": "ok", "review_count": 40, "profile_url": "https://g/1",
+                        "rating_trend": {"last_12_months_avg": 4.0, "prior_12_months_avg": 4.5}},
+        }),
+        innovation_participation_crawler._derive_signals({
+            "has_prior_innovation_participation": True, "pages_considered": 5,
+            "events_found": [{"event_name": "TechStars", "event_type": "accelerator", "year": 2024,
+                               "role": "cohort_member", "confidence": "high", "source_url": "https://i/1"}],
+        }),
+    ]
+    for signals in cases:
+        assert signals, "expected at least one signal in this fixture"
+        for key, sig in signals.items():
+            assert sig.get("summary"), f"{key} asserted a value with no human-readable summary"
+            assert sig.get("evidence", {}).get("method"), f"{key} has no evidence.method explaining its derivation"
+
+
+def test_job_postings_evidence_names_the_matched_role():
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 1, "total_open_roles": 12,
+        "roles_sample": [{"title": "Innovation Manager", "url": "https://x/1"},
+                          {"title": "Warehouse Assistant", "url": "https://x/2"}],
+        "sources_used": [{"url": "https://x/careers"}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    })
+    lead = signals["digital_lead_role_present"]
+    assert lead["value"] == 1.0
+    assert "Innovation Manager" in lead["summary"]
+    assert lead["evidence"]["matched_titles"] == ["Innovation Manager"]
+    # the count signal cites the postings and where to check them
+    counted = signals["digital_job_postings"]
+    assert "1 of 12" in counted["summary"]
+    assert {"label": "Innovation Manager", "url": "https://x/1"} in counted["evidence"]["open_roles_sample"]
+    assert counted["evidence"]["source_urls"] == ["https://x/careers"]
+
+
+def test_upsert_signal_persists_summary_and_evidence(memory_session, company):
+    from adapters.base import _upsert_signal
+    _upsert_signal(memory_session, company.id, "digital_job_postings", "Job Postings Crawler",
+                   1.0, "present", 0.7, {"a": 1}, is_simulated=False,
+                   summary="1 of 12 open roles matched", evidence={"method": "keyword match", "found": []})
+    memory_session.commit()
+    sig = memory_session.query(SignalRecord).filter_by(company_id=company.id).one()
+    assert sig.text_value == "1 of 12 open roles matched"
+    assert json.loads(sig.raw_payload_ref)["evidence"]["method"] == "keyword match"
 
 
 def test_rows_for_company_filters_by_id():
@@ -140,10 +222,10 @@ def test_company_website_derive_signals_basic():
         },
     }
     signals = company_website_crawler._derive_signals(None, None, row)
-    assert signals["product_portfolio_diversity"] == {"value": 6.0, "status": "present"}
-    assert signals["esg_reporting_recency"] == {"value": 3.0, "status": "present"}
-    assert signals["product_age"] == {"value": 20.0, "status": "present"}
-    assert signals["store_geo_distribution"] == {"value": 2.0, "status": "present"}
+    assert_signal(signals["product_portfolio_diversity"], 6.0, "present")
+    assert_signal(signals["esg_reporting_recency"], 3.0, "present")
+    assert_signal(signals["product_age"], 20.0, "present")
+    assert_signal(signals["store_geo_distribution"], 2.0, "present")
     assert "physical_stores_trend" not in signals  # no prior snapshot to diff against
 
 
@@ -171,7 +253,7 @@ def test_company_website_crawled_sustainability_page_with_no_report_is_absent():
         "field_status": {"has_sustainability_report": "value"},
     }
     signals = company_website_crawler._derive_signals(None, None, row)
-    assert signals["esg_reporting_recency"] == {"value": None, "status": "absent"}
+    assert_signal(signals["esg_reporting_recency"], None, "absent")
 
 
 def test_company_website_stores_trend_needs_prior_snapshot(memory_session, company):
@@ -195,9 +277,9 @@ def test_job_postings_derive_signals_digital_lead_keyword_match():
         "field_status": {"technical_digital_roles_count": "value", "technical_qualification_share": "value"},
     }
     signals = job_postings_crawler._derive_signals(row)
-    assert signals["digital_job_postings"] == {"value": 4.0, "status": "present"}
-    assert signals["skilled_labour_share"] == {"value": 60.0, "status": "present"}
-    assert signals["digital_lead_role_present"] == {"value": 1.0, "status": "present"}
+    assert_signal(signals["digital_job_postings"], 4.0, "present")
+    assert_signal(signals["skilled_labour_share"], 60.0, "present")
+    assert_signal(signals["digital_lead_role_present"], 1.0, "present")
 
 
 def test_job_postings_no_digital_lead_when_no_match():
@@ -208,7 +290,7 @@ def test_job_postings_no_digital_lead_when_no_match():
         "field_status": {"technical_digital_roles_count": "value"},
     }
     signals = job_postings_crawler._derive_signals(row)
-    assert signals["digital_lead_role_present"] == {"value": 0.0, "status": "absent"}
+    assert_signal(signals["digital_lead_role_present"], 0.0, "absent")
 
 
 def test_job_postings_unreachable_careers_page_writes_nothing():
@@ -266,7 +348,7 @@ def test_job_postings_crawled_board_with_zero_roles_is_a_real_absent():
                           "roles_sample": "not_applicable"},
     }
     signals = job_postings_crawler._derive_signals(row)
-    assert signals["digital_job_postings"] == {"value": 0.0, "status": "absent"}
+    assert_signal(signals["digital_job_postings"], 0.0, "absent")
     assert "digital_lead_role_present" not in signals  # no postings retrieved to scan
 
 
@@ -276,8 +358,8 @@ def test_review_crawler_derive_signals_mode_a_and_b():
         "kununu": {"status": "ok", "avg_employer_rating": 3.2},
     }
     signals = review_crawler._derive_signals(rows_by_source)
-    assert signals["product_quality_trend"] == {"value": pytest.approx(-0.5), "status": "present"}
-    assert signals["kununu_rating"] == {"value": 3.2, "status": "present"}
+    assert_signal(signals["product_quality_trend"], -0.5, "present")
+    assert_signal(signals["kununu_rating"], 3.2, "present")
 
 
 def test_review_crawler_skips_blocked_sources():
@@ -295,10 +377,10 @@ def test_news_signals_derive_signals():
         "search_errors": [],
     }
     signals = news_signals_crawler._derive_signals(row)
-    assert signals["external_collaboration"] == {"value": 1.0, "status": "present"}
-    assert signals["university_partnership"] == {"value": 0.0, "status": "absent"}
-    assert signals["press_launch_mentions"] == {"value": 2.0, "status": "present"}
-    assert signals["sector_pilot_precedent"] == {"value": 3.0, "status": "present"}
+    assert_signal(signals["external_collaboration"], 1.0, "present")
+    assert_signal(signals["university_partnership"], 0.0, "absent")
+    assert_signal(signals["press_launch_mentions"], 2.0, "present")
+    assert_signal(signals["sector_pilot_precedent"], 3.0, "present")
 
 
 def test_news_signals_failed_search_does_not_assert_absence():
@@ -318,23 +400,25 @@ def test_news_signals_failed_search_does_not_assert_absence():
 
 def test_directory_listing_derive_signals_hit_and_miss():
     hit_rows = [{"appears_in_directory": True, "status": "ok"}]
-    assert directory_listing_crawler._derive_signals(hit_rows)["trade_fair_participation"] == {"value": 1.0, "status": "present"}
+    assert_signal(directory_listing_crawler._derive_signals(hit_rows)["trade_fair_participation"], 1.0, "present")
 
     miss_rows = [{"appears_in_directory": False, "possible_match": False, "status": "ok"}]
-    assert directory_listing_crawler._derive_signals(miss_rows)["trade_fair_participation"] == {"value": 0.0, "status": "absent"}
+    assert_signal(directory_listing_crawler._derive_signals(miss_rows)["trade_fair_participation"], 0.0, "absent")
 
     unchecked_rows = [{"appears_in_directory": False, "status": "no_config"}]
     assert directory_listing_crawler._derive_signals(unchecked_rows) == {}
 
 
 def test_innovation_participation_derive_signals():
-    assert innovation_participation_crawler._derive_signals({"has_prior_innovation_participation": True}) == {
-        "prior_open_innovation_usage": {"value": 1.0, "status": "present"}
-    }
-    assert innovation_participation_crawler._derive_signals(
+    found = innovation_participation_crawler._derive_signals({"has_prior_innovation_participation": True})
+    assert_signal(found["prior_open_innovation_usage"], 1.0, "present")
+    assert found["prior_open_innovation_usage"]["summary"], "a flag with no listed events still needs a summary"
+
+    none_found = innovation_participation_crawler._derive_signals(
         {"has_prior_innovation_participation": False, "field_status": {"events_found": "not_found"},
          "search_errors": []}
-    ) == {"prior_open_innovation_usage": {"value": 0.0, "status": "absent"}}
+    )
+    assert_signal(none_found["prior_open_innovation_usage"], 0.0, "absent")
 
 
 def test_innovation_participation_failed_search_does_not_assert_absence():
@@ -355,7 +439,7 @@ def test_digital_maturity_derive_signals():
                           "social_presence_links": "value"},
     }
     signals = digital_maturity_crawler._derive_signals(row)
-    assert signals["website_digital_maturity"] == {"value": 5.0, "status": "present"}
+    assert_signal(signals["website_digital_maturity"], 5.0, "present")
     assert signals["online_market_presence"]["value"] == pytest.approx(5.0)  # 2 (ecommerce) + 2 (social, capped) + 1 (active)
 
 

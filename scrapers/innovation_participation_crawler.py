@@ -35,11 +35,33 @@ def _derive_signals(row: dict) -> dict:
     zero here is expensive.
     """
     field_status = row.get("field_status") or {}
+    pages = row.get("pages_considered")
     if row.get("has_prior_innovation_participation"):
-        return {"prior_open_innovation_usage": {"value": 1.0, "status": "present"}}
+        events = row.get("events_found") or []
+        cited = [{"label": f"{e.get('event_name')} ({e.get('event_type')}, {e.get('year') or 'year unknown'}) "
+                            f"— role: {e.get('role')}, confidence: {e.get('confidence')}",
+                   "url": e.get("source_url")} for e in events]
+        return {"prior_open_innovation_usage": {
+            "value": 1.0, "status": "present",
+            # The flag can come back true with an empty event list; still say something
+            # meaningful rather than leaving the provenance blank.
+            "summary": ("; ".join(c["label"] for c in cited[:2])
+                        + ("" if len(cited) <= 2 else f" (+{len(cited)-2} more)")) if cited
+                       else "participation reported by the crawler, but it listed no specific event — verify manually",
+            "evidence": {
+                "method": "press/web search plus a maintained list of accelerator and corporate-venturing programs, "
+                           "classified by an LLM into event type / role / confidence",
+                "found": cited, "pages_considered": pages,
+                "best_confidence": row.get("confidence"),
+            },
+        }}
     searches_all_ran = not (row.get("search_errors") or [])
     if searches_all_ran and field_status.get("events_found") == "not_found":
-        return {"prior_open_innovation_usage": {"value": 0.0, "status": "absent"}}
+        return {"prior_open_innovation_usage": {
+            "value": 0.0, "status": "absent",
+            "summary": f"searched {pages} pages, no accelerator/hackathon/competition participation found",
+            "evidence": {"method": "press/web search plus known-program list", "found": [], "pages_considered": pages},
+        }}
     return {}
 
 

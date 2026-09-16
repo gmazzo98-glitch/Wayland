@@ -56,34 +56,68 @@ def _derive_signals(db: Session, company, row: dict) -> dict:
     """
     signals = {}
     field_status = row.get("field_status") or {}
+    homepage = row.get("homepage_url")
+    pages = row.get("crawled_pages_count")
+    base_evidence = {"source_urls": [homepage] if homepage else [], "pages_crawled": pages,
+                      "method": "LLM extraction over the company's own about/products/store-locator/sustainability pages"}
 
     product_lines = row.get("product_lines_count")
     if field_status.get("product_lines_count") == "value" and product_lines is not None:
-        signals["product_portfolio_diversity"] = {"value": float(product_lines), "status": "present"}
+        product_types = row.get("product_types") or []
+        signals["product_portfolio_diversity"] = {
+            "value": float(product_lines), "status": "present",
+            "summary": f"{int(product_lines)} product line(s): " + ", ".join(product_types[:5])
+                        + ("" if len(product_types) <= 5 else f" (+{len(product_types)-5} more)"),
+            "evidence": {**base_evidence, "product_lines_count": product_lines, "product_types": product_types},
+        }
 
     report = row.get("has_sustainability_report") or {}
     if field_status.get("has_sustainability_report") == "value":
         year = report.get("first_publication_year")
         if report.get("present") and year:
-            signals["esg_reporting_recency"] = {"value": float(datetime.utcnow().year - int(year)), "status": "present"}
+            signals["esg_reporting_recency"] = {
+                "value": float(datetime.utcnow().year - int(year)), "status": "present",
+                "summary": f"first sustainability/ESG report published {int(year)}",
+                "evidence": {**base_evidence, "first_publication_year": year},
+            }
         elif not report.get("present"):
             # Sustainability pages were crawled and carry no report — a real absence.
-            signals["esg_reporting_recency"] = {"value": None, "status": "absent"}
+            signals["esg_reporting_recency"] = {
+                "value": None, "status": "absent",
+                "summary": f"crawled {pages} pages of the company site, no sustainability/ESG report found",
+                "evidence": base_evidence,
+            }
 
     founding_year = row.get("founding_or_product_launch_year")
     if field_status.get("founding_or_product_launch_year") == "value" and founding_year:
-        signals["product_age"] = {"value": float(datetime.utcnow().year - int(founding_year)), "status": "present"}
+        signals["product_age"] = {
+            "value": float(datetime.utcnow().year - int(founding_year)), "status": "present",
+            "summary": f"founding / first product launch year stated as {int(founding_year)}",
+            "evidence": {**base_evidence, "founding_or_product_launch_year": founding_year,
+                          "last_product_update_signal": row.get("last_product_update_signal")},
+        }
 
     # 'not_applicable' here means pure B2B / no retail footprint — the indicator's own
     # comment says to treat that as null, never as "zero stores = need".
     store_regions = row.get("store_regions") or []
     if field_status.get("store_regions") == "value" and store_regions:
-        signals["store_geo_distribution"] = {"value": float(len(store_regions)), "status": "present"}
+        signals["store_geo_distribution"] = {
+            "value": float(len(store_regions)), "status": "present",
+            "summary": f"{len(store_regions)} region(s) served: " + ", ".join(map(str, store_regions[:6])),
+            "evidence": {**base_evidence, "store_regions": store_regions, "store_count": row.get("store_count")},
+        }
 
     if field_status.get("store_count") == "value":
         trend = _stores_trend(db, company, row.get("store_count"))
         if trend is not None:
-            signals["physical_stores_trend"] = {"value": float(trend), "status": "present"}
+            signals["physical_stores_trend"] = {
+                "value": float(trend), "status": "present",
+                "summary": f"store count {trend:+.0f}% vs the previous crawl of this site",
+                "evidence": {**base_evidence, "store_count_now": row.get("store_count"),
+                              "pct_change": round(trend, 1),
+                              "method": "current store-locator count vs the count stored by the previous crawl "
+                                         f"(at least {MIN_DAYS_BETWEEN_TREND_POINTS} days apart)"},
+            }
 
     return signals
 

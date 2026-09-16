@@ -52,7 +52,14 @@ def get_or_create_source_health(db: Session, source_name: str, phase: int) -> So
 
 def _upsert_signal(db: Session, company_id: str, signal_key: str, source: str,
                     value, status: str, confidence: float, raw_payload: dict,
-                    is_simulated: bool):
+                    is_simulated: bool, summary: str = None, evidence: dict = None):
+    """
+    summary/evidence are the per-signal provenance: what exactly produced this
+    number, so a human can check it without trusting the counter. A bare
+    "digital_job_postings = 1" is unverifiable; "1 of 12 open roles matched"
+    plus the matched role title and its URL is. Both are optional, so the
+    adapters that predate them are unaffected.
+    """
     sig = db.query(SignalRecord).filter_by(company_id=company_id, signal_key=signal_key).first()
     if not sig:
         sig = SignalRecord(company_id=company_id, signal_key=signal_key, source=source)
@@ -63,8 +70,11 @@ def _upsert_signal(db: Session, company_id: str, signal_key: str, source: str,
     sig.source = source
     sig.fetched_at = datetime.utcnow()
     sig.is_simulated = is_simulated
+    sig.text_value = summary
     payload = dict(raw_payload or {})
     payload["simulated"] = is_simulated
+    if evidence:
+        payload["evidence"] = evidence
     sig.raw_payload_ref = json.dumps(payload, default=str)
     return sig
 
@@ -82,8 +92,12 @@ def run_adapter(
 ) -> Dict[str, Any]:
     """
     fetch_live(company) / simulate(company) must both return:
-        {"signals": {signal_key: {"value": float|None, "status": "present"|"absent"}, ...},
+        {"signals": {signal_key: {"value": float|None, "status": "present"|"absent",
+                                   "summary": str (optional), "evidence": dict (optional)}, ...},
          "raw_payload": {...}, "confidence": float}
+
+    summary/evidence carry per-signal provenance — the specific items behind the
+    number and a URL to check them against. See _upsert_signal.
     fetch_live may raise any Exception on failure (network, auth, parsing) — that's
     expected and handled by falling back to simulate() with the real error surfaced
     on SourceHealth rather than swallowed.
@@ -113,7 +127,8 @@ def run_adapter(
                 db, company.id, signal_key, source_name,
                 sig_data.get("value"), sig_data.get("status", "present"),
                 result.get("confidence", 0.9 if used_live else 0.5),
-                result.get("raw_payload", {}), is_simulated=not used_live
+                result.get("raw_payload", {}), is_simulated=not used_live,
+                summary=sig_data.get("summary"), evidence=sig_data.get("evidence"),
             )
 
         source_health.mode = "live" if used_live else "simulated"
