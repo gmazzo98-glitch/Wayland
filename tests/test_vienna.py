@@ -180,6 +180,88 @@ def test_redundancy_dampening_reranks_when_weights_change():
     assert scores["need_score"] == round(50.0 / 5.5, 1)
 
 
+def test_score_detail_sums_to_the_same_aggregate_score():
+    """The whole point of include_detail is that it can't lie about the score —
+    summing the per-signal contributions and dividing by weight_checked must
+    reproduce readiness_score exactly (pre-gate), and applying gate_multiplier
+    on top must reproduce the final published score."""
+    defs = _fake_indicator_defs()
+    now = datetime.utcnow()
+    signals = [
+        {"signal_key": "need_a", "status": "present", "numeric_value": 60.0, "fetched_at": now},
+        {"signal_key": "ready_a", "status": "present", "numeric_value": 8.0, "fetched_at": now},
+        {"signal_key": "ready_b", "status": "absent", "numeric_value": None, "fetched_at": now},
+        {"signal_key": "both_a", "status": "present", "numeric_value": 1.0, "fetched_at": now},
+        {"signal_key": "ctx_a", "status": "present", "numeric_value": 999.0, "fetched_at": now},
+    ]
+    scores = calculate_company_scores(signals, defs, include_detail=True)
+
+    ready_meta = scores["readiness_meta"]
+    reconstructed_pre_gate = sum(e["contribution"] for e in scores["readiness_detail"]) / ready_meta["weight_checked"]
+    assert round(reconstructed_pre_gate, 1) == ready_meta["pre_gate_score"]
+    assert round(min(100.0, ready_meta["pre_gate_score"] * ready_meta["gate_multiplier"]), 1) == scores["readiness_score"]
+
+    # context-axis rows never appear in either axis's detail
+    assert all(e["key"] != "ctx_a" for e in scores["need_detail"] + scores["readiness_detail"])
+    # a 'both'-axis row appears in both, each time as its own full entry
+    assert any(e["key"] == "both_a" for e in scores["need_detail"])
+    assert any(e["key"] == "both_a" for e in scores["readiness_detail"])
+    # the never-checked need_b still appears (so the UI can show what's missing),
+    # contributing nothing
+    need_b_entry = next(e for e in scores["need_detail"] if e["key"] == "need_b")
+    assert need_b_entry["status"] == "not_yet_checked"
+    assert need_b_entry["contribution"] == 0.0
+
+    # bulk callers that don't ask for it get the old, smaller shape back
+    bare = calculate_company_scores(signals, defs)
+    assert "readiness_detail" not in bare and "need_detail" not in bare
+
+
+def test_score_detail_flags_the_fired_gate_and_matches_meta():
+    defs = {
+        "gate_a": {"axis": "readiness", "weight": 3.0, "invert": False, "raw_min": 0, "raw_max": 1,
+                   "curve_type": "linear", "is_gate": True, "gate_penalty_multiplier": 0.5, "freshness_days": 365},
+        "ready_x": {"axis": "readiness", "weight": 1.0, "invert": False, "raw_min": 0, "raw_max": 100,
+                    "curve_type": "linear", "is_gate": False, "gate_penalty_multiplier": 1.0, "freshness_days": 365},
+    }
+    now = datetime.utcnow()
+    signals = [
+        {"signal_key": "gate_a", "status": "absent", "numeric_value": None, "fetched_at": now},
+        {"signal_key": "ready_x", "status": "present", "numeric_value": 100.0, "fetched_at": now},
+    ]
+    scores = calculate_company_scores(signals, defs, include_detail=True)
+    assert scores["readiness_score"] == 12.5
+
+    gate_entry = next(e for e in scores["readiness_detail"] if e["key"] == "gate_a")
+    assert gate_entry["gate_fired"] is True
+    assert gate_entry["is_gate"] is True
+    meta = scores["readiness_meta"]
+    assert meta["gate_multiplier"] == 0.5
+    assert meta["fired_gates"] == [gate_entry]
+    assert meta["pre_gate_score"] == 25.0
+
+
+def test_score_detail_carries_provenance_for_the_evidence_ui():
+    """Company Intelligence's evidence section needs source/summary/raw_payload_ref
+    per signal — confirm they flow through calculate_company_scores rather than
+    being dropped when building signal_map."""
+    defs = {"ready_x": {"axis": "readiness", "weight": 1.0, "invert": False, "raw_min": 0, "raw_max": 10,
+                        "curve_type": "linear", "is_gate": False, "gate_penalty_multiplier": 1.0, "freshness_days": 365}}
+    now = datetime.utcnow()
+    signals = [{
+        "signal_key": "ready_x", "status": "present", "numeric_value": 5.0, "fetched_at": now,
+        "source": "Job Postings Crawler", "confidence": 0.7, "is_simulated": False,
+        "text_value": "3 of 10 open roles matched", "raw_payload_ref": '{"evidence": {"method": "x"}}',
+    }]
+    scores = calculate_company_scores(signals, defs, include_detail=True)
+    entry = scores["readiness_detail"][0]
+    assert entry["source"] == "Job Postings Crawler"
+    assert entry["confidence"] == 0.7
+    assert entry["is_simulated"] is False
+    assert entry["summary"] == "3 of 10 open roles matched"
+    assert entry["raw_payload_ref"] == '{"evidence": {"method": "x"}}'
+
+
 def test_is_prime_target_matches_moderate_to_high_band():
     # Section 4 of the Brief: high-need + MODERATE-TO-HIGH readiness, not a
     # single high+high corner.

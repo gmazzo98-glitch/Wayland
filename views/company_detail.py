@@ -777,6 +777,69 @@ def _is_financial_field(name: str) -> bool:
     return any(kw in norm for kw in keywords)
 
 
+def _render_score_breakdown(axis_label: str, axis_score: float, detail: list, meta: dict):
+    """
+    The "why is this score X" view: every signal that fed this axis, in the exact
+    numbers _evaluate_axis used to compute axis_score — never a re-derived estimate,
+    since this is the same `detail`/`meta` scoring.py returned alongside the score
+    itself. Two questions this answers that a single number can't:
+      - What's actually dragging this down? -> sort by normalized score ascending;
+        a signal with a LOW score and a HIGH weight is doing the most damage, and a
+        contribution-based sort would hide that (0 contribution looks the same
+        whether a signal is unchecked or checked-and-terrible).
+      - What would move it? -> the "not yet checked" table, sorted by the weight
+        it would carry if populated — the highest-leverage gaps to go fill first.
+    """
+    checked = [e for e in detail if e["status"] in ("present", "absent", "stale")]
+    unchecked = [e for e in detail if e["status"] == "not_yet_checked"]
+
+    with st.expander(f"🔍 Why is {axis_label} {axis_score}/100?", expanded=False):
+        gate_mult = meta["gate_multiplier"]
+        if gate_mult != 1.0:
+            st.markdown(
+                f"**Weighted average of {len(checked)} checked signal(s): {meta['pre_gate_score']}** "
+                f"→ × **{gate_mult}** gate penalty → **{axis_score}**"
+            )
+            for g in meta["fired_gates"]:
+                st.warning(
+                    f"🚧 Gate **{g['label']}** is {g['raw_status']} (normalized {g['normalized_score']}/100, "
+                    f"below the 50 threshold) → readiness multiplied by **×{g['gate_penalty_multiplier']}**",
+                    icon="🚧",
+                )
+        else:
+            st.markdown(f"**Weighted average of {len(checked)} checked signal(s) = {axis_score}** (no gate penalties fired)")
+
+        if not checked:
+            st.info("No signals checked yet on this axis — nothing to break down.")
+        else:
+            rows = []
+            for e in sorted(checked, key=lambda x: (x["normalized_score"] if x["normalized_score"] is not None else 0)):
+                dampened = e["effective_weight"] < e["base_weight"] - 1e-9
+                rows.append({
+                    "Signal": e["label"],
+                    "Category": e["category"],
+                    "Raw Value": "—" if e["raw_value"] is None else round(e["raw_value"], 2),
+                    "Score (0-100)": e["normalized_score"],
+                    "Weight": f"{e['effective_weight']:.2f}" + (f" (dampened from {e['base_weight']:.1f})" if dampened else ""),
+                    "Share of Axis": f"{e['contribution_pct_of_axis']:.1f}%",
+                    "Status": e["status"],
+                    "Gate": "🚧 fired" if e["gate_fired"] else "",
+                    "Source": e["source"] or "—",
+                    "What was found": e["summary"] or "—",
+                })
+            st.caption("Sorted worst-scoring first — a low score on a high-weight row is what's dragging this axis down.")
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        if unchecked:
+            top_gaps = sorted(unchecked, key=lambda x: -x["base_weight"])[:10]
+            with st.expander(f"⚪ {len(unchecked)} signal(s) not yet checked — highest-weight gaps shown first"):
+                st.caption("None of these count for or against the score yet. Checking the top ones would move it the most.")
+                st.dataframe(pd.DataFrame([
+                    {"Signal": e["label"], "Category": e["category"], "Weight if checked": e["base_weight"]}
+                    for e in top_gaps
+                ]), use_container_width=True, hide_index=True)
+
+
 def _render_signal_evidence(sig_dict: dict, indicator_defs: dict):
     """
     Item-by-item provenance for every signal that carries it: the specific roles,
@@ -1040,7 +1103,7 @@ def _render_tab1_content(db: Session):
         signals = db.query(SignalRecord).filter_by(company_id=company.id).all()
         sig_dict = {s.signal_key: s for s in signals}
         indicator_defs = fetch_indicator_defs(db)
-        scores = calculate_company_scores(signals, indicator_defs)
+        scores = calculate_company_scores(signals, indicator_defs, include_detail=True)
 
         # Top Header Summary
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -1054,6 +1117,12 @@ def _render_tab1_content(db: Session):
         with col_m4:
             st.metric("Shortlist Status", SHORTLIST_STATUS_LABELS.get(company.shortlist_status, company.shortlist_status),
                        delta="Phase 3+ Unlocked" if paid_unlocked else "Phase 1+2 Only")
+
+        col_why1, col_why2 = st.columns(2)
+        with col_why1:
+            _render_score_breakdown("Need", scores["need_score"], scores["need_detail"], scores["need_meta"])
+        with col_why2:
+            _render_score_breakdown("Readiness", scores["readiness_score"], scores["readiness_detail"], scores["readiness_meta"])
 
         st.markdown("---")
 

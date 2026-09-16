@@ -101,6 +101,18 @@ def _apply_redundancy_dampening(keys: List[str], indicator_defs: Dict[str, Dict[
 
 
 def _evaluate_axis(signal_map: Dict[str, Any], indicator_defs: Dict[str, Dict[str, Any]], axis_name: str):
+    """
+    Returns the aggregate (axis_score, weighted_completeness_pct, count_completeness_pct,
+    checked_count, total_keys) plus a `details` list — one entry per indicator on this
+    axis, carrying exactly the numbers that produced the aggregate (raw value, normalized
+    score, effective post-dampening weight, weighted contribution, whether a gate fired).
+    This is the single source of truth for both the score and its explanation — a
+    breakdown built from a second, separate calculation could silently drift from the
+    real score the first time someone edited this function and not the other.
+    Always computed (cheap: one dict per indicator, ~80 rows) but only surfaced by
+    calculate_company_scores when include_detail=True, so existing bulk-scoring
+    call sites (e.g. ranking every company in target_matrix.py) pay no new cost.
+    """
     keys = [k for k, d in indicator_defs.items() if d["axis"] in (axis_name, "both")]
     eff_weight = _apply_redundancy_dampening(keys, indicator_defs)
 
@@ -109,6 +121,8 @@ def _evaluate_axis(signal_map: Dict[str, Any], indicator_defs: Dict[str, Dict[st
     weight_total = sum(eff_weight.values()) or 0.0
     checked_count = 0
     gate_multiplier = 1.0
+    fired_gates = []
+    details = []
 
     for key in keys:
         defn = indicator_defs[key]
@@ -116,29 +130,87 @@ def _evaluate_axis(signal_map: Dict[str, Any], indicator_defs: Dict[str, Dict[st
         data = signal_map.get(key, {"status": "not_yet_checked", "value": None})
         status = data["status"]
 
+        entry = {
+            "key": key,
+            "label": defn.get("label", key),
+            "category": defn.get("category"),
+            "raw_value": data.get("value"),
+            "status": status,
+            "raw_status": data.get("raw_status", status),
+            "base_weight": defn.get("weight", 0.0),
+            "effective_weight": round(weight, 3),
+            "redundancy_group": defn.get("redundancy_group"),
+            "is_gate": bool(defn.get("is_gate")),
+            "gate_penalty_multiplier": defn.get("gate_penalty_multiplier", 1.0),
+            "gate_fired": False,
+            "normalized_score": None,
+            "contribution": 0.0,
+            "source": data.get("source"),
+            "fetched_at": data.get("fetched_at"),
+            "confidence": data.get("confidence"),
+            "is_simulated": data.get("is_simulated"),
+            "summary": data.get("summary"),
+            "raw_payload_ref": data.get("raw_payload_ref"),
+        }
+
         if status in ("present", "stale"):
             checked_count += 1
             weight_checked += weight
             normalized = normalize_indicator_value(data["value"], defn)
-            weighted_sum += normalized * weight
+            contribution = normalized * weight
+            weighted_sum += contribution
+            entry["normalized_score"] = round(normalized, 1)
+            entry["contribution"] = round(contribution, 3)
             if defn.get("is_gate") and normalized < 50.0:
                 gate_multiplier *= defn.get("gate_penalty_multiplier", 1.0)
+                entry["gate_fired"] = True
+                fired_gates.append(entry)
         elif status == "absent":
             checked_count += 1
             weight_checked += weight
+            entry["normalized_score"] = 0.0
             if defn.get("is_gate"):
                 gate_multiplier *= defn.get("gate_penalty_multiplier", 1.0)
+                entry["gate_fired"] = True
+                fired_gates.append(entry)
             # absent contributes 0 to weighted_sum, same as before
 
-    axis_score = (weighted_sum / weight_checked) if weight_checked > 0 else 0.0
-    axis_score = min(100.0, axis_score * gate_multiplier)
+        details.append(entry)
+
+    pre_gate_score = (weighted_sum / weight_checked) if weight_checked > 0 else 0.0
+    axis_score = min(100.0, pre_gate_score * gate_multiplier)
     weighted_completeness_pct = (weight_checked / weight_total * 100.0) if weight_total > 0 else 0.0
     count_completeness_pct = (checked_count / len(keys) * 100.0) if keys else 0.0
 
-    return axis_score, weighted_completeness_pct, count_completeness_pct, checked_count, len(keys)
+    # Now that weight_checked is final, each contributing entry's share of the
+    # pre-gate weighted average — the "how much of this score is this one signal"
+    # number the UI actually wants, not just its raw weighted contribution.
+    for entry in details:
+        entry["contribution_pct_of_axis"] = (
+            round(entry["contribution"] / weight_checked * 100.0, 1) if weight_checked > 0 else 0.0
+        )
+
+    meta = {
+        "pre_gate_score": round(pre_gate_score, 1),
+        "gate_multiplier": round(gate_multiplier, 4),
+        "fired_gates": fired_gates,
+        "weight_checked": round(weight_checked, 3),
+        "weight_total": round(weight_total, 3),
+    }
+
+    return axis_score, weighted_completeness_pct, count_completeness_pct, checked_count, len(keys), details, meta
 
 
-def calculate_company_scores(company_signals: List[Any], indicator_defs: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def _sig_attr(sig, name, default=None):
+    """Reads one field off either a SignalRecord ORM object or a plain dict (tests and
+    calibration.py pass dicts) — same hasattr-first pattern already used inline below,
+    pulled out once so the new provenance fields don't repeat it five more times."""
+    return getattr(sig, name) if hasattr(sig, name) else (sig.get(name, default) if isinstance(sig, dict) else default)
+
+
+def calculate_company_scores(
+    company_signals: List[Any], indicator_defs: Dict[str, Dict[str, Any]], include_detail: bool = False,
+) -> Dict[str, Any]:
     """
     Computes weighted Need/Readiness scores and completeness for a company.
 
@@ -146,6 +218,12 @@ def calculate_company_scores(company_signals: List[Any], indicator_defs: Dict[st
     indicator_defs: {signal_key: definition_dict} — fetch once per page render
         via indicators.fetch_indicator_defs(db), not per company, to avoid
         re-querying the (small, ~75-row) catalog on every loop iteration.
+    include_detail: when True, adds "need_detail"/"readiness_detail" (per-signal
+        breakdown, see _evaluate_axis) and "need_meta"/"readiness_meta" (gate/
+        completeness bookkeeping) to the return dict — the traceable "why is this
+        score X" view on Company Intelligence. Off by default so the existing
+        bulk-scoring call sites (ranking every company on the Target Matrix) build
+        no detail they'd just discard.
     """
     signal_map = {}
     for sig in company_signals:
@@ -157,16 +235,25 @@ def calculate_company_scores(company_signals: List[Any], indicator_defs: Dict[st
         fetched_at = getattr(sig, "fetched_at", None) if hasattr(sig, "fetched_at") else sig.get("fetched_at")
 
         display_status = get_signal_display_status(status, indicator_defs[key].get("freshness_days"), fetched_at)
-        signal_map[key] = {"status": display_status, "raw_status": status, "value": val}
+        signal_map[key] = {
+            "status": display_status, "raw_status": status, "value": val, "fetched_at": fetched_at,
+            "source": _sig_attr(sig, "source"),
+            "confidence": _sig_attr(sig, "confidence"),
+            "is_simulated": _sig_attr(sig, "is_simulated"),
+            "summary": _sig_attr(sig, "text_value"),
+            "raw_payload_ref": _sig_attr(sig, "raw_payload_ref"),
+        }
 
-    need_score, need_wcomp, need_ccomp, need_checked, need_total = _evaluate_axis(signal_map, indicator_defs, "need")
-    readiness_score, ready_wcomp, ready_ccomp, ready_checked, ready_total = _evaluate_axis(signal_map, indicator_defs, "readiness")
+    need_score, need_wcomp, need_ccomp, need_checked, need_total, need_detail, need_meta = _evaluate_axis(
+        signal_map, indicator_defs, "need")
+    readiness_score, ready_wcomp, ready_ccomp, ready_checked, ready_total, ready_detail, ready_meta = _evaluate_axis(
+        signal_map, indicator_defs, "readiness")
 
     total_checked = need_checked + ready_checked
     total_signals = need_total + ready_total
     total_comp_pct = (total_checked / total_signals * 100.0) if total_signals > 0 else 0.0
 
-    return {
+    result = {
         "need_score": round(need_score, 1),
         "readiness_score": round(readiness_score, 1),
         "need_completeness_pct": round(need_wcomp, 1),
@@ -177,6 +264,12 @@ def calculate_company_scores(company_signals: List[Any], indicator_defs: Dict[st
         "signals_checked": total_checked,
         "signals_total": total_signals,
     }
+    if include_detail:
+        result["need_detail"] = need_detail
+        result["readiness_detail"] = ready_detail
+        result["need_meta"] = need_meta
+        result["readiness_meta"] = ready_meta
+    return result
 
 
 # Ideal band per Section 4 of the Technical Brief: "the ideal targets are
