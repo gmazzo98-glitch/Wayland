@@ -18,7 +18,8 @@ from sqlalchemy.orm import Session
 from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, PilotOutcome, RawImportRecord, CompanyPerson
 from indicators import fetch_indicator_defs, TREND_INDICATOR_KEYS, CAT_CONTEXT
 from utils import normalize_registration_nr
-from adapters import epo_ops, euipo, destatis, eu_funding, arbeitsagentur, google_news
+from config import has_credentials
+from adapters import epo_ops, euipo, destatis, eu_funding, arbeitsagentur, google_news, google_news_rss
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
 from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
@@ -111,8 +112,16 @@ def sync_company_applicable_sources(company: Company, db: Session, phases: list 
         # Phase 4 Web & Social (Both DE & IT)
         results["Wappalyzer"] = wappalyzer_local.sync_tech_stack(company, db)
         results["Management Diversity"] = management_diversity.sync_management_diversity(company, db)
-        results["Partnership News"] = google_news.sync_partnership_news(company, db)
-        results["Innovation Statements"] = google_news.sync_innovation_statements(company, db)
+        # News/Press: the Google Programmable Search adapter is better (real search
+        # ranking, article snippets) but needs a paid-tier key, and with none set it
+        # only ever wrote placeholder values. The keyless Google News RSS adapter
+        # covers the same signals for free, so it's the default and CSE takes over
+        # only when actually configured — one producer per signal_key either way.
+        if has_credentials("Google News"):
+            results["Partnership News"] = google_news.sync_partnership_news(company, db)
+            results["Innovation Statements"] = google_news.sync_innovation_statements(company, db)
+        else:
+            results["Google News RSS"] = google_news_rss.sync_news_rss(company, db)
 
     if 7 in phases:
         # Phase 7 — Node/Crawlee crawlers (Scraper/crawlers/), both DE & IT. Slower

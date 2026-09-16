@@ -112,6 +112,8 @@ SOURCE_CREDENTIAL_VARS = {
     "Arbeitsagentur": [],
     "Wappalyzer": [],
     "Google News": ["GOOGLE_CSE_API_KEY", "GOOGLE_CSE_ID"],
+    # Keyless public RSS feed — the free default for News/Press when no CSE key is set.
+    "Google News RSS": [],
     "Own-Site Scrape": [],
     "Handelsregister Free Snapshot": [],
     # Phase 7 — Node-based Crawlee crawlers (scrapers/*_crawler.py). Empty list means
