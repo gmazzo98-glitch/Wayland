@@ -162,6 +162,16 @@ def _derive_signals(row: dict) -> dict:
 
     roles_status = field_status.get("technical_digital_roles_count")
     tech_roles = row.get("technical_digital_roles_count")
+    # The crawler's own count is computed over every "listing" it extracted, junk
+    # included, and can't be recomputed here (only a 10-item sample comes back, and
+    # the keyword list lives in the crawler). So if plausibility filtering rejected
+    # ALL of the listings, the extraction isn't trustworthy enough to derive a count
+    # from either — bortolinkemo.com's only "role" was a CV-upload button, which
+    # would otherwise have been reported as "0 of 1 open roles".
+    extraction_is_junk = bool(row.get("roles_sample")) and not roles_sample
+    if extraction_is_junk:
+        return signals
+
     if roles_status == "value" and tech_roles is not None:
         # The crawler matches keywords against title + snippet + full description,
         # but roles_sample carries titles only and is capped at 10 — so the sample
@@ -169,7 +179,9 @@ def _derive_signals(row: dict) -> dict:
         # than presenting the sample as the definitive list of what was counted.
         signals["digital_job_postings"] = {
             "value": float(tech_roles), "status": "present",
-            "summary": f"{int(tech_roles)} of {total_roles} open roles matched digital/technical keywords",
+            "summary": f"{int(tech_roles)} of {total_roles} open roles matched digital/technical keywords"
+                        + (f" ({len(roles_sample)} of the listings shown below survived junk-filtering)"
+                           if len(roles_sample) < len(row.get("roles_sample") or []) else ""),
             "evidence": {
                 "method": "keyword match over each posting's title, snippet and description",
                 "counted": int(tech_roles), "considered": total_roles,

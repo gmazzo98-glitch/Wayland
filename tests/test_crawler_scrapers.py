@@ -382,6 +382,19 @@ def test_plausible_listings_drops_cta_buttons_and_self_links():
     assert [r["title"] for r in kept] == ["Software Engineer"]
 
 
+def test_nothing_asserted_when_every_listing_was_junk():
+    """bortolinkemo.com's only "open role" was a CV-upload button. Once that's
+    filtered out there's no trustworthy extraction left, so the crawler's own count
+    ("0 of 1 open roles") must not be reported as a checked fact either."""
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 0, "total_open_roles": 1,
+        "roles_sample": [{"title": "CARICA IL TUO CURRICULUM VITAE", "url": "javascript:;"}],
+        "sources_used": [{"url": "https://x.com/it/lavora-con-noi"}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    })
+    assert signals == {}
+
+
 def test_gate_not_asserted_from_a_single_thin_listing():
     """A lone plausible listing isn't evidence that no digital-lead role exists, and a
     false 'absent' on this gate costs 30% of the readiness score."""
