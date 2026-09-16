@@ -78,7 +78,12 @@ CRAWLER_ANTHROPIC_API_KEY = os.getenv("CRAWLER_ANTHROPIC_API_KEY") or os.getenv(
 # see Scraper/crawlers/company-website-crawler/.env.example for exact values per provider.
 CRAWLER_LLM_API_KEY = os.getenv("CRAWLER_LLM_API_KEY")
 CRAWLER_LLM_BASE_URL = os.getenv("CRAWLER_LLM_BASE_URL", "https://api.groq.com/openai/v1")
-CRAWLER_LLM_MODEL = os.getenv("CRAWLER_LLM_MODEL", "llama-3.3-70b-versatile")
+# Verified live against GET https://api.groq.com/openai/v1/models on 2026-09-16 —
+# llama-3.3-70b-versatile (this default's first value) 404s, doesn't exist on Groq's
+# current catalog at all. Their catalog moves; re-check against your own key if this
+# 404s later. gpt-oss-120b is one of only two Groq models documented to support
+# strict schema-guaranteed tool calling (the other: gpt-oss-20b, smaller/faster).
+CRAWLER_LLM_MODEL = os.getenv("CRAWLER_LLM_MODEL", "openai/gpt-oss-120b")
 
 # news-signals-crawler / innovation-participation-crawler: without a real key
 # these default to SEARCH_PROVIDER=mock, which returns FIXED FAKE Wikipedia
