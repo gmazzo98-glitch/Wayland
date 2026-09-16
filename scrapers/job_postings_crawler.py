@@ -14,7 +14,7 @@ which isn't enough text to detect an ERP vendor mention without guessing.
 
 import re
 import requests
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from sqlalchemy.orm import Session
 
 from adapters.base import run_adapter
@@ -26,6 +26,8 @@ SOURCE_NAME = "Job Postings Crawler"
 CRAWLER_DIR = "job-postings-crawler"
 DATASET_NAME = "crawler_job_postings"
 PHASE = 7
+# Minimum plausible listings before the digital-lead gate may be asserted absent.
+MIN_LISTINGS_FOR_GATE = 3
 
 # The crawler treats whatever careers_url it's handed AS the careers page. Handing it
 # a bare homepage makes its generic adapter harvest every link on that page as a
@@ -42,17 +44,46 @@ CAREERS_PATHS = [
 ]
 _PROBE_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ProjectViennaBot/1.0)"}
 
+# A careers page should say so somewhere. Guards against a path that 200s but is
+# really a catch-all/marketing page.
+_CAREERS_CONTENT_RE = re.compile(
+    r"lavora con noi|posizioni aperte|offerte di lavoro|candidatur|"          # IT
+    r"stellenangebote|karriere|bewerb|offene stellen|"                         # DE
+    r"job opening|open position|vacanc|careers|apply now|join our team",       # EN
+    re.I,
+)
+
+
+def _normalized(url: str) -> str:
+    """scheme+host+path, lowercased, no trailing slash — for comparing a probe's
+    landing page against the homepage."""
+    try:
+        p = urlparse(url)
+        return f"{p.scheme.lower()}://{p.netloc.lower()}{p.path.rstrip('/').lower()}"
+    except ValueError:
+        return (url or "").rstrip("/").lower()
+
 
 def _find_careers_url(website_url: str):
-    """Returns a reachable careers-page URL for this domain, or None. Fails fast on
-    a dead domain instead of paying the DNS/connect cost for every candidate path."""
+    """
+    Returns a URL that is genuinely a careers page, or None.
+
+    A plain `status_code == 200` check is not enough: many CMS sites answer every
+    unknown path with a 200 that redirects to (or renders) the homepage. Verified
+    live on rcm.it, where /careers, /jobs and /lavora-con-noi all returned 200 with
+    byte-identical homepage content — which previously got passed to the crawler as
+    a careers page and produced 28 "open roles" that were really sector-page links.
+    So a candidate must also land somewhere other than the homepage AND actually
+    read like a careers page.
+    """
     if not website_url:
         return None
     base = website_url if re.match(r"^https?://", website_url, re.I) else f"https://{website_url}"
     try:
-        requests.get(base, timeout=6, headers=_PROBE_HEADERS)
+        home = requests.get(base, timeout=6, headers=_PROBE_HEADERS)
     except requests.RequestException:
         return None
+    home_url = _normalized(home.url)
 
     for path in CAREERS_PATHS:
         url = urljoin(base.rstrip("/") + "/", path.lstrip("/"))
@@ -60,9 +91,43 @@ def _find_careers_url(website_url: str):
             resp = requests.get(url, timeout=6, headers=_PROBE_HEADERS)
         except requests.RequestException:
             continue
-        if resp.status_code == 200:
-            return url
+        if resp.status_code != 200:
+            continue
+        if _normalized(resp.url) == home_url:
+            continue  # soft-404 / catch-all redirect back to the homepage
+        if not _CAREERS_CONTENT_RE.search(resp.text or ""):
+            continue
+        return resp.url
     return None
+
+
+# The crawler's generic adapter treats link-ish elements on the page as listings, so
+# a real careers page can still yield non-jobs — "CARICA IL TUO CURRICULUM VITAE"
+# (upload your CV) with href="javascript:;" was returned as an open role by a live
+# run. A listing is only counted when it points at a real, distinct document.
+_CTA_TITLE_RE = re.compile(
+    r"carica il tuo|curriculum vitae|invia (la tua )?candidatura|upload (your )?cv|"
+    r"privacy|cookie|newsletter|scarica|download|contatt|contact us|vedi tutt|view all",
+    re.I,
+)
+
+
+def _plausible_listings(roles_sample: list, source_urls: list) -> list:
+    """Drops CTA buttons, javascript:/anchor hrefs, and links back to the careers
+    page itself — none of which are job postings."""
+    source_norms = {_normalized(u) for u in source_urls}
+    keep = []
+    for r in roles_sample or []:
+        title = (r.get("title") or "").strip()
+        url = (r.get("url") or "").strip()
+        if not title or not url.lower().startswith(("http://", "https://")):
+            continue
+        if _normalized(url) in source_norms:
+            continue
+        if _CTA_TITLE_RE.search(title):
+            continue
+        keep.append(r)
+    return keep
 
 DIGITAL_LEAD_TITLE_RE = re.compile(
     r"Head of Digital|Chief Digital Officer|\bCDO\b|Innovation Manager|Head of Innovation|"
@@ -90,8 +155,8 @@ def _derive_signals(row: dict) -> dict:
     if not sources_used:
         return signals  # no source reached — every field below would be a fabricated zero
 
-    source_urls = [s.get("url") for s in sources_used if s.get("url")]
-    roles_sample = row.get("roles_sample") or []
+    source_urls = list(dict.fromkeys(s.get("url") for s in sources_used if s.get("url")))
+    roles_sample = _plausible_listings(row.get("roles_sample"), source_urls)
     total_roles = row.get("total_open_roles")
     sampled = [{"label": r.get("title"), "url": r.get("url")} for r in roles_sample if r.get("title")]
 
@@ -136,10 +201,13 @@ def _derive_signals(row: dict) -> dict:
             },
         }
 
-    # Gating indicator (gate_penalty_multiplier=0.7) — only ever asserted off the
-    # back of postings actually retrieved, never off an empty/failed crawl. Here the
-    # match happens locally on titles, so the exact matching title can be named.
-    if roles_sample:
+    # Gating indicator (gate_penalty_multiplier=0.7) — a false "absent" here costs the
+    # company 30% of its readiness score, so it needs more than one stray link to fire.
+    # Generic careers-page scraping is noisy enough that a single plausible listing is
+    # not evidence that no digital-lead role exists; below the threshold, stay silent.
+    if len(roles_sample) >= MIN_LISTINGS_FOR_GATE or any(
+        DIGITAL_LEAD_TITLE_RE.search(r.get("title") or "") for r in roles_sample
+    ):
         matched = [r.get("title") for r in roles_sample if DIGITAL_LEAD_TITLE_RE.search(r.get("title") or "")]
         found = bool(matched)
         signals["digital_lead_role_present"] = {

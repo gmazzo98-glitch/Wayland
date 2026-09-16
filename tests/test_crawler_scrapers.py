@@ -271,9 +271,11 @@ def test_job_postings_derive_signals_digital_lead_keyword_match():
     row = {
         "technical_digital_roles_count": 4,
         "technical_qualification_share": 0.6,
-        "roles_sample": [{"title": "Head of Digital Transformation"}, {"title": "Warehouse Assistant"}],
+        "roles_sample": [{"title": "Head of Digital Transformation", "url": "https://example.com/jobs/1"},
+                          {"title": "Warehouse Assistant", "url": "https://example.com/jobs/2"}],
         "careers_url": "https://example.com/careers",
-        "sources_used": [{"id": "careers", "kind": "careers_page", "listings_found": 12}],
+        "sources_used": [{"id": "careers", "kind": "careers_page", "url": "https://example.com/careers",
+                           "listings_found": 12}],
         "field_status": {"technical_digital_roles_count": "value", "technical_qualification_share": "value"},
     }
     signals = job_postings_crawler._derive_signals(row)
@@ -283,10 +285,14 @@ def test_job_postings_derive_signals_digital_lead_keyword_match():
 
 
 def test_job_postings_no_digital_lead_when_no_match():
+    """Enough real postings to judge, none of them a digital/innovation lead."""
     row = {
-        "roles_sample": [{"title": "Warehouse Assistant"}],
+        "roles_sample": [{"title": "Warehouse Assistant", "url": "https://example.com/jobs/1"},
+                          {"title": "Maintenance Technician", "url": "https://example.com/jobs/2"},
+                          {"title": "Accountant", "url": "https://example.com/jobs/3"}],
         "careers_url": "https://example.com/careers",
-        "sources_used": [{"id": "careers", "kind": "careers_page", "listings_found": 1}],
+        "sources_used": [{"id": "careers", "kind": "careers_page", "url": "https://example.com/careers",
+                           "listings_found": 3}],
         "field_status": {"technical_digital_roles_count": "value"},
     }
     signals = job_postings_crawler._derive_signals(row)
@@ -320,22 +326,81 @@ def test_find_careers_url_returns_none_for_unreachable_domain(monkeypatch):
     assert job_postings_crawler._find_careers_url("www.example.com") is None
 
 
-def test_find_careers_url_picks_first_reachable_path(monkeypatch):
-    class Resp:
-        def __init__(self, code):
-            self.status_code = code
+class _Resp:
+    def __init__(self, code, url, text=""):
+        self.status_code, self.url, self.text = code, url, text
 
+
+CAREERS_HTML = "<html><body><h1>Lavora con noi</h1><p>Posizioni aperte</p></body></html>"
+
+
+def test_find_careers_url_picks_first_reachable_path(monkeypatch):
     seen = []
 
     def fake_get(url, **kwargs):
         seen.append(url)
         if url.endswith("/lavora-con-noi"):
-            return Resp(200)
-        return Resp(404)
+            return _Resp(200, url, CAREERS_HTML)
+        return _Resp(404, url)
 
     monkeypatch.setattr(job_postings_crawler.requests, "get", fake_get)
     assert job_postings_crawler._find_careers_url("www.example.com") == "https://www.example.com/lavora-con-noi"
     assert seen[0] == "https://www.example.com"  # base probed first, fails fast on dead domains
+
+
+def test_find_careers_url_rejects_soft_404_redirect_to_homepage(monkeypatch):
+    """rcm.it answers every unknown path with a 200 that lands back on the homepage —
+    accepting that produced 28 fake 'open roles' from homepage sector links."""
+    def fake_get(url, **kwargs):
+        if url == "https://www.example.com":
+            return _Resp(200, "https://www.example.com/", "<html>home</html>")
+        return _Resp(200, "https://www.example.com/", "<html>home</html>")  # every path lands home
+
+    monkeypatch.setattr(job_postings_crawler.requests, "get", fake_get)
+    assert job_postings_crawler._find_careers_url("www.example.com") is None
+
+
+def test_find_careers_url_rejects_page_that_is_not_about_jobs(monkeypatch):
+    def fake_get(url, **kwargs):
+        if url == "https://www.example.com":
+            return _Resp(200, "https://www.example.com/", "<html>home</html>")
+        return _Resp(200, url, "<html><body>Our products and services</body></html>")
+
+    monkeypatch.setattr(job_postings_crawler.requests, "get", fake_get)
+    assert job_postings_crawler._find_careers_url("www.example.com") is None
+
+
+def test_plausible_listings_drops_cta_buttons_and_self_links():
+    roles = [
+        {"title": "CARICA IL TUO CURRICULUM VITAE", "url": "javascript:;"},
+        {"title": "Software Engineer", "url": "https://x.com/jobs/1"},
+        {"title": "Vedi tutte le posizioni", "url": "https://x.com/jobs/all"},
+        {"title": "Back to careers", "url": "https://x.com/careers"},
+        {"title": "", "url": "https://x.com/jobs/2"},
+    ]
+    kept = job_postings_crawler._plausible_listings(roles, ["https://x.com/careers"])
+    assert [r["title"] for r in kept] == ["Software Engineer"]
+
+
+def test_gate_not_asserted_from_a_single_thin_listing():
+    """A lone plausible listing isn't evidence that no digital-lead role exists, and a
+    false 'absent' on this gate costs 30% of the readiness score."""
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 0, "total_open_roles": 1,
+        "roles_sample": [{"title": "Operaio addetto al montaggio", "url": "https://x.com/jobs/1"}],
+        "sources_used": [{"url": "https://x.com/careers"}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    })
+    assert "digital_lead_role_present" not in signals
+
+    # ...but a genuine digital-lead title counts even on its own.
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 1, "total_open_roles": 1,
+        "roles_sample": [{"title": "Innovation Manager", "url": "https://x.com/jobs/1"}],
+        "sources_used": [{"url": "https://x.com/careers"}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    })
+    assert_signal(signals["digital_lead_role_present"], 1.0, "present")
 
 
 def test_job_postings_crawled_board_with_zero_roles_is_a_real_absent():
