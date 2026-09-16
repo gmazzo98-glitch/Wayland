@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from adapters.base import run_adapter
-from config import CRAWLER_ANTHROPIC_API_KEY
+from config import CRAWLER_LLM_API_KEY, CRAWLER_LLM_BASE_URL, CRAWLER_LLM_MODEL
 from models import RawImportRecord
 from scrapers.node_crawler_base import (
     CrawlerRunError, run_ts_crawler, rows_for_company, save_crawler_blob,
@@ -126,8 +126,12 @@ def sync_company_website(company, db_session: Session) -> dict:
     captured = {}
 
     def _fetch_live(c):
-        # subprocess env values must be strings — never hand it a None.
-        env = {"ANTHROPIC_API_KEY": CRAWLER_ANTHROPIC_API_KEY} if CRAWLER_ANTHROPIC_API_KEY else {}
+        # subprocess env values must be strings — never hand it a None. Defaults to
+        # Groq (free, no card) rather than Anthropic — see config.py's docstring on
+        # CRAWLER_LLM_BASE_URL for how to point this at Gemini/Cerebras/a local
+        # Ollama instead, no code change needed on either side.
+        env = {"LLM_API_KEY": CRAWLER_LLM_API_KEY, "LLM_BASE_URL": CRAWLER_LLM_BASE_URL,
+               "LLM_MODEL": CRAWLER_LLM_MODEL} if CRAWLER_LLM_API_KEY else {}
         rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}],
                                env_overrides=env)
         matches = rows_for_company(rows, c.id)
@@ -147,7 +151,7 @@ def sync_company_website(company, db_session: Session) -> dict:
         return {
             "signals": {},
             "raw_payload": {"note": "company-website-crawler unavailable, no website_url on record, "
-                                     "or CRAWLER_ANTHROPIC_API_KEY not configured"},
+                                     "or CRAWLER_LLM_API_KEY not configured"},
             "confidence": 0.5,
         }
 
@@ -159,7 +163,7 @@ def sync_company_website(company, db_session: Session) -> dict:
     # a source that is structurally incapable of producing anything.
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
-        credentials_ok=bool(company.website_url and CRAWLER_ANTHROPIC_API_KEY),
+        credentials_ok=bool(company.website_url and CRAWLER_LLM_API_KEY),
         fetch_live=_fetch_live, simulate=_simulate, timeout=90,
     )
 

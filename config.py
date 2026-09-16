@@ -64,9 +64,21 @@ SCRAPER_CRAWLERS_DIR = os.getenv("SCRAPER_CRAWLERS_DIR") or str(
     Path(__file__).resolve().parent.parent / "Scraper" / "crawlers"
 )
 
-# Shared by company-website-crawler and news-signals-crawler/innovation-participation-crawler
-# for LLM field extraction — same key naming as the Claude API itself.
+# news-signals-crawler / innovation-participation-crawler still call the Anthropic API
+# directly for classification (unconverted — they're gated primarily on NEWSAPI_KEY
+# below anyway, and their News/Press signals already have a free path via
+# adapters/google_news_rss.py, so converting these two was left out of scope).
+# Optional for both: missing key just means a lower-confidence classification, not a
+# blocker, per each crawler's own graceful-degradation behavior.
 CRAWLER_ANTHROPIC_API_KEY = os.getenv("CRAWLER_ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+
+# company-website-crawler's LLM field extraction — converted off Anthropic (cost) onto
+# any OpenAI-compatible endpoint. Defaults to Groq: free, no credit card, rate-limited
+# only. Point these three at Gemini/Cerebras/a local Ollama instead with no code change —
+# see Scraper/crawlers/company-website-crawler/.env.example for exact values per provider.
+CRAWLER_LLM_API_KEY = os.getenv("CRAWLER_LLM_API_KEY")
+CRAWLER_LLM_BASE_URL = os.getenv("CRAWLER_LLM_BASE_URL", "https://api.groq.com/openai/v1")
+CRAWLER_LLM_MODEL = os.getenv("CRAWLER_LLM_MODEL", "llama-3.3-70b-versatile")
 
 # news-signals-crawler / innovation-participation-crawler: without a real key
 # these default to SEARCH_PROVIDER=mock, which returns FIXED FAKE Wikipedia
@@ -123,7 +135,7 @@ SOURCE_CREDENTIAL_VARS = {
     # plain absence of enrichment — see scrapers/news_signals_crawler.py.
     # Company Website Crawler's fields are all LLM-extracted — no key means it
     # returns not_found for every one of them, so it's a real gate, not an enhancement.
-    "Company Website Crawler": ["CRAWLER_ANTHROPIC_API_KEY"],
+    "Company Website Crawler": ["CRAWLER_LLM_API_KEY"],
     "Job Postings Crawler": [],
     "Review Crawler": [],
     "News Signals Crawler": ["NEWSAPI_KEY"],
