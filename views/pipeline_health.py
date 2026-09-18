@@ -107,21 +107,35 @@ def render_pipeline_health_page(db: Session):
     st.markdown("**🕸️ Phase 7 — Crawler Deep Enrichment (Node-based, slower)**")
     st.caption(
         "Each of the 8 crawlers under Scraper/crawlers/ spawns its own subprocess per company "
-        "(Node/Playwright startup, sometimes an LLM call) — tens of seconds each, run sequentially. "
-        "Cap the batch size below; this is meant for a handful of shortlisted companies at a time, not the full list."
+        "(Node/Playwright startup, sometimes an LLM call) — 2-4 minutes per company end to end. "
+        "Several companies run in parallel, each on its own DB session; 3 in flight is the sweet spot on a "
+        "16 GB machine (one headless Chromium each) before the Groq and Wayback rate limits start biting. "
+        "Cap the batch size below; this is meant for shortlisted companies, not the full list."
     )
-    col_p7a, col_p7b = st.columns([1, 2])
+    col_p7a, col_p7b, col_p7c = st.columns([1, 1, 2])
     with col_p7a:
-        p7_limit = st.number_input("Max companies this run", min_value=1, max_value=50, value=5, key="p7_limit")
+        p7_limit = st.number_input("Max companies this run", min_value=1, max_value=50, value=10, key="p7_limit")
     with col_p7b:
+        p7_workers = st.number_input("Companies in parallel", min_value=1, max_value=6, value=3, key="p7_workers")
+    with col_p7c:
         st.markdown("&nbsp;")
         if st.button("🕸️ Run Phase 7 Crawler Enrichment", use_container_width=True):
+            from company_service import run_phase7_batch
             batch = target_companies[:int(p7_limit)]
-            with st.spinner(f"Running 8 crawlers for {len(batch)} companies — this can take several minutes..."):
-                for comp in batch:
-                    sync_company_applicable_sources(comp, db, phases=[7])
-                st.success(f"Phase 7 pass complete for {len(batch)} companies! Check the mode column below.")
-                st.rerun()
+            bar = st.progress(0.0, text=f"Running 8 crawlers for {len(batch)} companies, {int(p7_workers)} at a time…")
+
+            def _tick(done, total, name):
+                bar.progress(done / total, text=f"{done}/{total} companies done — latest: {name or '?'}")
+
+            results = run_phase7_batch([c.id for c in batch], max_workers=int(p7_workers), progress_cb=_tick)
+            db.expire_all()  # the workers wrote through their own sessions; drop this page's cached rows
+            failed = {cid: r["error"] for cid, r in results.items() if isinstance(r, dict) and r.get("error")}
+            st.success(f"Phase 7 pass complete for {len(batch) - len(failed)} of {len(batch)} companies! "
+                       "Check the mode column below.")
+            if failed:
+                names = {c.id: c.legal_name for c in batch}
+                st.warning("Failed outright for: " + "; ".join(f"{names.get(cid, cid)}: {err}" for cid, err in failed.items()))
+            st.rerun()
 
     st.caption(
         "Phase 3 (Bundesanzeiger) and Phase 5 (Kununu) paid pulls are manual, per-company, and live on the "

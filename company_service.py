@@ -147,6 +147,58 @@ def sync_company_applicable_sources(company: Company, db: Session, phases: list 
     return results
 
 
+def run_phase7_batch(company_ids: list, max_workers: int = 3, progress_cb=None, session_factory=None) -> dict:
+    """
+    Runs the Phase 7 crawlers for several companies with `max_workers` companies
+    in flight at once. Sequentially, Phase 7 costs 2-4 minutes per company
+    (measured 93-222s across real companies), i.e. half an hour for a ten-company
+    batch; three in flight brings that to roughly ten minutes on an 8-core/16 GB
+    machine while keeping at most three headless Chromium instances alive at
+    once (each crawler run spawns one). More workers mostly buys rate-limit
+    errors — the Groq free tier behind the company-website LLM extraction and
+    Wayback's CDX API are both per-account/per-IP limited — so the default is
+    deliberately modest.
+
+    Each worker opens its OWN session from session_factory: SQLAlchemy sessions
+    are not thread-safe, and a Streamlit page's session must stay on the page's
+    thread. Results are keyed by company_id — the per-source dict that
+    sync_company_applicable_sources returns, or {"error": ...} when that one
+    company's run itself blew up (one bad company never takes the batch down).
+    progress_cb(done, total, legal_name) runs on the CALLING thread after each
+    company finishes, so it can safely drive a Streamlit progress bar.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if session_factory is None:
+        from database import SessionFactory as session_factory  # lazy: database imports models/config only
+
+    def _one(cid):
+        session = session_factory()
+        try:
+            company = session.query(Company).filter_by(id=cid).first()
+            if not company:
+                return cid, None, {"error": "company not found"}
+            return cid, company.legal_name, sync_company_applicable_sources(company, session, phases=[7])
+        except Exception as e:  # noqa: BLE001 — isolate one company's failure from the batch
+            session.rollback()
+            return cid, None, {"error": f"{type(e).__name__}: {e}"}
+        finally:
+            session.close()
+
+    results = {}
+    total = len(company_ids)
+    if not total:
+        return results
+    with ThreadPoolExecutor(max_workers=max(1, min(int(max_workers), total)), thread_name_prefix="phase7") as pool:
+        futures = [pool.submit(_one, cid) for cid in company_ids]
+        for done, fut in enumerate(as_completed(futures), start=1):
+            cid, name, res = fut.result()
+            results[cid] = res
+            if progress_cb:
+                progress_cb(done, total, name)
+    return results
+
+
 def create_company(db: Session, data: dict, auto_sync: bool = False) -> tuple:
     """
     Creates a new target company with country-aware registration normalization,
