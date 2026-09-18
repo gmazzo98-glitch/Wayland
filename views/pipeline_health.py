@@ -24,6 +24,7 @@ FLAG_ENV_VAR_NAMES = {
     "Bundesanzeiger": "BUNDESANZEIGER_PAID_ENABLED",
     "Kununu Reseller": "KUNUNU_RESELLER_ENABLED",
     "LinkedIn Profile Crawler": "LINKEDIN_CRAWLER_ENABLED",
+    "Review Crawler": "REVIEW_CRAWLER_MODE_A_ENABLED",
 }
 
 

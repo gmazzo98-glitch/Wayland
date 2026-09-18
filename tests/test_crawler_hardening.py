@@ -80,6 +80,45 @@ def test_directory_exact_match_is_still_a_hit():
     assert sig["value"] == 1.0 and sig["status"] == "present"
 
 
+# ---------------------------------------------------------------- review crawler
+
+def test_review_crawler_refuses_an_unconfident_search_match():
+    """The crawler's fallback is "the platform's top result, whatever it was" — the
+    2026-09-18 run matched a warehouse listing (2 reviews) and, for other names,
+    unrelated homonyms. Only its own confident matches are used, and the listing
+    travels in the evidence so a human can check it."""
+    from scrapers import review_crawler
+    trend = {"last_12_months_avg": 4.0, "prior_12_months_avg": 4.5}
+    unconfident = {"google": {"status": "ok", "matched_via_search": True, "rating_trend": trend,
+                              "search_match": {"name": "POLO Motorrad Store", "url": "https://g/polo", "confident": False}}}
+    assert review_crawler._derive_signals(unconfident) == {}
+    confident = {"google": {"status": "ok", "matched_via_search": True, "rating_trend": trend, "review_count": 40,
+                            "search_match": {"name": "Brembo S.p.A.", "url": "https://g/brembo", "confident": True}}}
+    sig = review_crawler._derive_signals(confident)["product_quality_trend"]
+    assert sig["evidence"]["matched_listing"] == "Brembo S.p.A."
+    assert sig["evidence"]["matched_listing_url"] == "https://g/brembo"
+
+
+def test_review_crawler_is_off_unless_a_mode_is_enabled(monkeypatch):
+    """Both modes default off; with nothing enabled no Node process may be spawned."""
+    from scrapers import review_crawler
+    assert review_crawler.MODE_A_SOURCES == ["google"]          # Trustpilot: robots.txt Disallow: /
+    monkeypatch.setattr(review_crawler, "REVIEW_CRAWLER_MODE_A_ENABLED", False)
+    monkeypatch.setattr(review_crawler, "KUNUNU_CRAWLER_ENABLED", False)
+
+    def boom(*a, **k):
+        raise AssertionError("review-crawler must not be spawned with both modes off")
+    monkeypatch.setattr(review_crawler, "run_ts_crawler", boom)
+    calls = []
+
+    def fake_run_adapter(db, company, source, phase, credentials_ok, fetch_live, simulate, **kw):
+        calls.append(credentials_ok)
+        return {"status": "success", "mode": "simulated", "signals": simulate(company)["signals"]}
+    monkeypatch.setattr(review_crawler, "run_adapter", fake_run_adapter)
+    out = review_crawler.sync_reviews(type("C", (), {"id": "c", "legal_name": "X", "website_url": None})(), None)
+    assert calls == [False] and out["signals"] == {}
+
+
 # ---------------------------------------------------------------- careers-page discovery
 
 CAREERS_PAGE = "<html><title>Lavora con noi</title><body><h1>Posizioni aperte</h1></body></html>"

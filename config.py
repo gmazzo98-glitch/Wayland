@@ -106,10 +106,19 @@ LINKEDIN_LI_AT = os.getenv("LINKEDIN_LI_AT")
 # review-crawler's Mode B (Kununu/Glassdoor employer reviews) is a direct,
 # robots.txt-respecting scrape — a different risk profile than the paid-reseller
 # path scrapers/kununu_light.py is deliberately gated behind, but still a fresh
-# decision worth its own explicit flag rather than defaulting to on. Mode A
-# (Google/Trustpilot product reviews -> product_quality_trend) has no such
-# caveat and always runs.
+# decision worth its own explicit flag rather than defaulting to on.
 KUNUNU_CRAWLER_ENABLED = os.getenv("KUNUNU_CRAWLER_ENABLED", "false").lower() == "true"
+# review-crawler's Mode A (Google Maps customer reviews -> product_quality_trend) is
+# OFF by default too, since the 2026-09-18 verification pass: robots.txt allows
+# /maps/search/ and /maps/place/, but the Google Maps Additional Terms of Service
+# prohibit copying content and using Maps to "create or augment ... any business
+# listings database", which storing ratings and review snippets per prospect is —
+# and the crawler dismisses Google's GDPR consent screen on every run. On top of the
+# ToS question the signal is worthless for this segment: the 16 real manufacturers
+# checked had 4-67 reviews each, and the 12-month trend needs 10+ dated reviews in
+# each of two consecutive years. Trustpilot was dropped outright (its robots.txt is
+# `User-agent: *` / `Disallow: /`). Flip this on only as a deliberate decision.
+REVIEW_CRAWLER_MODE_A_ENABLED = os.getenv("REVIEW_CRAWLER_MODE_A_ENABLED", "false").lower() == "true"
 
 # Real per-document/reseller pulls are a genuine build (headless-browser PDF parsing,
 # compliant reseller contracts) that's out of scope for this pass — see
@@ -144,7 +153,6 @@ SOURCE_CREDENTIAL_VARS = {
     # returns not_found for every one of them, so it's a real gate, not an enhancement.
     "Company Website Crawler": ["CRAWLER_LLM_API_KEY"],
     "Job Postings Crawler": [],
-    "Review Crawler": [],
     "News Signals Crawler": ["NEWSAPI_KEY"],
     "Directory Listing Crawler": [],
     "Innovation Participation Crawler": ["NEWSAPI_KEY"],
@@ -157,6 +165,8 @@ SOURCE_PAID_ENABLE_FLAGS = {
     "Bundesanzeiger": BUNDESANZEIGER_PAID_ENABLED,
     "Kununu Reseller": KUNUNU_RESELLER_ENABLED,
     "LinkedIn Profile Crawler": LINKEDIN_CRAWLER_ENABLED,
+    # Off unless at least one of its two modes is deliberately switched on.
+    "Review Crawler": REVIEW_CRAWLER_MODE_A_ENABLED or KUNUNU_CRAWLER_ENABLED,
 }
 
 def has_credentials(source_name: str) -> bool:

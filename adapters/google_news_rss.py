@@ -35,6 +35,7 @@ not_yet_checked rather than writing a confirmed zero.
 
 import re
 import time
+import unicodedata
 import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -44,6 +45,7 @@ from sqlalchemy.orm import Session
 
 from adapters.base import run_adapter
 from config import NEWSAPI_KEY
+from scrapers.node_crawler_base import save_crawler_blob
 
 SOURCE_NAME = "Google News RSS"
 PHASE = 4
@@ -92,16 +94,24 @@ NEWSAPI_OWNED_KEYS = {"external_collaboration", "university_partnership",
                       "press_launch_mentions", "prior_open_innovation_usage"}
 
 _STOPWORDS = {"spa", "srl", "s.p.a", "s.r.l", "gmbh", "kg", "ag", "co", "spa.", "group", "gruppo",
-              "international", "italia", "italy", "deutschland", "and", "the"}
+              "international", "italia", "italy", "deutschland", "and", "the",
+              # Italian articles/prepositions that survive the 3-letter token cut
+              # ("DELL'IMBOTTIGLIAMENTO" splits into "dell" + "imbottigliamento")
+              "dei", "del", "della", "delle", "dell", "degli", "con", "per", "nel", "nella"}
 
 # Stock-market and results coverage is about the share, not about what the company
 # does, and it dominates the feed for listed firms. Datalogic's window was almost
 # entirely takeover-bid and half-year-results stories, none of which say anything
 # about innovation capacity — they are dropped before any concept matching.
+# Every term is word-anchored: the earlier bare `azion` also matched inside
+# innovAZIONe, collaborAZIONe and digitalizzAZIONe (and the outlet suffix
+# "ristorAZIONemoderna.it"), which silently deleted the exact headlines the
+# innovation and partnership buckets exist to find.
 _FINANCE_NOISE_RE = re.compile(
-    r"\bopa\b|delisting|piazza affari|borsa|azion|dividendo|bilancio|semestrale|trimestr|"
-    r"ricavi|utile|perdita|quotazion|titolo|investor|aktie|dividende|quartalszahlen|"
-    r"earnings|shares?\b|stake", re.I,
+    r"\bopa\b|\bdelisting\b|piazza affari|\bborsa\b|\bazion[ei]\b|\bazionist[aei]\b|\bdividend[oi]\b|"
+    r"\bbilancio\b|\bsemestrale\b|\btrimestr\w*|\bricavi\b|\butile\b|\bperdita\b|\bquotazion\w*|"
+    r"\btitolo\b|\binvestor\w*|\baktie\w*|\bdividende\b|\bquartalszahlen\b|"
+    r"\bearnings\b|\bshares?\b|\bstake\b", re.I,
 )
 
 # Legal forms stripped from the search phrase — leaving them in reduces an exact-phrase
@@ -111,13 +121,29 @@ _LEGAL_FORM_RE = re.compile(
     r"gmbh(\s*&\s*co\.?\s*kg)?|ag|kg|ohg|e\.?k\.?|ltd|plc|inc)\b\.?\s*$",
     re.I,
 )
+# "& C." — the Italian partners' placeholder ("OFFICINE E. BIGLIA & C. S.P.A.") — and
+# lone initials. Neither ever appears in a headline; left in, they made Biglia and
+# A Due permanently invisible (the quoted phrase never matched anything).
+_AMPERSAND_C_RE = re.compile(r"\s*&\s*c\.?\s*$", re.I)
+_INITIAL_RE = re.compile(r"\b[A-Za-z]\.\s*")
+
+
+def _ascii(text: str) -> str:
+    """Lowercase, accents stripped — so 'Società' and 'Societa' compare equal."""
+    return unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii").lower()
+
+
+def _word(token: str) -> str:
+    """Regex for the token as a whole word (a hyphen or space counts as a boundary)."""
+    return r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])"
 
 
 def _search_name(legal_name: str) -> str:
     """The company name as it would actually appear in a headline."""
     name = (legal_name or "").strip()
-    for _ in range(3):  # e.g. "... GMBH & CO. KG" can need more than one pass
+    for _ in range(4):  # e.g. "... & C. S.P.A." / "... GMBH & CO. KG" need more than one pass
         stripped = _LEGAL_FORM_RE.sub("", name).strip(" .,-")
+        stripped = _AMPERSAND_C_RE.sub("", stripped).strip(" .,-")
         if stripped == name:
             break
         name = stripped
@@ -125,13 +151,14 @@ def _search_name(legal_name: str) -> str:
     # the dots in both breaks the phrase search and leaves no token long enough to
     # match on (verified: "R.C.M. S.P.A." found nothing, "RCM" found results).
     name = re.sub(r"\b(?:[A-Za-z]\.){2,}", lambda m: m.group(0).replace(".", ""), name)
+    name = " ".join(_INITIAL_RE.sub("", name).split())
     return name.strip(" .,-") or (legal_name or "").strip()
 
 
 def _name_tokens(legal_name: str) -> list:
     """Distinctive words from the legal name — legal-form suffixes carry no
     identifying power and would match almost any article."""
-    toks = [t.lower() for t in re.findall(r"[\wÀ-ÿ]{3,}", _search_name(legal_name))]
+    toks = [_ascii(t) for t in re.findall(r"[\wÀ-ÿ]{3,}", _search_name(legal_name))]
     return [t for t in toks if t not in _STOPWORDS]
 
 
@@ -143,23 +170,80 @@ def _name_tokens(legal_name: str) -> list:
 _MIN_SINGLE_TOKEN_LEN = 5
 _GENERIC_NAME_WORDS = {"more", "next", "smart", "delta", "alfa", "prima", "sistemi", "system",
                        "systems", "service", "servizi", "tecno", "italtech", "euro", "global"}
+# A single short brand token is collision-prone even when it isn't a dictionary word:
+# probed live, "Fimer" (bottling machines) returns 25 headlines about FIMER the solar
+# inverter maker, "Turo" (pumps) returns the car-sharing company, "Biglia" a
+# footballer. Below this length a lone token is only attributed when the headline
+# also carries a discriminator taken from the company record (its province/region,
+# or a specific word from its sector description) — see _discriminators.
+_SINGLE_TOKEN_SAFE_LEN = 8
+_SECTOR_GENERIC_WORDS = {"fabbricazione", "produzione", "macchine", "macchina", "apparecchi", "apparecchiature",
+                         "attrezzature", "incluse", "parti", "accessori", "altre", "altri", "industrie",
+                         "industria", "impiego", "generale", "materiale", "commercio", "ingrosso",
+                         "dettaglio", "servizi", "attivita", "manifatturiere", "prodotti", "articoli"}
+
+
+def _attribution_mode(legal_name: str) -> str:
+    """'skip' (too generic), 'tokens' (every distinctive token must appear in the
+    headline) or 'tokens+discriminator' (a lone short token also needs a place/sector
+    word from the company record in the headline)."""
+    tokens = _name_tokens(legal_name)
+    if not tokens:
+        return "skip"
+    if len(tokens) >= 2:
+        return "tokens"
+    only = tokens[0]
+    if len(only) < _MIN_SINGLE_TOKEN_LEN or only in _GENERIC_NAME_WORDS:
+        return "skip"
+    return "tokens" if len(only) >= _SINGLE_TOKEN_SAFE_LEN else "tokens+discriminator"
 
 
 def _name_is_distinctive(legal_name: str) -> bool:
-    tokens = _name_tokens(legal_name)
-    if not tokens:
-        return False
-    if len(tokens) >= 2:
-        return True
-    only = tokens[0]
-    return len(only) >= _MIN_SINGLE_TOKEN_LEN and only not in _GENERIC_NAME_WORDS
+    return _attribution_mode(legal_name) != "skip"
+
+
+def _discriminators(company) -> list:
+    """Words that tie a headline to THIS company when its name alone can't: the
+    province/region on the record and the specific nouns of its sector description
+    ("imbottigliamento", "rubinetti"), minus the boilerplate every ATECO label has."""
+    words = set()
+    for attr in ("province", "region"):
+        value = getattr(company, attr, None)
+        if value and len(str(value).strip()) >= 4:
+            words.add(_ascii(str(value).strip()))
+    for w in re.findall(r"[\wÀ-ÿ]{6,}", getattr(company, "sector_name", None) or ""):
+        w = _ascii(w)
+        if w not in _SECTOR_GENERIC_WORDS:
+            words.add(w)
+    return sorted(words)
 
 
 def _is_about_company(title: str, tokens: list) -> bool:
-    """Every distinctive token must appear — "Cangini" alone would also match an
-    unrelated person named Cangini, which is the noise seen in live testing."""
-    t = (title or "").lower()
-    return bool(tokens) and all(tok in t for tok in tokens)
+    """Every distinctive token must appear as a whole word — "Cangini" alone would
+    also match an unrelated person named Cangini, and a substring test matched
+    "due" inside "Le due aziende" and "mac" inside "macchine" in live testing. A
+    hyphenated name is also accepted written solid ("Vibro-Mac" / "Vibromac")."""
+    if not tokens:
+        return False
+    t = _ascii(title)
+    if all(re.search(_word(tok), t) for tok in tokens):
+        return True
+    return len(tokens) > 1 and re.search(_word("".join(tokens)), t) is not None
+
+
+def _has_discriminator(title: str, discriminators: list) -> bool:
+    t = _ascii(title)
+    return any(re.search(_word(d), t) for d in discriminators)
+
+
+def _headline_text(title: str, outlet: str) -> str:
+    """The headline without Google News' trailing ' - Outlet' — matching the outlet
+    name lit up the finance filter on 'ristorazionemoderna.it' and would let an
+    outlet named after a university count as university coverage."""
+    t = (title or "").strip()
+    if outlet and t.lower().endswith(" - " + outlet.strip().lower()):
+        return t[: -(len(outlet.strip()) + 3)].strip()
+    return t
 
 
 def _fetch(query: str, lang: str, country: str) -> list:
@@ -180,48 +264,66 @@ def _fetch(query: str, lang: str, country: str) -> list:
     return items
 
 
+def _filter_headlines(items: list, company) -> tuple:
+    """Keeps the headlines that are about THIS company; returns (kept, stats) so a
+    run that ends with no signal still explains what it saw and dropped."""
+    tokens = _name_tokens(company.legal_name)
+    mode = _attribution_mode(company.legal_name)
+    discriminators = _discriminators(company) if mode == "tokens+discriminator" else []
+    stats = {"attribution_mode": mode, "discriminators": discriminators, "headlines_fetched": len(items),
+             "dropped_not_about_company": 0, "dropped_no_discriminator": 0, "dropped_finance_noise": 0}
+    seen, kept = set(), []
+    for it in items:
+        headline = _headline_text(it["title"], it.get("outlet") or "")
+        if not _is_about_company(headline, tokens):
+            stats["dropped_not_about_company"] += 1
+            continue
+        if mode == "tokens+discriminator" and not _has_discriminator(headline, discriminators):
+            stats["dropped_no_discriminator"] += 1
+            continue
+        # Share-price/results coverage says nothing about innovation capacity — unless
+        # the same headline also carries a concept ("ricavi record grazie alla
+        # partnership con..."), in which case the concept is the point.
+        if _FINANCE_NOISE_RE.search(headline) and not any(p.search(headline) for p in CONCEPT_PATTERNS.values()):
+            stats["dropped_finance_noise"] += 1
+            continue
+        key = headline.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append({**it, "headline": headline})
+    return kept, stats
+
+
 def _company_headlines(company) -> list:
     """One request: every headline from the window that actually names the company."""
     lang, country = LOCALES.get(company.country or "", DEFAULT_LOCALE)
     name = _search_name(company.legal_name)
     items = _fetch(f'"{name}" when:{RECENCY_DAYS}d', lang, country)
-    tokens = _name_tokens(company.legal_name)
-    seen, kept = set(), []
-    for it in items:
-        if not _is_about_company(it["title"], tokens):
-            continue
-        if _FINANCE_NOISE_RE.search(it["title"]):
-            continue  # share-price/results coverage says nothing about innovation capacity
-        key = it["title"].lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        kept.append(it)
-    return kept
+    return _filter_headlines(items, company)[0]
 
 
 def _cited(items: list) -> list:
-    return [{"label": f"{i['title']} — {i['outlet']}" if i["outlet"] else i["title"], "url": i["url"]}
-            for i in items]
+    return [{"label": f"{i.get('headline', i['title'])} — {i['outlet']}" if i["outlet"] else i.get("headline", i["title"]),
+             "url": i["url"]} for i in items]
 
 
 def _bucket(headlines: list, concept: str) -> list:
-    return [h for h in headlines if CONCEPT_PATTERNS[concept].search(h["title"] or "")]
+    return [h for h in headlines if CONCEPT_PATTERNS[concept].search(h.get("headline", h["title"]) or "")]
 
 
-def _fetch_live(company) -> dict:
+def _fetch_live(company, captured: dict = None) -> dict:
     signals = {}
     skip_owned = bool(NEWSAPI_KEY)
+    captured = captured if captured is not None else {}
     if not _name_is_distinctive(company.legal_name):
-        return {
-            "signals": {},
-            "raw_payload": {"skipped": "company name is too generic to attribute news coverage safely",
-                             "search_phrase": _search_name(company.legal_name)},
-            "confidence": 0.5,
-        }
-    headlines = _company_headlines(company)
+        captured["payload"] = {"skipped": "company name is too generic to attribute news coverage safely",
+                               "search_phrase": _search_name(company.legal_name)}
+        return {"signals": {}, "raw_payload": captured["payload"], "confidence": 0.5}
     lang, country = LOCALES.get(company.country or "", DEFAULT_LOCALE)
     search_phrase = _search_name(company.legal_name)
+    items = _fetch(f'"{search_phrase}" when:{RECENCY_DAYS}d', lang, country)
+    headlines, stats = _filter_headlines(items, company)
 
     def add(key, concept, value_fn, summary_prefix):
         items = _bucket(headlines, concept)
@@ -255,11 +357,20 @@ def _fetch_live(company) -> dict:
     add("recent_ma_activity", "ma", flag, "M&A coverage ({n} headline(s))")
     add("prior_open_innovation_usage", "open_innovation", flag, "accelerator/competition coverage ({n} headline(s))")
 
+    captured["payload"] = {
+        "search_phrase": search_phrase, "locale": f"{lang}-{country}", **stats,
+        "headlines_about_company": len(headlines),
+        "headlines_by_concept": {c: len(_bucket(headlines, c)) for c in CONCEPT_PATTERNS},
+        # Kept so a zero-signal run leaves a trace of what it read — before this, a
+        # company with three genuine headlines and no concept hit looked identical
+        # to one the feed had never heard of.
+        "kept_headlines": [{"headline": h["headline"], "outlet": h["outlet"], "url": h["url"],
+                             "published": h["published"]} for h in headlines],
+        "fetched_at": datetime.utcnow().isoformat() + "Z",
+    }
     return {
         "signals": signals,
-        "raw_payload": {"search_phrase": search_phrase, "locale": f"{lang}-{country}",
-                         "headlines_about_company": len(headlines),
-                         "headlines_by_concept": {c: len(_bucket(headlines, c)) for c in CONCEPT_PATTERNS}},
+        "raw_payload": captured["payload"],
         "confidence": 0.55,  # a headline keyword match is weaker evidence than a read of the article
     }
 
@@ -271,8 +382,15 @@ def _simulate(company) -> dict:
 
 
 def sync_news_rss(company, db_session: Session) -> dict:
-    return run_adapter(
+    captured = {}
+    result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=True,  # keyless public feed
-        fetch_live=_fetch_live, simulate=_simulate, timeout=60,
+        fetch_live=lambda c: _fetch_live(c, captured), simulate=_simulate, timeout=60,
     )
+    if captured.get("payload"):
+        # Same blob-per-(company, dataset) convention as the Phase 7 crawlers, so the
+        # search phrase, attribution mode and every kept headline are inspectable on
+        # the company page even when nothing was scored.
+        save_crawler_blob(db_session, company, "crawler_news_rss", captured["payload"])
+    return result
