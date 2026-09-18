@@ -328,7 +328,9 @@ _CTA_TITLE_RE = re.compile(
 _SITE_CHROME_TITLE_RE = re.compile(
     r"^(home|homepage|company|azienda|chi siamo|about( us)?|products?( ?& ?services)?|prodotti|servizi|services?|"
     r"news|magazine|blog|media|gallery|galleria|downloads?|contacts?|contatti|request a quote|richiedi (un )?preventivo|"
-    r"careers?|lavora con noi|jobs?|login|area riservata|it|en|de|fr|es|italiano|english|deutsch|français)$",
+    r"careers?|lavora con noi|jobs?|login|area riservata|it|en|de|fr|es|pt|ru|zh|ar|pl|"
+    # language switchers (www.adue.it/career/ yielded five of these as open roles)
+    r"italiano|english|deutsch|fran[cç]ais|espa[nñ]ol|portugu[eê]s|русский|中文|日本語|한국어|العربية|polski|türkçe|nederlands)$",
     re.I,
 )
 # A listing the crawler read out of an application form's "position" <select>

@@ -41,6 +41,8 @@ def _derive_signals(row: dict) -> dict:
 
     redesign = row.get("last_major_redesign_estimate") or {}
     year = redesign.get("estimated_year")
+    comparisons = redesign.get("comparisons") or []
+    wayback_urls = [f"https://web.archive.org/web/*/{homepage}"] if homepage else []
     if field_status.get("last_major_redesign_estimate") == "value" and year:
         age = float(min(datetime.utcnow().year - int(year), 8))
         signals["website_digital_maturity"] = {
@@ -49,9 +51,32 @@ def _derive_signals(row: dict) -> dict:
             "evidence": {
                 "method": "structural diff between Wayback Machine snapshots year over year",
                 "estimated_redesign_year": int(year),
-                "snapshot_comparisons": redesign.get("comparisons") or [],
+                "snapshot_comparisons": comparisons,
                 "earliest_snapshot_date": row.get("earliest_snapshot_date"),
-                "source_urls": [f"https://web.archive.org/web/*/{homepage}"] if homepage else [],
+                "source_urls": wayback_urls,
+            },
+        }
+    elif field_status.get("last_major_redesign_estimate") == "value" and comparisons:
+        # Every sampled year-over-year pair was structurally stable: that is positive
+        # evidence the site has NOT been redesigned since the oldest compared capture —
+        # the very thing this NEED indicator measures — and it used to be thrown away.
+        # In the 2026-09-18 run 4 of 16 companies had it (fimer.it: three consecutive
+        # years within 0.2%), while the only company that did get a value was the one
+        # with a spurious "redesign". Written as a floor: at least this many years.
+        stable_since = min(int(c["from_year"]) for c in comparisons if c.get("from_year") is not None)
+        latest = max(int(c["to_year"]) for c in comparisons if c.get("to_year") is not None)
+        age = float(min(max(datetime.utcnow().year - stable_since, 0), 8))
+        signals["website_digital_maturity"] = {
+            "value": age, "status": "present",
+            "summary": f"no substantial redesign detected between {stable_since} and {latest}: "
+                       f"at least {int(age)} years since the last one",
+            "evidence": {
+                "method": "structural diff between Wayback Machine snapshots year over year — all sampled pairs "
+                          "stable, so the value is a floor (the last redesign predates the oldest compared capture)",
+                "stable_since_year": stable_since,
+                "snapshot_comparisons": comparisons,
+                "earliest_snapshot_date": row.get("earliest_snapshot_date"),
+                "source_urls": wayback_urls,
             },
         }
 
@@ -106,7 +131,12 @@ def sync_digital_maturity(company, db_session: Session) -> dict:
         # requests, several snapshots fetched for the redesign-year comparison) —
         # measured live against example.com as consistently exceeding the 90s default
         # other Phase 7 wrappers use, so this one gets a larger budget end to end.
-        rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}], run_timeout=130)
+        # 1.5s between Wayback calls (crawler default 0.8s): several companies now run in
+        # parallel, and archive.org rate-limits per IP — in the 2026-09-18 batch 71% of
+        # CDX calls came back 503/timeout. The crawler also retries each call with
+        # back-off, so the subprocess budget grows to match.
+        rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}],
+                               env_overrides={"WAYBACK_DELAY_MS": "1500"}, run_timeout=170)
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("digital-maturity-crawler returned no row for this company")
@@ -130,7 +160,7 @@ def sync_digital_maturity(company, db_session: Session) -> dict:
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=bool(company.website_url),
-        fetch_live=_fetch_live, simulate=_simulate, timeout=150,
+        fetch_live=_fetch_live, simulate=_simulate, timeout=190,
     )
 
     if captured.get("row"):

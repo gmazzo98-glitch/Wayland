@@ -60,6 +60,28 @@ def test_digital_maturity_unknown_archive_activity_is_not_scored_as_zero():
     assert "unknown" in unknown["online_market_presence"]["summary"]
 
 
+def test_digital_maturity_stable_history_is_a_floor_not_nothing():
+    """fimer.it: three consecutive yearly captures within 0.2% of each other. That is
+    evidence of NO redesign since the oldest capture and used to write nothing."""
+    from datetime import datetime
+    row = {
+        "last_major_redesign_estimate": {"estimated_year": None, "comparisons": [
+            {"from_year": 2022, "to_year": 2023, "node_count_change_ratio": 0.002, "layout_tags_changed": False, "substantial_change": False},
+            {"from_year": 2023, "to_year": 2024, "node_count_change_ratio": 0.001, "layout_tags_changed": False, "substantial_change": False},
+        ]},
+        "homepage_url": "https://www.fimer.it/",
+        "field_status": {"last_major_redesign_estimate": "value"},
+    }
+    sig = digital_maturity_crawler._derive_signals(row)["website_digital_maturity"]
+    assert sig["value"] == pytest.approx(min(datetime.utcnow().year - 2022, 8))
+    assert sig["status"] == "present" and "at least" in sig["summary"]
+    assert sig["evidence"]["stable_since_year"] == 2022
+    # no comparisons at all (every capture failed) still writes nothing
+    assert digital_maturity_crawler._derive_signals({
+        "last_major_redesign_estimate": {"estimated_year": None, "comparisons": []},
+        "field_status": {"last_major_redesign_estimate": "not_found"}}) == {}
+
+
 # ---------------------------------------------------------------- directory listing
 
 def test_directory_fuzzy_match_is_not_a_confirmed_listing():
