@@ -14,6 +14,7 @@ which isn't enough text to detect an ERP vendor mention without guessing.
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
@@ -185,28 +186,71 @@ def _sitemap_candidates(home_url: str, deadline: float) -> list:
     return [l for l in locs if _CAREERS_PATH_RE.search(urlparse(l).path) and _same_site(l, home_url)][:10]
 
 
-def _discover_careers_page(website_url: str):
+def _apex_homepage(website_url: str):
+    """'https://www.<apex>' when the stored site is a deeper subdomain, else None.
+    A DUE's record points at spareparts.adue.it (a parts-ordering portal whose own
+    careers link 404s) while www.adue.it/career/ lists 11 open roles; TECNOINOX's
+    points at b2b.tecnoinox.it, a customer login portal."""
+    host = urlparse(website_url if re.match(r"^https?://", website_url or "", re.I) else f"https://{website_url}").netloc
+    host = host.split(":")[0].lower()
+    labels = [l for l in host.split(".") if l]
+    if labels[:1] == ["www"]:
+        labels = labels[1:]
+    if len(labels) <= 2:
+        return None
+    return "https://www." + ".".join(labels[-2:])
+
+
+def _probe_paths_concurrently(home_url: str, home_norm: str, deadline: float):
+    """The fixed-path fallback, five requests at a time — sequentially it took 40-48s
+    on every site with no careers signpost (the common case), most of the budget."""
+    urls = [urljoin(home_url.rstrip("/") + "/", p.lstrip("/")) for p in CAREERS_PATHS]
+    remaining = max(1.0, deadline - time.monotonic())
+    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="careers-probe") as pool:
+        futures = [pool.submit(_get, u) for u in urls]
+        try:
+            for path, fut in zip(CAREERS_PATHS, futures):
+                try:
+                    resp = fut.result(timeout=max(0.1, deadline - time.monotonic()))
+                except FutureTimeoutError:
+                    break
+                except requests.RequestException:
+                    continue
+                if _looks_like_careers_page(resp, home_norm):
+                    return {"url": resp.url, "found_via": f"path probe {path}"}
+        finally:
+            for fut in futures:
+                fut.cancel()
+    return None
+
+
+def _discover_careers_page(website_url: str, budget_seconds: float = _DISCOVERY_BUDGET_SECONDS, _try_apex: bool = True):
     """
     Finds the company's real careers page, or returns None. Order of evidence:
       1. links on the homepage whose text or path says "careers" (the site's own
          signpost — most reliable, and the only way to find non-standard paths);
       2. careers-looking URLs in /sitemap.xml;
-      3. the fixed path list (last resort — a guess, verified like everything else).
+      3. the fixed path list (last resort — a guess, verified like everything else);
+      4. all of the above again on the main www. domain when the stored site is a
+         deeper subdomain (a parts portal, a B2B login) — with a smaller budget.
     Every candidate must pass _looks_like_careers_page: a 200 is not enough. Many CMS
     sites answer any unknown path with the homepage (rcm.it: /careers, /jobs and
     /lavora-con-noi all 200'd with byte-identical homepage content, which previously
     became 28 "open roles" made of sector links), and custom 404 pages render the
-    normal nav. Returns {"url": ..., "found_via": ...} so the evidence says how.
+    normal nav. Returns {"url", "found_via", "site_nav_urls"}: the last is every
+    same-site link on the homepage, so the wrapper can refuse "listings" that are
+    really the site's own navigation (heila.com/careers/ yielded COMPANY, PRODUCTS &
+    SERVICES, MAGAZINE, SERVICE and REQUEST A QUOTE as five open roles).
     """
     if not website_url:
         return None
-    deadline = time.monotonic() + _DISCOVERY_BUDGET_SECONDS
+    deadline = time.monotonic() + budget_seconds
     home = _fetch_homepage(website_url)
     if home is None:
         return None
     home_url = _normalized(home.url)
 
-    scored = {}
+    scored, nav_urls = {}, set()
     parser = _LinkCollector()
     try:
         parser.feed(home.text or "")
@@ -218,6 +262,7 @@ def _discover_careers_page(website_url: str):
         full = urljoin(home.url, href)
         if not full.lower().startswith(("http://", "https://")) or not _same_site(full, home.url):
             continue
+        nav_urls.add(_normalized(full))
         path = urlparse(full).path
         score = (2 if _CAREERS_LINK_TEXT_RE.search(label) else 0) + (1 if _CAREERS_PATH_RE.search(path) else 0)
         if score and _LISTING_PATH_BONUS_RE.search(path):
@@ -228,26 +273,36 @@ def _discover_careers_page(website_url: str):
                 scored[key] = (score, full, f"homepage link '{label[:60]}'")
     candidates = sorted(scored.values(), key=lambda c: -c[0])
     candidates += [(1, loc, "sitemap.xml") for loc in _sitemap_candidates(home.url, deadline)]
-    candidates += [(0, urljoin(home.url.rstrip("/") + "/", p.lstrip("/")), f"path probe {p}") for p in CAREERS_PATHS]
 
-    seen, discovered_tried = set(), 0
+    found = None
+    seen, tried = set(), 0
     for score, url, via in candidates:
         key = _normalized(url)
         if key in seen or key == home_url:
             continue
         seen.add(key)
-        if time.monotonic() > deadline:
+        if time.monotonic() > deadline or tried >= _MAX_DISCOVERED_CANDIDATES:
             break
-        if score > 0:
-            if discovered_tried >= _MAX_DISCOVERED_CANDIDATES:
-                continue
-            discovered_tried += 1
+        tried += 1
         try:
             resp = _get(url)
         except requests.RequestException:
             continue
         if _looks_like_careers_page(resp, home_url):
-            return {"url": resp.url, "found_via": via}
+            found = {"url": resp.url, "found_via": via}
+            break
+    if found is None and time.monotonic() < deadline:
+        found = _probe_paths_concurrently(home.url, home_url, deadline)
+    if found is not None:
+        found["site_nav_urls"] = sorted(nav_urls)[:300]
+        return found
+
+    apex = _apex_homepage(website_url) if _try_apex else None
+    if apex and _normalized(apex) != home_url:
+        via_apex = _discover_careers_page(apex, budget_seconds=min(25.0, budget_seconds), _try_apex=False)
+        if via_apex:
+            via_apex["found_via"] += f" (on the main domain {urlparse(apex).netloc}, not the stored {urlparse(home.url).netloc})"
+            return via_apex
     return None
 
 
@@ -266,17 +321,41 @@ _CTA_TITLE_RE = re.compile(
     r"privacy|cookie|newsletter|scarica|download|contatt|contact us|vedi tutt|view all",
     re.I,
 )
+# Site chrome that the crawler's generic extractor can mistake for a list of roles
+# when a menu is not wrapped in <nav>/<header> — verified on heila.com/careers/, where
+# COMPANY / PRODUCTS & SERVICES / MAGAZINE / SERVICE / REQUEST A QUOTE became five
+# "open roles" and the count crossed the gate threshold. Whole-title match only.
+_SITE_CHROME_TITLE_RE = re.compile(
+    r"^(home|homepage|company|azienda|chi siamo|about( us)?|products?( ?& ?services)?|prodotti|servizi|services?|"
+    r"news|magazine|blog|media|gallery|galleria|downloads?|contacts?|contatti|request a quote|richiedi (un )?preventivo|"
+    r"careers?|lavora con noi|jobs?|login|area riservata|it|en|de|fr|es|italiano|english|deutsch|français)$",
+    re.I,
+)
+# A listing the crawler read out of an application form's "position" <select>
+# (sources/generic.ts heuristic 3): its URL is the form itself plus this fragment.
+_SELECT_OPTION_FRAGMENT = "#posizione="
 
 
-def _plausible_listings(roles_sample: list, source_urls: list) -> list:
-    """Drops CTA buttons, javascript:/anchor hrefs, and links back to the careers
-    page itself — none of which are job postings."""
+def _plausible_listings(roles_sample: list, source_urls: list, site_nav_urls: list = None) -> list:
+    """Drops CTA buttons, javascript:/anchor hrefs, links back to the careers page
+    itself, the site's own navigation links, and chrome-word titles — none of which
+    are job postings. site_nav_urls are the homepage's same-site links, collected by
+    _discover_careers_page."""
     source_norms = {_normalized(u) for u in source_urls}
+    nav_norms = {_normalized(u) for u in (site_nav_urls or [])}
     keep = []
     for r in roles_sample or []:
         title = (r.get("title") or "").strip()
         url = (r.get("url") or "").strip()
         if not title or not url.lower().startswith(("http://", "https://")):
+            continue
+        if _SITE_CHROME_TITLE_RE.match(title):
+            continue
+        if _SELECT_OPTION_FRAGMENT in url:
+            keep.append(r)  # lives on the careers form by construction — the checks below would reject it
+            continue
+        if _normalized(url) in nav_norms:
+            continue
             continue
         if _normalized(url) in source_norms:
             continue
@@ -312,7 +391,7 @@ def _derive_signals(row: dict) -> dict:
         return signals  # no source reached — every field below would be a fabricated zero
 
     source_urls = list(dict.fromkeys(s.get("url") for s in sources_used if s.get("url")))
-    roles_sample = _plausible_listings(row.get("roles_sample"), source_urls)
+    roles_sample = _plausible_listings(row.get("roles_sample"), source_urls, row.get("site_nav_urls"))
     total_roles = row.get("total_open_roles")
     sampled = [{"label": r.get("title"), "url": r.get("url")} for r in roles_sample if r.get("title")]
 
@@ -409,8 +488,10 @@ def sync_job_postings(company, db_session: Session) -> dict:
         row = matches[0]
         row["careers_discovery"] = (
             {"careers_url": careers_url, "found_via": found["found_via"]} if found
-            else {"careers_url": None, "note": "no careers page found via homepage links, sitemap.xml or common paths"}
+            else {"careers_url": None, "note": "no careers page found via homepage links, sitemap.xml, common paths "
+                                                "or the main www. domain"}
         )
+        row["site_nav_urls"] = found.get("site_nav_urls", []) if found else []
         captured["row"] = row
         if row.get("error"):
             raise CrawlerRunError(row["error"])
@@ -430,8 +511,10 @@ def sync_job_postings(company, db_session: Session) -> dict:
 
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
+        # 45s discovery (+25s on the main domain when the stored site is a subdomain)
+        # + a 100s subprocess, with headroom.
         credentials_ok=True,
-        fetch_live=_fetch_live, simulate=_simulate, timeout=160,
+        fetch_live=_fetch_live, simulate=_simulate, timeout=190,
     )
 
     if captured.get("row"):

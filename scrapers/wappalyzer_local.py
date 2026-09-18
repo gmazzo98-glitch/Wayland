@@ -42,8 +42,11 @@ def _fetch_live(company) -> dict:
     if not company.website_url:
         raise RuntimeError("No website_url on record — nothing to fetch")
 
+    # 12 of 16 real companies store the site as "www.example.it" with no scheme; without
+    # this, requests raised MissingSchema and the source never ran live for any of them.
+    url = company.website_url if re.match(r"^https?://", company.website_url, re.I) else f"https://{company.website_url}"
     resp = requests.get(
-        company.website_url,
+        url,
         timeout=15,
         headers={"User-Agent": "Mozilla/5.0 (compatible; ProjectViennaBot/1.0)"},
     )

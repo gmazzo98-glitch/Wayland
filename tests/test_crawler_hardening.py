@@ -143,8 +143,8 @@ def test_discover_careers_page_follows_the_homepage_link_before_guessing_paths(m
         "HOME": (200, HOME_URL, home),
         "https://www.example.com/company/career/": (200, "https://www.example.com/company/career/", CAREERS_PAGE),
     }))
-    assert job_postings_crawler._discover_careers_page("www.example.com") == {
-        "url": "https://www.example.com/company/career/", "found_via": "homepage link 'Career'"}
+    found = job_postings_crawler._discover_careers_page("www.example.com")
+    assert (found["url"], found["found_via"]) == ("https://www.example.com/company/career/", "homepage link 'Career'")
 
 
 def test_discover_careers_page_prefers_the_listing_page_over_a_careers_landing_page(monkeypatch):
@@ -182,8 +182,8 @@ def test_discover_careers_page_falls_back_to_the_sitemap(monkeypatch):
         "https://www.example.com/sitemap.xml": (200, "https://www.example.com/sitemap.xml", sitemap),
         "https://www.example.com/careers/": (200, "https://www.example.com/careers/", CAREERS_PAGE),
     }))
-    assert job_postings_crawler._discover_careers_page("www.example.com") == {
-        "url": "https://www.example.com/careers/", "found_via": "sitemap.xml"}
+    found = job_postings_crawler._discover_careers_page("www.example.com")
+    assert (found["url"], found["found_via"]) == ("https://www.example.com/careers/", "sitemap.xml")
 
 
 def test_discover_careers_page_never_follows_offsite_links(monkeypatch):
@@ -209,6 +209,73 @@ def test_discover_careers_page_still_probes_common_paths_last(monkeypatch):
     found = job_postings_crawler._discover_careers_page("www.example.com")
     assert found["url"] == "https://www.example.com/lavora-con-noi"
     assert found["found_via"] == "path probe /lavora-con-noi"
+
+
+def test_discover_careers_page_returns_the_homepage_nav_links(monkeypatch):
+    home = '<a href="/company/">Company</a><a href="/products/">Products</a><a href="/careers/">Careers</a>'
+    monkeypatch.setattr(job_postings_crawler.requests, "get", _site({
+        "HOME": (200, HOME_URL, home),
+        "https://www.example.com/careers/": (200, "https://www.example.com/careers/", CAREERS_PAGE),
+    }))
+    found = job_postings_crawler._discover_careers_page("www.example.com")
+    assert found["site_nav_urls"] == ["https://www.example.com/careers", "https://www.example.com/company",
+                                      "https://www.example.com/products"]
+
+
+def test_discover_careers_page_falls_back_to_the_main_domain(monkeypatch):
+    """A DUE's record points at spareparts.adue.it (its own careers link 404s) while
+    www.adue.it/career/ lists 11 open roles."""
+    def fake_get(url, **kw):
+        if url.startswith("https://spareparts.example.com"):
+            return _Resp(200 if url.rstrip("/") == "https://spareparts.example.com" else 404,
+                         url, "<html><a href='/career/index.html'>CAREER</a></html>")
+        if url.rstrip("/") == "https://www.example.com":
+            return _Resp(200, "https://www.example.com/", '<a href="/career/">Career</a>')
+        if url == "https://www.example.com/career/":
+            return _Resp(200, url, CAREERS_PAGE)
+        return _Resp(404, url, "")
+
+    monkeypatch.setattr(job_postings_crawler.requests, "get", fake_get)
+    found = job_postings_crawler._discover_careers_page("spareparts.example.com")
+    assert found["url"] == "https://www.example.com/career/"
+    assert "main domain www.example.com" in found["found_via"]
+    assert job_postings_crawler._apex_homepage("www.example.com") is None      # nothing deeper to fall back to
+    assert job_postings_crawler._apex_homepage("b2b.tecnoinox.it") == "https://www.tecnoinox.it"
+
+
+def test_site_navigation_and_chrome_words_are_not_listings():
+    """heila.com/careers/ yielded COMPANY / PRODUCTS & SERVICES / MAGAZINE / SERVICE /
+    REQUEST A QUOTE as five open roles — the site's own menu, not wrapped in <nav>."""
+    roles = [
+        {"title": "COMPANY", "url": "https://heila.com/company/"},
+        {"title": "PRODUCTS & SERVICES", "url": "https://heila.com/products-services/"},
+        {"title": "MAGAZINE", "url": "https://heila.com/magazine/"},
+        {"title": "Some Other Page", "url": "https://heila.com/other/"},          # in the nav, odd title
+        {"title": "Service Engineer", "url": "https://heila.com/careers/service-engineer/"},
+    ]
+    nav = ["https://heila.com/company/", "https://heila.com/products-services/", "https://heila.com/magazine/",
+           "https://heila.com/other/", "https://heila.com/careers/"]
+    kept = job_postings_crawler._plausible_listings(roles, ["https://heila.com/careers/"], nav)
+    assert [r["title"] for r in kept] == ["Service Engineer"]
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 0, "total_open_roles": 5, "roles_sample": roles, "site_nav_urls": nav,
+        "sources_used": [{"url": "https://heila.com/careers/"}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    })
+    assert "digital_lead_role_present" not in signals   # one real listing is below the gate threshold
+
+
+def test_select_option_listings_survive_the_self_link_filter():
+    """bortolinkemo.com lists its open roles as <option>s of the application form; the
+    crawler reports them with a #posizione= fragment on the form's own URL."""
+    form = "https://www.bortolinkemo.com/it/lavora-con-noi"
+    roles = [
+        {"title": "SOFTWARISTA C# E PLC SIEMENS", "url": form + "#posizione=SOFTWARISTA%20C%23%20E%20PLC%20SIEMENS"},
+        {"title": "Progettista Meccanico", "url": form + "#posizione=Progettista%20Meccanico"},
+        {"title": "CARICA IL TUO CURRICULUM VITAE", "url": "javascript:;"},
+    ]
+    kept = job_postings_crawler._plausible_listings(roles, [form], [form])
+    assert [r["title"] for r in kept] == ["SOFTWARISTA C# E PLC SIEMENS", "Progettista Meccanico"]
 
 
 def test_fetch_homepage_falls_back_to_plain_http(monkeypatch):

@@ -64,6 +64,10 @@ def _derive_signals(db: Session, company, row: dict) -> dict:
     product_lines = row.get("product_lines_count")
     if field_status.get("product_lines_count") == "value" and product_lines is not None:
         product_types = row.get("product_types") or []
+        # The count and the list came apart in a live run (count 3 next to a 25-entry
+        # list); the merged crawler output now keeps them consistent, and this stays
+        # defensive for blobs written by the older build.
+        product_lines = max(int(product_lines), len(product_types))
         signals["product_portfolio_diversity"] = {
             "value": float(product_lines), "status": "present",
             "summary": f"{int(product_lines)} product line(s): " + ", ".join(product_types[:5])
@@ -81,7 +85,10 @@ def _derive_signals(db: Session, company, row: dict) -> dict:
                 "evidence": {**base_evidence, "first_publication_year": year},
             }
         elif not report.get("present"):
-            # Sustainability pages were crawled and carry no report — a real absence.
+            # field_status 'value' with present=false now means (merge.ts) either a
+            # sustainability-type page was read and carries no report, or a small site
+            # was crawled to the end without one — a real absence, not a data gap. A
+            # one-page "Coming Soon" placeholder no longer qualifies.
             signals["esg_reporting_recency"] = {
                 "value": None, "status": "absent",
                 "summary": f"crawled {pages} pages of the company site, no sustainability/ESG report found",
