@@ -94,7 +94,7 @@ def sync_innovation_participation(company, db_session: Session) -> dict:
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=bool(NEWSAPI_KEY),
-        fetch_live=_fetch_live, simulate=_simulate, timeout=100,
+        fetch_live=_fetch_live, simulate=_simulate, timeout=110,
     )
 
     if captured.get("row"):

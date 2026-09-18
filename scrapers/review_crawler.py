@@ -110,7 +110,7 @@ def sync_reviews(company, db_session: Session) -> dict:
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=True,
-        fetch_live=_fetch_live, simulate=_simulate, timeout=100,
+        fetch_live=_fetch_live, simulate=_simulate, timeout=110,
     )
 
     for src, row in captured.get("rows_by_source", {}).items():

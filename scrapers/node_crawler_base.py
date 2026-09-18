@@ -31,6 +31,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 from datetime import datetime
@@ -41,6 +42,28 @@ from sqlalchemy.orm import Session
 
 from config import SCRAPER_CRAWLERS_DIR
 from models import RawImportRecord
+
+# When set, every crawler subprocess's stdout+stderr is appended to a file in this
+# directory (one per crawler name). Off by default; the benchmark/verification harness
+# (scripts/crawler_bench.py) turns it on so a crawler's own per-page log lines can be
+# read next to the signals it produced — "0 open roles" means something different
+# when the log shows the careers page was a 404 vs. a real empty board.
+CRAWLER_LOG_DIR = os.getenv("VIENNA_CRAWLER_LOG_DIR")
+
+
+def _log_subprocess(name: str, args: List[str], result) -> None:
+    if not CRAWLER_LOG_DIR:
+        return
+    try:
+        log_dir = Path(CRAWLER_LOG_DIR)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with (log_dir / f"{name}.log").open("a", encoding="utf-8") as fh:
+            header = f"===== {datetime.utcnow().isoformat()}Z  {' '.join(map(str, args))}  exit={result.returncode} ====="
+            fh.write(chr(10) + header + chr(10))
+            fh.write(result.stdout or "")
+            fh.write(result.stderr or "")
+    except OSError:
+        pass
 
 DEFAULT_BUILD_TIMEOUT = 180
 DEFAULT_RUN_TIMEOUT = 90
@@ -62,16 +85,59 @@ def crawler_dir(name: str) -> Path:
     return d
 
 
-def _run(args: List[str], cwd: Path, env: Dict[str, str], timeout: int) -> subprocess.CompletedProcess:
-    # npm on Windows resolves to npm.cmd, which CreateProcess can't launch directly
-    # without going through a shell — list2cmdline is the same argv-quoting Python's
-    # own subprocess module uses, so this is safe on both platforms.
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kills the crawler process AND everything it spawned (Playwright's Chromium,
+    npm's child node). On Windows only taskkill /T reaches grandchildren; on POSIX
+    the crawler was started in its own session so the whole group can be signalled."""
     if os.name == "nt":
-        cmd = subprocess.list2cmdline(args)
-        return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True,
-                               timeout=timeout, env=env, shell=True)
-    return subprocess.run(args, cwd=str(cwd), capture_output=True, text=True,
-                           timeout=timeout, env=env)
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _run(args: List[str], cwd: Path, env: Dict[str, str], timeout: int) -> subprocess.CompletedProcess:
+    """
+    subprocess.run(shell=True, timeout=...) is NOT a real timeout on Windows —
+    measured live: a 3s timeout around a node process that kept running returned
+    only after 40s, when node exited on its own. Killing the shell leaves the node
+    grandchild alive, still holding the stdout/stderr pipes, so communicate() blocks
+    until it finishes; a hung Playwright crawler would stall the whole pipeline
+    (and its Chromium) for as long as it liked. So: no shell for node.exe (it is a
+    real executable and needs none), and on timeout the entire process tree is
+    killed before the TimeoutExpired propagates. npm (npm.cmd on Windows) still
+    needs a shell — that path is only used for a one-off `npm run build`.
+    """
+    needs_shell = os.name == "nt" and str(args[0]).lower().endswith((".cmd", ".bat"))
+    popen_kwargs: Dict[str, Any] = dict(cwd=str(cwd), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        text=True, encoding="utf-8", errors="replace")
+    if needs_shell:
+        popen_kwargs["shell"] = True
+        cmd: Any = subprocess.list2cmdline(args)
+    else:
+        cmd = args
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        try:
+            out, err = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            out, err = "", ""
+        raise subprocess.TimeoutExpired(args, timeout, output=out, stderr=err)
+    return subprocess.CompletedProcess(args, proc.returncode, out, err)
 
 
 def ensure_built(name: str, timeout: int = DEFAULT_BUILD_TIMEOUT) -> None:
@@ -148,6 +214,7 @@ def run_ts_crawler(
             result = _run(args, cwd=d, env=env, timeout=run_timeout)
         except subprocess.TimeoutExpired as e:
             raise CrawlerRunError(f"{name} timed out after {run_timeout}s") from e
+        _log_subprocess(name, args, result)
 
         if result.returncode != 0:
             raise CrawlerRunError(
@@ -188,6 +255,7 @@ def run_node_entrypoint(
             result = _run(args, cwd=d, env=env, timeout=run_timeout)
         except subprocess.TimeoutExpired as e:
             raise CrawlerRunError(f"{name} timed out after {run_timeout}s") from e
+        _log_subprocess(name, args, result)
 
         if result.returncode != 0:
             raise CrawlerRunError(
