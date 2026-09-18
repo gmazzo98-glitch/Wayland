@@ -64,17 +64,29 @@ def _derive_signals(row: dict) -> dict:
     if field_status.get("has_ecommerce") == "value" or field_status.get("social_presence_links") == "value":
         ecom_pts = 2.0 if has_ecommerce else 0.0
         social_pts = float(min(len(social_links), 2))
-        activity_pts = 1.0 if (snapshot_count or 0) >= 10 else 0.0
-        score = min(ecom_pts + social_pts + activity_pts, 5.0)
+        # The archive-activity point is only awarded or withheld when the CDX count
+        # actually came back. Wayback's CDX API fails often (503s, timeouts) and every
+        # company in the first live batch had snapshot_count=None — treating "unknown"
+        # as "fewer than 10" silently docked each of them a point, i.e. manufactured
+        # extra need from a data gap. When unknown, the composite is scored out of the
+        # 4 points that were actually measured and rescaled to the 0-5 range.
+        activity_known = snapshot_count is not None
+        activity_pts = 1.0 if (activity_known and snapshot_count >= 10) else 0.0
+        max_pts = 5.0 if activity_known else 4.0
+        score = min((ecom_pts + social_pts + activity_pts) / max_pts * 5.0, 5.0)
         parts = [f"e-commerce {'detected' if has_ecommerce else 'not detected'} (+{ecom_pts:.0f})",
                  f"{len(social_links)} social profile(s) (+{social_pts:.0f})",
-                 f"{snapshot_count if snapshot_count is not None else 'unknown'} archive snapshots (+{activity_pts:.0f})"]
+                 (f"{snapshot_count} archive snapshots (+{activity_pts:.0f})" if activity_known
+                  else "archive activity unknown (Wayback lookup failed — excluded, scored out of 4 and rescaled)")]
         signals["online_market_presence"] = {
-            "value": score, "status": "present" if score > 0 else "absent",
-            "summary": f"{score:.0f}/5 — " + "; ".join(parts),
+            "value": round(score, 2), "status": "present" if score > 0 else "absent",
+            "summary": f"{score:.1f}/5 — " + "; ".join(parts),
             "evidence": {
-                "method": "composite: e-commerce +2, each social profile +1 (max 2), 10+ archive snapshots +1",
-                "score_breakdown": {"ecommerce": ecom_pts, "social_profiles": social_pts, "archive_activity": activity_pts},
+                "method": "composite: e-commerce +2, each social profile +1 (max 2), 10+ archive snapshots +1"
+                          + ("" if activity_known else "; archive point excluded (unknown), rescaled from /4 to /5"),
+                "score_breakdown": {"ecommerce": ecom_pts, "social_profiles": social_pts,
+                                     "archive_activity": activity_pts if activity_known else None,
+                                     "points_measured": max_pts},
                 "has_ecommerce": has_ecommerce,
                 "social_profiles": [{"label": s.get("platform"), "url": s.get("url")} for s in social_links],
                 "snapshot_count_last_5_years": snapshot_count,

@@ -13,8 +13,11 @@ which isn't enough text to detect an ERP vendor mention without guessing.
 """
 
 import re
-import requests
+import time
+from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
+
+import requests
 from sqlalchemy.orm import Session
 
 from adapters.base import run_adapter
@@ -37,21 +40,47 @@ MIN_LISTINGS_FOR_GATE = 3
 # and when none exists the crawler is given no careers source at all rather than the
 # homepage — no source means no signal, which is the honest outcome.
 CAREERS_PATHS = [
-    "/careers", "/jobs", "/work-with-us",
-    "/lavora-con-noi", "/it/lavora-con-noi", "/azienda/lavora-con-noi", "/carriere",
-    "/karriere", "/stellenangebote", "/jobs-karriere",
-    "/en/careers", "/en/jobs",
+    "/careers", "/jobs", "/work-with-us", "/career", "/join-us",
+    "/lavora-con-noi", "/it/lavora-con-noi", "/azienda/lavora-con-noi", "/it/azienda/lavora-con-noi",
+    "/carriere", "/risorse-umane", "/posizioni-aperte",
+    "/karriere", "/stellenangebote", "/jobs-karriere", "/unternehmen/karriere",
+    "/en/careers", "/en/jobs", "/company/careers", "/company/career",
 ]
 _PROBE_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ProjectViennaBot/1.0)"}
+_PROBE_TIMEOUT = 6
+# Whole discovery (homepage + links + sitemap + path probes) must fit in this budget so
+# the crawler subprocess still gets its own full run_timeout inside the adapter's budget.
+_DISCOVERY_BUDGET_SECONDS = 45
+_MAX_DISCOVERED_CANDIDATES = 6
 
 # A careers page should say so somewhere. Guards against a path that 200s but is
 # really a catch-all/marketing page.
 _CAREERS_CONTENT_RE = re.compile(
-    r"lavora con noi|posizioni aperte|offerte di lavoro|candidatur|"          # IT
-    r"stellenangebote|karriere|bewerb|offene stellen|"                         # DE
-    r"job opening|open position|vacanc|careers|apply now|join our team",       # EN
+    r"lavora con noi|posizioni aperte|offerte di lavoro|candidatur|curriculum|"    # IT
+    r"stellenangebote|karriere|bewerb|offene stellen|"                              # DE
+    r"job opening|open position|vacanc|careers|apply now|join our team|work with us",  # EN
     re.I,
 )
+# Link text a site uses to point at its own careers page — the site tells us where the
+# page is, instead of us guessing a path. Live-verified to find pages the fixed path list
+# misses (emag.com's /company/career/, sanmarcotaps/heila-style /careers/ via sitemap).
+_CAREERS_LINK_TEXT_RE = re.compile(
+    r"lavora con noi|lavoraconnoi|posizioni aperte|opportunit[àa] di lavoro|offerte di lavoro|carriere|candidatur|"
+    r"risorse umane|entra nel (nostro )?team|unisciti|"
+    r"karriere|stellenangebote|offene stellen|"
+    r"\bjobs?\b|\bcareers?\b|work with us|join (our|the) team|join us|vacanc|recruit|open positions?",
+    re.I,
+)
+_CAREERS_PATH_RE = re.compile(
+    r"lavora|carrier|career|\bjobs?\b|karriere|stellen|recruit|candidat|opportunit|risorse-umane|posizioni|join-us",
+    re.I,
+)
+# When a site has both a careers landing page and an actual listing page, prefer the
+# listing (emag.com: /company/career/ vs /company/career/jobs/).
+_LISTING_PATH_BONUS_RE = re.compile(r"jobs|posizioni|stellenangebote|offene|open-positions|offerte|vacanc|opportunit", re.I)
+# A custom 404 page that renders the site's nav (which contains "Lavora con noi") would
+# otherwise pass the content check — the <title> is where a 404 page admits what it is.
+_NOT_FOUND_TITLE_RE = re.compile(r"pagina non trovata|page not found|non trovat|nicht gefunden|\b404\b|not found", re.I)
 
 
 def _normalized(url: str) -> str:
@@ -64,41 +93,168 @@ def _normalized(url: str) -> str:
         return (url or "").rstrip("/").lower()
 
 
-def _find_careers_url(website_url: str):
-    """
-    Returns a URL that is genuinely a careers page, or None.
+class _LinkCollector(HTMLParser):
+    """(href, label) for every <a> on a page, label = visible text + title/aria-label.
+    Stdlib only, so the wrapper adds no dependency for a 15-line job."""
 
-    A plain `status_code == 200` check is not enough: many CMS sites answer every
-    unknown path with a 200 that redirects to (or renders) the homepage. Verified
-    live on rcm.it, where /careers, /jobs and /lavora-con-noi all returned 200 with
-    byte-identical homepage content — which previously got passed to the crawler as
-    a careers page and produced 28 "open roles" that were really sector-page links.
-    So a candidate must also land somewhere other than the homepage AND actually
-    read like a careers page.
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self._href = None
+        self._label = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "a":
+            return
+        a = dict(attrs)
+        self._href = a.get("href")
+        self._label = [a.get("title") or "", a.get("aria-label") or ""]
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._label.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._href is not None:
+            self.links.append(((self._href or "").strip(), " ".join(" ".join(self._label).split())))
+            self._href = None
+            self._label = []
+
+
+def _get(url: str):
+    return requests.get(url, timeout=_PROBE_TIMEOUT, headers=_PROBE_HEADERS, allow_redirects=True)
+
+
+def _fetch_homepage(website_url: str):
+    """https first (most scheme-less DB URLs are), then plain http — a site with a
+    broken certificate or no TLS is still a site."""
+    base = website_url if re.match(r"^https?://", website_url, re.I) else f"https://{website_url}"
+    try:
+        return _get(base)
+    except requests.RequestException:
+        if not base.lower().startswith("https://"):
+            return None
+        try:
+            return _get("http://" + base[len("https://"):])
+        except requests.RequestException:
+            return None
+
+
+def _same_site(url: str, home: str) -> bool:
+    a = urlparse(url).netloc.lower().split(":")[0]
+    b = urlparse(home).netloc.lower().split(":")[0]
+    a, b = a[4:] if a.startswith("www.") else a, b[4:] if b.startswith("www.") else b
+    return bool(a) and (a == b or a.endswith("." + b) or b.endswith("." + a))
+
+
+def _page_title(html: str) -> str:
+    m = re.search(r"<title[^>]*>(.*?)</title>", html or "", re.I | re.S)
+    return " ".join(m.group(1).split()) if m else ""
+
+
+def _looks_like_careers_page(resp, home_url: str) -> bool:
+    if resp.status_code != 200:
+        return False
+    if _normalized(resp.url) == home_url:
+        return False  # soft-404 / catch-all redirect back to the homepage
+    text = resp.text or ""
+    if _NOT_FOUND_TITLE_RE.search(_page_title(text)):
+        return False
+    return bool(_CAREERS_CONTENT_RE.search(text))
+
+
+def _sitemap_candidates(home_url: str, deadline: float) -> list:
+    """Careers-looking URLs from /sitemap.xml (following up to 3 nested sitemaps)."""
+    try:
+        sm = _get(urljoin(home_url, "/sitemap.xml"))
+    except requests.RequestException:
+        return []
+    if sm.status_code != 200 or "<loc>" not in (sm.text or ""):
+        return []
+    locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", sm.text)
+    nested = [l for l in locs if l.lower().endswith(".xml")]
+    if nested and len(nested) == len(locs):
+        for sub_url in nested[:3]:
+            if time.monotonic() > deadline:
+                break
+            try:
+                sub = _get(sub_url)
+            except requests.RequestException:
+                continue
+            locs += re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", sub.text or "")
+    return [l for l in locs if _CAREERS_PATH_RE.search(urlparse(l).path) and _same_site(l, home_url)][:10]
+
+
+def _discover_careers_page(website_url: str):
+    """
+    Finds the company's real careers page, or returns None. Order of evidence:
+      1. links on the homepage whose text or path says "careers" (the site's own
+         signpost — most reliable, and the only way to find non-standard paths);
+      2. careers-looking URLs in /sitemap.xml;
+      3. the fixed path list (last resort — a guess, verified like everything else).
+    Every candidate must pass _looks_like_careers_page: a 200 is not enough. Many CMS
+    sites answer any unknown path with the homepage (rcm.it: /careers, /jobs and
+    /lavora-con-noi all 200'd with byte-identical homepage content, which previously
+    became 28 "open roles" made of sector links), and custom 404 pages render the
+    normal nav. Returns {"url": ..., "found_via": ...} so the evidence says how.
     """
     if not website_url:
         return None
-    base = website_url if re.match(r"^https?://", website_url, re.I) else f"https://{website_url}"
-    try:
-        home = requests.get(base, timeout=6, headers=_PROBE_HEADERS)
-    except requests.RequestException:
+    deadline = time.monotonic() + _DISCOVERY_BUDGET_SECONDS
+    home = _fetch_homepage(website_url)
+    if home is None:
         return None
     home_url = _normalized(home.url)
 
-    for path in CAREERS_PATHS:
-        url = urljoin(base.rstrip("/") + "/", path.lstrip("/"))
+    scored = {}
+    parser = _LinkCollector()
+    try:
+        parser.feed(home.text or "")
+    except Exception:  # a malformed page must not take the whole discovery down
+        pass
+    for href, label in parser.links:
+        if not href or href.lower().startswith(("mailto:", "tel:", "javascript:", "#")):
+            continue
+        full = urljoin(home.url, href)
+        if not full.lower().startswith(("http://", "https://")) or not _same_site(full, home.url):
+            continue
+        path = urlparse(full).path
+        score = (2 if _CAREERS_LINK_TEXT_RE.search(label) else 0) + (1 if _CAREERS_PATH_RE.search(path) else 0)
+        if score and _LISTING_PATH_BONUS_RE.search(path):
+            score += 1
+        if score:
+            key = _normalized(full)
+            if key not in scored or scored[key][0] < score:
+                scored[key] = (score, full, f"homepage link '{label[:60]}'")
+    candidates = sorted(scored.values(), key=lambda c: -c[0])
+    candidates += [(1, loc, "sitemap.xml") for loc in _sitemap_candidates(home.url, deadline)]
+    candidates += [(0, urljoin(home.url.rstrip("/") + "/", p.lstrip("/")), f"path probe {p}") for p in CAREERS_PATHS]
+
+    seen, discovered_tried = set(), 0
+    for score, url, via in candidates:
+        key = _normalized(url)
+        if key in seen or key == home_url:
+            continue
+        seen.add(key)
+        if time.monotonic() > deadline:
+            break
+        if score > 0:
+            if discovered_tried >= _MAX_DISCOVERED_CANDIDATES:
+                continue
+            discovered_tried += 1
         try:
-            resp = requests.get(url, timeout=6, headers=_PROBE_HEADERS)
+            resp = _get(url)
         except requests.RequestException:
             continue
-        if resp.status_code != 200:
-            continue
-        if _normalized(resp.url) == home_url:
-            continue  # soft-404 / catch-all redirect back to the homepage
-        if not _CAREERS_CONTENT_RE.search(resp.text or ""):
-            continue
-        return resp.url
+        if _looks_like_careers_page(resp, home_url):
+            return {"url": resp.url, "found_via": via}
     return None
+
+
+def _find_careers_url(website_url: str):
+    """Returns a URL that is genuinely a careers page, or None (see _discover_careers_page)."""
+    found = _discover_careers_page(website_url)
+    return found["url"] if found else None
 
 
 # The crawler's generic adapter treats link-ish elements on the page as listings, so
@@ -241,19 +397,27 @@ def sync_job_postings(company, db_session: Session) -> dict:
     captured = {}
 
     def _fetch_live(c):
-        careers_url = _find_careers_url(c.website_url)
+        found = _discover_careers_page(c.website_url)
+        careers_url = found["url"] if found else None
+        # 100s for the subprocess (killed at that point, Chromium included), inside the
+        # adapter's 160s budget together with up to 45s of careers-page discovery.
         rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "company_name": c.legal_name,
-                                              "careers_url": careers_url or ""}])
+                                              "careers_url": careers_url or ""}], run_timeout=100)
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("job-postings-crawler returned no row for this company")
         row = matches[0]
+        row["careers_discovery"] = (
+            {"careers_url": careers_url, "found_via": found["found_via"]} if found
+            else {"careers_url": None, "note": "no careers page found via homepage links, sitemap.xml or common paths"}
+        )
         captured["row"] = row
         if row.get("error"):
             raise CrawlerRunError(row["error"])
         return {
             "signals": _derive_signals(row),
-            "raw_payload": {"total_open_roles": row.get("total_open_roles"), "sources_used": row.get("sources_used")},
+            "raw_payload": {"total_open_roles": row.get("total_open_roles"), "sources_used": row.get("sources_used"),
+                             "careers_discovery": row["careers_discovery"]},
             "confidence": 0.7,
         }
 
@@ -267,7 +431,7 @@ def sync_job_postings(company, db_session: Session) -> dict:
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=True,
-        fetch_live=_fetch_live, simulate=_simulate, timeout=90,
+        fetch_live=_fetch_live, simulate=_simulate, timeout=160,
     )
 
     if captured.get("row"):

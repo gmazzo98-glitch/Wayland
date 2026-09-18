@@ -44,11 +44,11 @@ def _fetch_live(company) -> dict:
 
 
 def _simulate(company) -> dict:
-    char_sum = sum(ord(c) for c in company.legal_name)
-    count = float(char_sum % 10)
-    status = "present" if count > 0 else "absent"
+    # No placeholder count (was `hash(name) % 10`, scored like a real result —
+    # see scrapers/node_crawler_base.py's module docstring). Without a CSE key the
+    # keyless adapters/google_news_rss.py covers these rows; this stays unchecked.
     return {
-        "signals": {"partnership_news_count": {"value": count, "status": status}},
+        "signals": {},
         "raw_payload": {"source": SOURCE_NAME, "query": company.legal_name, "note": "GOOGLE_CSE_API_KEY/ID not configured"},
         "confidence": 0.5,
     }
@@ -101,11 +101,8 @@ def _fetch_live_innovation_statements(company) -> dict:
 
 
 def _simulate_innovation_statements(company) -> dict:
-    char_sum = sum(ord(c) for c in company.legal_name)
-    count = float((char_sum // 7) % 6)
-    status = "present" if count > 0 else "absent"
     return {
-        "signals": {"board_innovation_statements": {"value": count, "status": status}},
+        "signals": {},
         "raw_payload": {"source": SOURCE_NAME, "query": company.legal_name, "note": "GOOGLE_CSE_API_KEY/ID not configured"},
         "confidence": 0.5,
     }

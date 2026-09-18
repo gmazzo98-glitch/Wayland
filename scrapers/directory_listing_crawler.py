@@ -32,8 +32,12 @@ DEFAULT_DIRECTORY_URLS = ["https://www.mecspe.com/portale/it/espositori"]
 
 def _derive_signals(rows: list) -> dict:
     signals = {}
-    hit_rows = [r for r in rows if r.get("appears_in_directory")]
-    maybe_rows = [r for r in rows if r.get("possible_match") and not r.get("appears_in_directory")]
+    # The crawler's buildResult sets appears_in_directory=true for ANY match it kept,
+    # exact or fuzzy, and marks the fuzzy ones with possible_match=true on top. So a
+    # confirmed listing is "appears AND NOT possible_match" — reading appears alone
+    # (as this did before) counted "BREMBOMATIC PEDRALI SRL" as Brembo exhibiting.
+    hit_rows = [r for r in rows if r.get("appears_in_directory") and not r.get("possible_match")]
+    maybe_rows = [r for r in rows if r.get("possible_match")]
     checked_rows = [r for r in rows if r.get("status") == "ok"]
     if not checked_rows:
         return signals
@@ -53,12 +57,16 @@ def _derive_signals(rows: list) -> dict:
                           "found": listed, "directories_checked": directories_checked},
         }
     else:
-        # A fuzzy-only match is explicitly flagged for human verification by the
-        # crawler, so it scores half rather than counting as a confirmed listing.
+        # A fuzzy-only match is flagged for human verification by the crawler and
+        # scores NOTHING until a human confirms it: its matcher accepts a substring
+        # either way, so "Brembo" fuzzy-matches "BREMBOMATIC PEDRALI SRL" and
+        # "OFFICINE X" fuzzy-matches any other "Officine" exhibitor. Half a point for
+        # a probably-different company is a fabricated readiness signal; the candidate
+        # is kept in the evidence so the check is a one-click job.
         near = [{"label": f"possible match in {r.get('directory_name')} — needs human verification",
                   "url": r.get("listing_url") or r.get("directory_url")} for r in maybe_rows]
         signals["trade_fair_participation"] = {
-            "value": 0.5 if maybe_rows else 0.0, "status": "absent",
+            "value": 0.0, "status": "absent",
             "summary": (f"no confirmed listing; {len(maybe_rows)} fuzzy match(es) need checking"
                         if maybe_rows else
                         "searched " + ", ".join(str(d["label"]) for d in directories_checked) + " — not listed"),
@@ -75,7 +83,7 @@ def sync_directory_listing(company, db_session: Session) -> dict:
         rows = run_ts_crawler(CRAWLER_DIR, [{
             "company_id": c.id, "company_name": c.legal_name,
             "directory_urls": "|".join(DEFAULT_DIRECTORY_URLS),
-        }])
+        }], run_timeout=75)
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("directory-listing-crawler returned no rows for this company")
@@ -96,7 +104,10 @@ def sync_directory_listing(company, db_session: Session) -> dict:
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=True,
-        fetch_live=_fetch_live, simulate=_simulate, timeout=90,
+        # The subprocess is killed at run_timeout (75s); the adapter's wall-clock budget
+        # must stay above that so the kill (and its error message) is what ends a hung
+        # run, not a silent hard-timeout in run_adapter with the process still alive.
+        fetch_live=_fetch_live, simulate=_simulate, timeout=100,
     )
 
     for row in captured.get("rows", []):

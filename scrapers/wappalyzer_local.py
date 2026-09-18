@@ -62,10 +62,14 @@ def _fetch_live(company) -> dict:
 
 
 def _simulate(company) -> dict:
-    char_sum = sum(ord(c) for c in company.legal_name)
-    tech_val = float((char_sum % 8) + 2)
+    # No placeholder value. This used to derive a fake 2-9 "tech stack intensity" from
+    # a hash of the company name whenever the site was unreachable — harmless over
+    # seeded demo data, but scoring.py never consults is_simulated, so against real
+    # prospects that number was scored exactly like a verified one (see
+    # scrapers/node_crawler_base.py's module docstring). An unreachable site leaves
+    # the signal not_yet_checked; SourceHealth still records why.
     return {
-        "signals": {"tech_stack_intensity": {"value": tech_val, "status": "present"}},
+        "signals": {},
         "raw_payload": {"source": SOURCE_NAME, "url": company.website_url, "note": "site unreachable or no website_url on record"},
         "confidence": 0.5,
     }
