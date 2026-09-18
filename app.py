@@ -43,11 +43,6 @@ page_selection = st.sidebar.radio(
         "⚖️ Indicator Weights"
     ]
 )
-st.sidebar.caption(
-    "Ordered to match the Technical Brief's build/attention order: pipeline "
-    "visibility and per-company completeness before the ranked view — a ranked "
-    "table with no source-health context is the main failure mode it warns against."
-)
 
 st.sidebar.markdown("---")
 

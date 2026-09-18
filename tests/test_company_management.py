@@ -44,6 +44,7 @@ from company_service import (
     load_flat_person_mapping_profile,
     list_flat_person_mapping_profile_names,
     FLAT_IMPORT_ROLE_GROUP,
+    compute_revenue_growth_vs_sector,
 )
 
 FLEX_TEST_REGS = ["IT11122233344", "IT99988877766"]
@@ -56,6 +57,7 @@ PEOPLE_MAPPING_TEST_DATASET_NAMES = ["Test Mapping Roster"]
 COMPOSITION_TEST_REGS = ["IT60606060606", "IT70707070707", "IT80808080808", "IT90909090909"]
 FLAT_PEOPLE_TEST_REGS = ["IT11111000011", "IT22222000022", "IT33333000033"]
 FLAT_PEOPLE_TEST_DATASET_NAMES = ["Test Flat Roster"]
+REVENUE_SECTOR_TEST_REGS = ["HRB-771100"]
 
 
 @pytest.fixture(scope="function")
@@ -65,7 +67,8 @@ def db():
     # Clean up any test records
     test_regs = (["HRB-889900", "IT09988776655", "HRB-554433", "IT55443322110"]
                  + FLEX_TEST_REGS + PEOPLE_TEST_REGS + SUCCESSION_TEST_REGS
-                 + PEOPLE_MAPPING_TEST_REGS + COMPOSITION_TEST_REGS + FLAT_PEOPLE_TEST_REGS)
+                 + PEOPLE_MAPPING_TEST_REGS + COMPOSITION_TEST_REGS + FLAT_PEOPLE_TEST_REGS
+                 + REVENUE_SECTOR_TEST_REGS)
 
     def _cleanup():
         for reg in test_regs:
@@ -73,6 +76,7 @@ def db():
             if c:
                 session.query(RawImportRecord).filter_by(company_id=c.id).delete()
                 session.query(CompanyPerson).filter_by(company_id=c.id).delete()
+                session.query(SignalRecord).filter_by(company_id=c.id).delete()
                 session.delete(c)
         session.query(Company).filter_by(legal_name="Some Unknown Company Not In DB").delete()
         for name in FLEX_TEST_DATASET_NAMES:
@@ -191,6 +195,57 @@ def test_source_applicability():
     assert is_source_applicable("Bundesanzeiger", "Italy") is False
     assert is_source_applicable("EPO OPS", "Italy") is True
     assert is_source_applicable("EUIPO", "Italy") is True
+
+
+def test_revenue_growth_vs_sector_needs_both_sides(db):
+    """Neither revenue_trend nor sector_growth_benchmark exists yet for a brand
+    new company — must stay not_yet_checked, never guessed from one side."""
+    company, err = create_company(db, {
+        "legal_name": "Test Revenue Sector GmbH", "registration_number": "HRB 771100",
+        "country": "Germany", "nace_code": "C10.51",
+    }, auto_sync=False)
+    assert err is None
+
+    result = compute_revenue_growth_vs_sector(db, company)
+    assert result["status"] == "not_yet_checked"
+
+    sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="revenue_growth_vs_sector").first()
+    assert sig.status == "not_yet_checked"
+    assert sig.numeric_value is None
+
+
+def test_revenue_growth_vs_sector_computes_differential(db):
+    """Company revenue up 8% over 3 years, sector benchmark up 12% -> the
+    company is underperforming its own market by 4 percentage points, even
+    though its own revenue trend alone reads as positive growth."""
+    company, err = create_company(db, {
+        "legal_name": "Test Revenue Sector GmbH", "registration_number": "HRB 771100",
+        "country": "Germany", "nace_code": "C10.51",
+    }, auto_sync=False)
+    assert err is None
+
+    revenue_sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="revenue_trend").first()
+    revenue_sig.numeric_value = 8.0
+    revenue_sig.status = "present"
+    revenue_sig.confidence = 1.0
+    revenue_sig.is_simulated = False
+
+    sector_sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="sector_growth_benchmark").first()
+    sector_sig.numeric_value = 12.0
+    sector_sig.status = "present"
+    sector_sig.confidence = 0.85
+    sector_sig.is_simulated = False
+    db.commit()
+
+    result = compute_revenue_growth_vs_sector(db, company)
+    assert result["status"] == "present"
+    assert result["value"] == -4.0
+
+    sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="revenue_growth_vs_sector").first()
+    assert sig.numeric_value == -4.0
+    assert sig.status == "present"
+    assert sig.is_simulated is False
+    assert sig.confidence == 0.85  # min() of the two inputs' confidence
     assert is_source_applicable("EU Funding Portal", "Italy") is True
     assert is_source_applicable("Wappalyzer", "Italy") is True
     assert is_source_applicable("Google News", "Italy") is True
@@ -1011,6 +1066,51 @@ def test_detect_family_and_succession_no_shared_surname_not_family(db):
     result = detect_family_and_succession(db, company)
     assert result["is_family_company"] is False
     assert result["new_generation"]["detected"] is False
+
+
+def test_detect_family_and_succession_does_not_double_count_same_person_across_role_groups(db):
+    """The same board member routinely gets exploded into two rows from one
+    import -- e.g. a "DM" director row and an "ADV" advisor row -- and only
+    one of them carries the source file's "Sig./Signora" honorific. Without
+    identity dedup, that one real person looks like two people sharing a
+    surname and gets wrongly flagged as a family pair."""
+    company, err = create_company(db, {
+        "legal_name": "Solo Operator S.p.A.", "registration_number": "IT30303030303", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+
+    _add_person(db, company.id, "Sig. Andrea Parolari", age=71, cognome="Parolari",
+                role_group="DM", position=0)
+    _add_person(db, company.id, "Andrea Parolari", age=71, cognome="Parolari",
+                role_group="ADV", position=0)
+
+    result = detect_family_and_succession(db, company)
+    assert result["is_family_company"] is False
+    assert result["family_surnames"] == []
+
+
+def test_sync_management_composition_signals_counts_real_board_not_dateless_duplicate(db):
+    """A person with a future resignation_date (a scheduled mandate
+    end-of-term, common in Italian board filings -- "in carica fino al ...")
+    must still count as current. Regression for a bug where the richer,
+    dated "DM" row was wrongly excluded as "former" while a dateless "ADV"
+    duplicate of the same roster was counted as current instead."""
+    company, err = create_company(db, {
+        "legal_name": "Term Limited S.p.A.", "registration_number": "IT40404040404", "country": "Italy",
+    }, auto_sync=False)
+    assert err is None
+    now = datetime.utcnow()
+
+    _add_person(db, company.id, "Sig. Carlo Neri", age=60, cognome="Neri", role_group="DM", position=0,
+                appointment_date=now - timedelta(days=500), resignation_date=now + timedelta(days=400),
+                current_or_former="Current")
+    _add_person(db, company.id, "Carlo Neri", age=60, cognome="Neri", role_group="ADV", position=0)
+
+    result = sync_management_composition_signals(db, company)
+    assert result["management_age"]["value"] == pytest.approx(60.0)
+    # A future resignation_date is a scheduled term end, not a real turnover
+    # event yet -- only the past appointment should be counted.
+    assert result["management_turnover"]["value"] == pytest.approx(1.0)
 
 
 def test_detect_family_and_succession_flags_new_generation_with_quantified_handover(db):

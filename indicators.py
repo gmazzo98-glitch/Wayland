@@ -258,6 +258,18 @@ INDICATOR_SEED = [
          comment="Banks often do not give loans for innovation because it is not easily quantifiable.",
          source_description="Bundesanzeiger capital increase filings, press releases on funding rounds, Handelsregister capital change filings",
          example_status="Increasing"),
+    dict(key="sector_growth_benchmark", automation_tier="T1", redundancy_group="SECTOR_BENCHMARK", label="Sector Growth Benchmark", category=CAT_CONTEXT, axis="context",
+         weight=0.0, phase=1, source_system="Eurostat Sector Growth", freshness_days=90,
+         proxy="Trailing 12-month vs. prior 12-month sector production index growth (Eurostat sts_inpr_m), matched by NACE Rev.2 section",
+         rationale="A supporting data point for Revenue Growth vs. Sector below, not scored on its own — scoring both would double-count the same underlying comparison.",
+         comment="Industry NACE sections (B/C/D/E) only, per adapters/eurostat_sector_growth.py's real API coverage — left not_yet_checked rather than guessed for agriculture/trade/services.",
+         source_description="Eurostat dissemination API, sts_inpr_m dataset (keyless)", example_status="—"),
+    dict(key="revenue_growth_vs_sector", automation_tier="T1", redundancy_group="FIN_TREND", label="Revenue Growth vs. Sector", category=CAT_FINANCIAL, axis="need",
+         invert=True, raw_min=-25, raw_max=20, weight=3.0, phase=3, source_system="Computed", freshness_days=365,
+         proxy="Company Revenue Trend minus Sector Growth Benchmark, in percentage points",
+         rationale="Growing slower than its own sector is a directly comparable growth-pressure signal, distinct from Revenue Trend's absolute (company-only) reading — answers Revenue Trend's own open comment about checking whether stagnation is company-specific or sector-wide.",
+         comment="Computed in company_service.py from revenue_trend (financial import) and sector_growth_benchmark (Eurostat, industry NACE sections only) — left not_yet_checked until both are present, never estimated from one alone.",
+         source_description="Computed: revenue_trend - sector_growth_benchmark", example_status="Underperforming market"),
 
     # ---------------------------------------------------------------- Cost Structure & Margin Pressure
     dict(key="materials_cost", automation_tier="T1", redundancy_group="COST_PRESSURE", label="Materials Cost", category=CAT_COST, axis="need",

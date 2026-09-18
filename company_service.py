@@ -8,6 +8,7 @@ import io
 import csv
 import json
 import re
+import unicodedata
 import itertools
 from collections import Counter
 from datetime import datetime, timedelta
@@ -19,7 +20,7 @@ from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinit
 from indicators import fetch_indicator_defs, TREND_INDICATOR_KEYS, CAT_CONTEXT
 from utils import normalize_registration_nr
 from config import has_credentials
-from adapters import epo_ops, euipo, destatis, eu_funding, arbeitsagentur, google_news, google_news_rss
+from adapters import epo_ops, euipo, destatis, eu_funding, arbeitsagentur, google_news, google_news_rss, eurostat_sector_growth
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
 from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
@@ -43,7 +44,7 @@ PHASE_7_SOURCES = [
 
 COUNTRY_SOURCE_MAP = {
     "Germany": {
-        "Phase 1": ["EPO OPS", "EUIPO", "Destatis", "EU Funding Portal", "Arbeitsagentur"],
+        "Phase 1": ["EPO OPS", "EUIPO", "Destatis", "EU Funding Portal", "Arbeitsagentur", "Eurostat Sector Growth"],
         "Phase 2": ["Handelsregister Free Snapshot"],
         "Phase 3": ["Bundesanzeiger"],
         "Phase 4": ["Wappalyzer", "Google News", "Own-Site Scrape"],
@@ -51,7 +52,7 @@ COUNTRY_SOURCE_MAP = {
         "Phase 7": PHASE_7_SOURCES,
     },
     "Italy": {
-        "Phase 1": ["EPO OPS", "EUIPO", "EU Funding Portal"],
+        "Phase 1": ["EPO OPS", "EUIPO", "EU Funding Portal", "Eurostat Sector Growth"],
         "Phase 2": [],  # German Handelsregister not applicable
         "Phase 3": [],  # Bundesanzeiger not applicable
         "Phase 4": ["Wappalyzer", "Google News", "Own-Site Scrape"],
@@ -99,11 +100,18 @@ def sync_company_applicable_sources(company: Company, db: Session, phases: list 
         results["EPO OPS"] = epo_ops.sync_company_patents(company, db)
         results["EUIPO"] = euipo.sync_company_trademarks(company, db)
         results["EU Funding Portal"] = eu_funding.sync_company_grants(company, db)
+        results["Eurostat Sector Growth"] = eurostat_sector_growth.sync_sector_growth_benchmark(company, db)
 
         # Germany-specific Phase 1 APIs
         if country == "Germany":
             results["Destatis"] = destatis.sync_sector_export_exposure(company, db)
             results["Arbeitsagentur"] = arbeitsagentur.sync_job_velocity(company, db)
+
+        # Revenue Growth vs. Sector is a pure computation over two already-
+        # stored signals (revenue_trend from a financial import, sector_growth_
+        # benchmark from the Eurostat call just above) — re-run every sync so
+        # it stays current whichever of the two most recently changed.
+        compute_revenue_growth_vs_sector(db, company)
 
     if 2 in phases and country == "Germany":
         results["Handelsregister"] = handelsregister_free.index_handelsregister_snapshot(company, db)
@@ -1798,6 +1806,55 @@ def _normalize_for_name_match(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", " ", str(text or "").lower())
 
 
+_HONORIFIC_TOKENS = {
+    "sig", "sigra", "sigg", "signor", "signora", "signorina", "dott", "dr",
+    "ing", "geom", "avv", "prof", "rag", "arch", "herr", "frau", "mr", "mrs", "ms", "mx",
+}
+
+
+def _person_identity_key(person: CompanyPerson) -> str:
+    """Normalizes full_name for cross-source identity matching: strips
+    accents/punctuation, casefolds, drops honorific tokens ("Sig.",
+    "Signora", "Dott.", ...), and sorts what's left so word-order
+    differences ("Rossi Mario" vs "Mario Rossi") don't look like two
+    people. Honorifics matter here specifically because the same board
+    roster commonly gets exploded into more than one role_group per
+    dataset (e.g. a "DM" director row and an "ADV" advisor row for the
+    identical person) and only one of them carries the "Sig./Signora"
+    prefix the source file used — without stripping it, "Sig. Andrea
+    Parolari" and "Andrea Parolari" look like two different people and a
+    lone board member gets double-counted as a family pair.
+    Falls back to the row's own id when there's no name left to key on,
+    so nameless rows stay distinct rather than colliding on ""."""
+    ascii_name = unicodedata.normalize("NFKD", str(person.full_name or "")).encode("ascii", "ignore").decode("ascii")
+    tokens = sorted(t for t in re.findall(r"[a-z0-9]+", ascii_name.lower()) if t not in _HONORIFIC_TOKENS)
+    return " ".join(tokens) or f"__no_name__{person.id}"
+
+
+def _dedup_people_by_identity(people: list) -> list:
+    """CompanyPerson's uniqueness constraint is per (dataset_name,
+    role_group, position_in_row) - it does NOT guarantee one row per real
+    person. The same individual routinely gets multiple rows: imported from
+    two different sources (e.g. AIDA's director list AND a Handelsregister
+    officer filing), or listed under two role_groups within one dataset
+    (e.g. both director and shareholder). Anything that COUNTS people
+    (family-surname detection, board composition indicators) must collapse
+    those duplicates first or it silently double-counts the same human.
+
+    Keeps one representative row per normalized identity, preferring
+    whichever duplicate has the most complete data (age, appointment date,
+    nationality, gender known) so downstream aggregates aren't starved by
+    picking a sparser row arbitrarily.
+    """
+    best = {}
+    for p in people:
+        key = _person_identity_key(p)
+        completeness = sum(x is not None for x in (p.age, p.appointment_date, p.nationality, p.gender))
+        if key not in best or completeness > best[key][0]:
+            best[key] = (completeness, p)
+    return [p for _, p in best.values()]
+
+
 def detect_family_and_succession(db: Session, company: Company) -> dict:
     """
     Looks at CompanyPerson rows with a known age, OR rows from the flexible
@@ -1819,7 +1876,7 @@ def detect_family_and_succession(db: Session, company: Company) -> dict:
              "young_manager": CompanyPerson or None,
              "years_since_handover": float or None}}.
     """
-    people = (
+    people = _dedup_people_by_identity(
         db.query(CompanyPerson)
         .filter_by(company_id=company.id)
         .filter(or_(CompanyPerson.age.isnot(None), CompanyPerson.role_group == FLAT_IMPORT_ROLE_GROUP))
@@ -1910,6 +1967,72 @@ def sync_succession_signal(db: Session, company: Company, source: str = "Board R
     return result
 
 
+REVENUE_GROWTH_VS_SECTOR_KEY = "revenue_growth_vs_sector"
+
+
+def compute_revenue_growth_vs_sector(db: Session, company: Company) -> dict:
+    """
+    Derives Revenue Growth vs. Sector from two already-stored SignalRecords —
+    revenue_trend (the company's own 3-fiscal-year revenue % change, from a
+    financial spreadsheet import) and sector_growth_benchmark (Eurostat
+    sts_inpr_m trailing-12mo-vs-prior-12mo % change, industry NACE sections
+    only — see adapters/eurostat_sector_growth.py). A pure computation over
+    existing data, not a new external fetch, so it follows the same
+    tri-state honesty rule as every TREND_INDICATOR_KEYS computation above:
+    left not_yet_checked rather than estimated from just one side.
+
+    Both values are already stored in percentage points (see revenue_trend's
+    formula above and eurostat_sector_growth._fetch_live), so the
+    differential is a plain subtraction, no unit conversion needed.
+
+    Called automatically at the end of the Phase 1 block in
+    sync_company_applicable_sources, since that's the point where the
+    Eurostat side of the comparison was just (re)fetched; also safe to call
+    on demand after a financial data import changes revenue_trend.
+    """
+    revenue_sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="revenue_trend").first()
+    sector_sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="sector_growth_benchmark").first()
+
+    out = db.query(SignalRecord).filter_by(company_id=company.id, signal_key=REVENUE_GROWTH_VS_SECTOR_KEY).first()
+    if not out:
+        out = SignalRecord(company_id=company.id, signal_key=REVENUE_GROWTH_VS_SECTOR_KEY, source="Computed")
+        db.add(out)
+
+    revenue_ok = revenue_sig is not None and revenue_sig.numeric_value is not None
+    sector_ok = sector_sig is not None and sector_sig.numeric_value is not None
+
+    if not (revenue_ok and sector_ok):
+        out.status = "not_yet_checked"
+        out.numeric_value = None
+        out.confidence = 0.0
+        out.is_simulated = True
+        out.source = "Computed"
+        out.fetched_at = datetime.utcnow()
+        out.raw_payload_ref = json.dumps({
+            "note": "Needs both revenue_trend (financial import) and sector_growth_benchmark (Eurostat) present.",
+            "revenue_trend_present": revenue_ok,
+            "sector_growth_benchmark_present": sector_ok,
+        })
+        db.commit()
+        return {"status": "not_yet_checked"}
+
+    differential = round(revenue_sig.numeric_value - sector_sig.numeric_value, 2)
+    out.status = "present"
+    out.numeric_value = differential
+    out.confidence = min(revenue_sig.confidence or 0.5, sector_sig.confidence or 0.5)
+    out.is_simulated = bool(revenue_sig.is_simulated or sector_sig.is_simulated)
+    out.source = "Computed"
+    out.fetched_at = datetime.utcnow()
+    out.raw_payload_ref = json.dumps({
+        "revenue_trend_pct": revenue_sig.numeric_value,
+        "sector_growth_benchmark_pct": sector_sig.numeric_value,
+        "differential_pp": differential,
+        "note": "Company Revenue Trend minus Sector Growth Benchmark, in percentage points.",
+    })
+    db.commit()
+    return {"status": "present", "value": differential}
+
+
 # =============================================================================
 # Management/board composition signals
 #
@@ -1961,10 +2084,19 @@ def _person_gender_category(raw_gender) -> str:
 
 def _person_is_current(person: CompanyPerson) -> bool:
     """A person counts as current management unless the roster explicitly
-    says otherwise — a known resignation_date, or a current_or_former value
-    containing a 'former'-style marker (AIDA's own 'Attuale o precedente'
-    column included)."""
-    if person.resignation_date is not None:
+    says otherwise — a resignation_date that has already passed, or a
+    current_or_former value containing a 'former'-style marker (AIDA's own
+    'Attuale o precedente' column included).
+
+    resignation_date isn't always an actual departure: Italian board
+    filings routinely populate it with the mandate's scheduled end-of-term
+    ("in carica fino al ...", e.g. a standard 3-year renewal), which is
+    frequently a FUTURE date for a director who is very much still serving.
+    Treating any non-null resignation_date as "gone" — regardless of
+    whether it's already happened — silently drops every currently-serving
+    person with a known term length, which is the common case, not the
+    exception."""
+    if person.resignation_date is not None and person.resignation_date <= datetime.utcnow():
         return False
     val = (person.current_or_former or "").strip().lower()
     return not any(marker in val for marker in FORMER_STATUS_MARKERS)
@@ -1994,7 +2126,7 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
     """
     results = {key: {"written": False, "value": None} for key in MANAGEMENT_COMPOSITION_INDICATOR_KEYS}
 
-    people = (
+    people = _dedup_people_by_identity(
         db.query(CompanyPerson)
         .filter_by(company_id=company.id)
         .filter(or_(CompanyPerson.age.isnot(None), CompanyPerson.role_group == FLAT_IMPORT_ROLE_GROUP))
@@ -2067,14 +2199,19 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
 
     # Turnover of Management — appointment/resignation events in the last 3
     # years, counted across EVERY known person (not just current ones — a
-    # departure is itself a turnover event).
-    cutoff = datetime.utcnow() - timedelta(days=TURNOVER_LOOKBACK_DAYS)
+    # departure is itself a turnover event). Both bounds are capped at "now"
+    # as well as "cutoff": resignation_date in particular is often a
+    # scheduled future mandate end-of-term (see _person_is_current), not a
+    # departure that has actually happened yet, so an event dated in the
+    # future must not count as turnover "in the past 3 years".
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=TURNOVER_LOOKBACK_DAYS)
     dated_people = [p for p in people if p.appointment_date or p.resignation_date]
     if dated_people:
         turnover_events = sum(
             1 for p in people
-            if (p.appointment_date and p.appointment_date >= cutoff)
-            or (p.resignation_date and p.resignation_date >= cutoff)
+            if (p.appointment_date and cutoff <= p.appointment_date <= now)
+            or (p.resignation_date and cutoff <= p.resignation_date <= now)
         )
         _write("management_turnover", float(turnover_events),
                {"basis": "appointment_or_resignation_events_in_last_3_years", "n": len(dated_people)})

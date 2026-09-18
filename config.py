@@ -126,6 +126,8 @@ SOURCE_CREDENTIAL_VARS = {
     "EUIPO": ["EUIPO_CLIENT_ID", "EUIPO_CLIENT_SECRET"],
     "Destatis": ["DESTATIS_USERNAME", "DESTATIS_PASSWORD", "DESTATIS_EXPORT_TABLE_CODE"],
     "EU Funding Portal": [],
+    # Eurostat's dissemination API is public/keyless, same posture as EU Funding Portal.
+    "Eurostat Sector Growth": [],
     "Arbeitsagentur": [],
     "Wappalyzer": [],
     "Google News": ["GOOGLE_CSE_API_KEY", "GOOGLE_CSE_ID"],

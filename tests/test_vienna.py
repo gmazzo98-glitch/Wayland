@@ -325,8 +325,10 @@ def test_indicator_catalog_gate_rows_have_valid_penalty():
 def test_indicator_catalog_row_count_matches_reconciled_total():
     # 75 pre-existing rows + 9 new rows added when reconciling against the
     # 78-variable gg_indicators.json ground truth (69 of which already had a
-    # match here; see indicators.py's module docstring).
-    assert len(INDICATOR_SEED) == 84
+    # match here; see indicators.py's module docstring), + 2 more rows
+    # (sector_growth_benchmark, revenue_growth_vs_sector) added on top of that
+    # reconciled set for the company-vs-market growth comparison.
+    assert len(INDICATOR_SEED) == 86
 
 def test_indicator_catalog_automation_tier_is_valid():
     for row in INDICATOR_SEED:
