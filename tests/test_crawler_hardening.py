@@ -287,6 +287,40 @@ def test_site_navigation_and_chrome_words_are_not_listings():
     assert "digital_lead_role_present" not in signals   # one real listing is below the gate threshold
 
 
+def test_digital_count_is_recounted_over_the_listings_that_survived_filtering():
+    """bortolinkemo.com: the crawler extracted 10 "listings" (8 menu items + 2 real
+    roles) and counted 4 keyword matches, most from the menu pages' text. With the
+    complete sample and per-listing verdicts, the wrapper recounts over the two."""
+    form = "https://www.bortolinkemo.com/it/lavora-con-noi"
+    nav = ["https://www.bortolinkemo.com/it/azienda", "https://www.bortolinkemo.com/it/servizi",
+           "https://www.bortolinkemo.com/it/news", "https://www.bortolinkemo.com/it/contatti"]
+    sample = [{"title": t, "url": u, "matches_digital_keywords": m, "qualification_match": q}
+              for t, u, m, q in [
+                  ("Azienda", nav[0], True, False), ("Servizi", nav[1], True, None),
+                  ("News", nav[2], True, False), ("Contatti", nav[3], False, None),
+                  ("SOFTWARISTA C# E PLC SIEMENS", form + "#posizione=SOFTWARISTA", True, None),
+                  ("Progettista Meccanico", form + "#posizione=Progettista", False, None),
+              ]]
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 4, "total_open_roles": 6, "technical_qualification_share": 0.0,
+        "roles_sample": sample, "site_nav_urls": nav, "sources_used": [{"url": form}],
+        "field_status": {"technical_digital_roles_count": "value", "technical_qualification_share": "value"},
+    })
+    counted = signals["digital_job_postings"]
+    assert counted["value"] == 1.0 and "1 of 2" in counted["summary"]
+    assert counted["evidence"]["matched_titles"] == ["SOFTWARISTA C# E PLC SIEMENS"]
+    assert "skilled_labour_share" not in signals   # no description was fetched for the two real roles
+
+    # a partial sample with junk in it and no way to recount asserts no count at all
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 4, "total_open_roles": 40,
+        "roles_sample": [{"title": "Azienda", "url": nav[0]}, {"title": "Progettista", "url": form + "/p1"}],
+        "site_nav_urls": nav, "sources_used": [{"url": form}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    })
+    assert "digital_job_postings" not in signals
+
+
 def test_select_option_listings_survive_the_self_link_filter():
     """bortolinkemo.com lists its open roles as <option>s of the application form; the
     crawler reports them with a #posizione= fragment on the form's own URL."""

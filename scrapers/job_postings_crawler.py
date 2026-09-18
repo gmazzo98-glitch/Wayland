@@ -359,7 +359,6 @@ def _plausible_listings(roles_sample: list, source_urls: list, site_nav_urls: li
             continue
         if _normalized(url) in nav_norms:
             continue
-            continue
         if _normalized(url) in source_norms:
             continue
         if _CTA_TITLE_RE.search(title):
@@ -401,31 +400,48 @@ def _derive_signals(row: dict) -> dict:
     roles_status = field_status.get("technical_digital_roles_count")
     tech_roles = row.get("technical_digital_roles_count")
     # The crawler's own count is computed over every "listing" it extracted, junk
-    # included, and can't be recomputed here (only a 10-item sample comes back, and
-    # the keyword list lives in the crawler). So if plausibility filtering rejected
-    # ALL of the listings, the extraction isn't trustworthy enough to derive a count
-    # from either — bortolinkemo.com's only "role" was a CV-upload button, which
-    # would otherwise have been reported as "0 of 1 open roles".
-    extraction_is_junk = bool(row.get("roles_sample")) and not roles_sample
+    # included. If plausibility filtering rejected ALL of the listings, the extraction
+    # isn't trustworthy enough to derive a count from either — bortolinkemo.com's only
+    # "role" was once a CV-upload button, which would otherwise have been reported as
+    # "0 of 1 open roles".
+    raw_sample = row.get("roles_sample") or []
+    extraction_is_junk = bool(raw_sample) and not roles_sample
     if extraction_is_junk:
         return signals
 
-    if roles_status == "value" and tech_roles is not None:
-        # The crawler matches keywords against title + snippet + full description,
-        # but roles_sample carries titles only and is capped at 10 — so the sample
-        # can legitimately show fewer title-matches than the count. Say so rather
-        # than presenting the sample as the definitive list of what was counted.
+    # When the sample is the complete list and carries the crawler's per-listing
+    # keyword verdicts, the count is recomputed here over the listings that passed the
+    # junk filter — the crawler's own total was "4 of 10" for a page whose 8 extra
+    # "roles" were the site menu (verified live). When some junk was filtered but a
+    # recount is impossible (partial sample, or a blob from an older crawler build),
+    # no count is asserted at all: a number over unknown junk is not a measurement.
+    junk_filtered = len(raw_sample) - len(roles_sample)
+    sample_complete = total_roles is not None and len(raw_sample) >= int(total_roles)
+    has_verdicts = bool(roles_sample) and all("matches_digital_keywords" in r for r in roles_sample)
+    recount = sample_complete and has_verdicts
+    if recount:
+        counted = sum(1 for r in roles_sample if r.get("matches_digital_keywords"))
+        considered = len(roles_sample)
+    elif junk_filtered == 0 and roles_status == "value" and tech_roles is not None:
+        counted, considered = int(tech_roles), total_roles
+    else:
+        counted = considered = None
+
+    if roles_status == "value" and counted is not None:
         signals["digital_job_postings"] = {
-            "value": float(tech_roles), "status": "present",
-            "summary": f"{int(tech_roles)} of {total_roles} open roles matched digital/technical keywords"
-                        + (f" ({len(roles_sample)} of the listings shown below survived junk-filtering)"
-                           if len(roles_sample) < len(row.get("roles_sample") or []) else ""),
+            "value": float(counted), "status": "present",
+            "summary": f"{counted} of {considered} open roles matched digital/technical keywords"
+                        + (f" (recounted over the {considered} listings that survived junk-filtering; "
+                           f"the crawler had extracted {len(raw_sample)})" if recount and junk_filtered else ""),
             "evidence": {
-                "method": "keyword match over each posting's title, snippet and description",
-                "counted": int(tech_roles), "considered": total_roles,
+                "method": ("keyword match over each posting's title, snippet and description, recounted over the "
+                           "listings that passed junk filtering" if recount
+                           else "keyword match over each posting's title, snippet and description (crawler's own count)"),
+                "counted": counted, "considered": considered,
                 "source_urls": source_urls,
                 "open_roles_sample": sampled,
-                "note": "sample shows up to 10 titles; matches can also come from description text not shown here",
+                "matched_titles": [r.get("title") for r in roles_sample if r.get("matches_digital_keywords")] if has_verdicts else None,
+                "note": None if recount else "sample may be partial; matches can also come from description text not shown here",
             },
         }
     elif roles_status == "not_applicable":
@@ -439,13 +455,20 @@ def _derive_signals(row: dict) -> dict:
         }
 
     qual_share = row.get("technical_qualification_share")
-    if field_status.get("technical_qualification_share") == "value" and qual_share is not None:
+    pct = None
+    if recount:
+        checked = [r for r in roles_sample if r.get("qualification_match") is not None]
+        if checked:
+            pct = 100.0 * sum(1 for r in checked if r.get("qualification_match")) / len(checked)
+    elif junk_filtered == 0 and field_status.get("technical_qualification_share") == "value" and qual_share is not None:
         pct = float(qual_share) * 100.0 if qual_share <= 1.0 else float(qual_share)
+    if pct is not None:
         signals["skilled_labour_share"] = {
             "value": pct, "status": "present",
             "summary": f"{pct:.0f}% of the postings whose description was fetched require a technical/university qualification",
             "evidence": {
-                "method": "qualification-keyword match, over postings whose full description was retrieved",
+                "method": "qualification-keyword match, over postings whose full description was retrieved"
+                          + (" (recounted over the listings that passed junk filtering)" if recount else ""),
                 "share_pct": round(pct, 1), "source_urls": source_urls,
                 "open_roles_sample": sampled,
             },
