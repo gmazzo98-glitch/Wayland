@@ -1,23 +1,30 @@
 """
 run_phase7_batch: several companies' Phase 7 crawler runs in flight at once, each
 worker on its own DB session. No crawler is spawned — the per-company sync is
-stubbed — and the configured DATABASE_URL is never touched (in-memory SQLite
-behind a StaticPool so every thread's session shares the one connection).
+stubbed — and the configured DATABASE_URL is never touched: a throwaway SQLite
+FILE in the test's tmp dir, so each worker thread gets its own connection (an
+in-memory DB behind a StaticPool shares one connection across threads, which
+intermittently returned no rows under 5 concurrent workers).
 """
 
 import threading
 import time
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import company_service
 from models import Base, Company
 
 
-def _factory():
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+@pytest.fixture
+def factory(tmp_path):
+    return _factory(tmp_path)
+
+
+def _factory(tmp_path):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'batch.db').as_posix()}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
     s = factory()
@@ -28,7 +35,7 @@ def _factory():
     return factory
 
 
-def test_batch_runs_companies_in_parallel_on_separate_sessions(monkeypatch):
+def test_batch_runs_companies_in_parallel_on_separate_sessions(monkeypatch, factory):
     seen = {}
     lock = threading.Lock()
 
@@ -43,7 +50,7 @@ def test_batch_runs_companies_in_parallel_on_separate_sessions(monkeypatch):
     ticks = []
     t0 = time.time()
     results = company_service.run_phase7_batch(
-        ["c0", "c1", "c2", "c3", "c4"], max_workers=5, session_factory=_factory(),
+        ["c0", "c1", "c2", "c3", "c4"], max_workers=5, session_factory=factory,
         progress_cb=lambda done, total, name: ticks.append((done, total, name)),
     )
     elapsed = time.time() - t0
@@ -57,18 +64,18 @@ def test_batch_runs_companies_in_parallel_on_separate_sessions(monkeypatch):
     assert all(name.startswith("Company ") for _, _, name in ticks)
 
 
-def test_batch_isolates_a_company_whose_run_blows_up(monkeypatch):
+def test_batch_isolates_a_company_whose_run_blows_up(monkeypatch, factory):
     def fake_sync(company, db, phases=None):
         if company.id == "c1":
             raise RuntimeError("crawler folder missing")
         return {"ok": True}
 
     monkeypatch.setattr(company_service, "sync_company_applicable_sources", fake_sync)
-    results = company_service.run_phase7_batch(["c0", "c1", "c2", "missing"], max_workers=2, session_factory=_factory())
+    results = company_service.run_phase7_batch(["c0", "c1", "c2", "missing"], max_workers=2, session_factory=factory)
     assert results["c0"] == {"ok": True} and results["c2"] == {"ok": True}
     assert "RuntimeError: crawler folder missing" in results["c1"]["error"]
     assert results["missing"]["error"] == "company not found"
 
 
-def test_batch_with_no_companies_is_a_noop():
-    assert company_service.run_phase7_batch([], session_factory=_factory()) == {}
+def test_batch_with_no_companies_is_a_noop(factory):
+    assert company_service.run_phase7_batch([], session_factory=factory) == {}

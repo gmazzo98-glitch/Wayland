@@ -317,7 +317,7 @@ def _find_careers_url(website_url: str):
 # (upload your CV) with href="javascript:;" was returned as an open role by a live
 # run. A listing is only counted when it points at a real, distinct document.
 _CTA_TITLE_RE = re.compile(
-    r"carica il tuo|curriculum vitae|invia (la tua )?candidatura|upload (your )?cv|"
+    r"carica il tuo|curriculum vitae|invia (la tua )?candidatura|upload (your )?cv|^candidat[ia]\b|^apply\b|^submit\b|"
     r"privacy|cookie|newsletter|scarica|download|contatt|contact us|vedi tutt|view all",
     re.I,
 )
