@@ -111,7 +111,9 @@ def render_pipeline_health_page(db: Session):
         "(Node/Playwright startup, sometimes an LLM call) — 2-4 minutes per company end to end. "
         "Several companies run in parallel, each on its own DB session; 3 in flight is the sweet spot on a "
         "16 GB machine (one headless Chromium each) before the Groq and Wayback rate limits start biting. "
-        "Cap the batch size below; this is meant for shortlisted companies, not the full list."
+        "Cap the batch size below; this is meant for shortlisted companies, not the full list — to hand-pick "
+        "companies instead, tick them on **🎯 Scored Target Matrix**. Crawls run in the background: keep "
+        "working, and follow progress in the widget at the bottom right of any page."
     )
     col_p7a, col_p7b, col_p7c = st.columns([1, 1, 2])
     with col_p7a:
@@ -121,21 +123,9 @@ def render_pipeline_health_page(db: Session):
     with col_p7c:
         st.markdown("&nbsp;")
         if st.button("🕸️ Run Phase 7 Crawler Enrichment", use_container_width=True):
-            from company_service import run_phase7_batch
+            from views.crawl_widget import queue_crawl
             batch = target_companies[:int(p7_limit)]
-            bar = st.progress(0.0, text=f"Running 8 crawlers for {len(batch)} companies, {int(p7_workers)} at a time…")
-
-            def _tick(done, total, name):
-                bar.progress(done / total, text=f"{done}/{total} companies done — latest: {name or '?'}")
-
-            results = run_phase7_batch([c.id for c in batch], max_workers=int(p7_workers), progress_cb=_tick)
-            db.expire_all()  # the workers wrote through their own sessions; drop this page's cached rows
-            failed = {cid: r["error"] for cid, r in results.items() if isinstance(r, dict) and r.get("error")}
-            st.success(f"Phase 7 pass complete for {len(batch) - len(failed)} of {len(batch)} companies! "
-                       "Check the mode column below.")
-            if failed:
-                names = {c.id: c.legal_name for c in batch}
-                st.warning("Failed outright for: " + "; ".join(f"{names.get(cid, cid)}: {err}" for cid, err in failed.items()))
+            queue_crawl({c.id: c.legal_name for c in batch}, workers=int(p7_workers))
             st.rerun()
 
     st.caption(

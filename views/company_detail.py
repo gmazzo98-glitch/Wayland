@@ -1185,11 +1185,10 @@ def _render_tab1_content(db: Session):
                 st.markdown("&nbsp;")
                 if st.button("🕸️ Run Deep Crawlers", use_container_width=True,
                              help="Phase 7 — 8 Node-based crawlers (company site, jobs, reviews, news, "
-                                  "directories, innovation participation, digital maturity). Can take several minutes."):
-                    from company_service import sync_company_applicable_sources
-                    with st.spinner(f"Running Phase 7 crawlers for {company.legal_name} — this can take several minutes..."):
-                        sync_company_applicable_sources(company, db, phases=[7])
-                    st.success(f"Phase 7 crawler enrichment done for {company.legal_name}!")
+                                  "directories, innovation participation, digital maturity). Takes a few minutes; "
+                                  "runs in the background — follow it in the widget at the bottom right."):
+                    from views.crawl_widget import queue_crawl
+                    queue_crawl({company.id: company.legal_name}, workers=1)
                     st.rerun()
 
         # Financial Profile — plain-language headline metrics + the complete table

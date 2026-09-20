@@ -79,3 +79,46 @@ def test_batch_isolates_a_company_whose_run_blows_up(monkeypatch, factory):
 
 def test_batch_with_no_companies_is_a_noop(factory):
     assert company_service.run_phase7_batch([], session_factory=factory) == {}
+
+
+def test_phase7_reports_each_crawler_before_it_starts(monkeypatch, factory):
+    calls = []
+    for module, fn in [
+        (company_service.company_website_crawler, "sync_company_website"),
+        (company_service.job_postings_crawler, "sync_job_postings"),
+        (company_service.review_crawler, "sync_reviews"),
+        (company_service.news_signals_crawler, "sync_news_signals"),
+        (company_service.directory_listing_crawler, "sync_directory_listing"),
+        (company_service.innovation_participation_crawler, "sync_innovation_participation"),
+        (company_service.digital_maturity_crawler, "sync_digital_maturity"),
+        (company_service.linkedin_profile_crawler, "sync_linkedin_profiles"),
+    ]:
+        monkeypatch.setattr(module, fn, lambda company, db, _n=fn: calls.append(("ran", _n)) or {"status": "success"})
+
+    steps = []
+    session = factory()
+    company = session.query(Company).first()
+    results = company_service.sync_company_applicable_sources(
+        company, session, phases=[7], on_step=lambda i, n, name: steps.append((i, n, name)) or calls.append(("step", i)),
+    )
+    session.close()
+
+    assert [s[0] for s in steps] == list(range(8)) and all(s[1] == 8 for s in steps)
+    assert steps[0][2] == "Company Website Crawler" and steps[-1][2] == "LinkedIn Profile Crawler"
+    assert list(results) == [s[2] for s in steps]
+    # The hook fires BEFORE each crawler: step i is reported, then that crawler runs.
+    assert calls[0] == ("step", 0) and calls[1][0] == "ran" and calls[2] == ("step", 1)
+
+
+def test_run_phase7_for_company_only_passes_the_hook_when_given(monkeypatch, factory):
+    seen = []
+
+    def fake_sync(company, db, phases=None, **kwargs):
+        seen.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(company_service, "sync_company_applicable_sources", fake_sync)
+    hook = lambda i, n, name: None  # noqa: E731
+    assert company_service.run_phase7_for_company("c0", factory) == ("c0", "Company 0 S.R.L.", {"ok": True})
+    company_service.run_phase7_for_company("c1", factory, on_step=hook)
+    assert seen == [{}, {"on_step": hook}]

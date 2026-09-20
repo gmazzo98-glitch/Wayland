@@ -13,6 +13,7 @@ from views.company_detail import render_company_detail_page
 from views.pipeline_health import render_pipeline_health_page
 from views.paid_shortlist_gate import render_paid_shortlist_gate_page
 from views.indicator_weights import render_indicator_weights_page
+from views.crawl_widget import sync_session, render_crawl_widget
 
 # Page Configuration
 st.set_page_config(
@@ -25,6 +26,10 @@ st.set_page_config(
 # Initialize Database & Engine
 init_db()
 db = get_db_session()
+
+# Background deep crawls outlive page runs: pick up anything that finished since this
+# session last ran (refreshing stale rows) before any page reads the database.
+sync_session(db)
 
 # Sidebar Header & Navigation
 st.sidebar.image("https://img.icons8.com/color/96/wheat.png", width=60)
@@ -78,3 +83,6 @@ elif page_selection == "⚖️ Indicator Weights":
 # Footer
 st.sidebar.markdown("---")
 st.sidebar.caption("Project Vienna v1.0 • Streamlit Control Surface")
+
+# Floating deep-crawl progress card — drawn on every page, after the page itself.
+render_crawl_widget()

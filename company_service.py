@@ -84,10 +84,15 @@ def get_applicable_sources_for_company(company: Company) -> list:
     return applicable
 
 
-def sync_company_applicable_sources(company: Company, db: Session, phases: list = None) -> dict:
+def sync_company_applicable_sources(company: Company, db: Session, phases: list = None, on_step=None) -> dict:
     """
     Executes live/simulated pipeline adapters for a single company,
     activating ONLY the sources applicable to that company's country.
+
+    on_step(index, total, source_name), when given, is called just BEFORE each
+    Phase 7 crawler starts (0-based index). Phase 7 is 8 sequential subprocesses at
+    2-4 minutes per company, so this is the only signal that a run is alive and
+    which crawler it is in; the other phases are quick and don't report steps.
     """
     if phases is None:
         phases = [1, 4]
@@ -135,16 +140,49 @@ def sync_company_applicable_sources(company: Company, db: Session, phases: list 
         # Phase 7 — Node/Crawlee crawlers (Scraper/crawlers/), both DE & IT. Slower
         # than every other phase (each call spawns a subprocess), so never part of
         # the default auto_sync=[1, 4] path — always an explicit trigger.
-        results["Company Website Crawler"] = company_website_crawler.sync_company_website(company, db)
-        results["Job Postings Crawler"] = job_postings_crawler.sync_job_postings(company, db)
-        results["Review Crawler"] = review_crawler.sync_reviews(company, db)
-        results["News Signals Crawler"] = news_signals_crawler.sync_news_signals(company, db)
-        results["Directory Listing Crawler"] = directory_listing_crawler.sync_directory_listing(company, db)
-        results["Innovation Participation Crawler"] = innovation_participation_crawler.sync_innovation_participation(company, db)
-        results["Digital Maturity Crawler"] = digital_maturity_crawler.sync_digital_maturity(company, db)
-        results["LinkedIn Profile Crawler"] = linkedin_profile_crawler.sync_linkedin_profiles(company, db)
+        phase7_steps = [
+            ("Company Website Crawler", company_website_crawler.sync_company_website),
+            ("Job Postings Crawler", job_postings_crawler.sync_job_postings),
+            ("Review Crawler", review_crawler.sync_reviews),
+            ("News Signals Crawler", news_signals_crawler.sync_news_signals),
+            ("Directory Listing Crawler", directory_listing_crawler.sync_directory_listing),
+            ("Innovation Participation Crawler", innovation_participation_crawler.sync_innovation_participation),
+            ("Digital Maturity Crawler", digital_maturity_crawler.sync_digital_maturity),
+            ("LinkedIn Profile Crawler", linkedin_profile_crawler.sync_linkedin_profiles),
+        ]
+        for index, (source_name, sync_fn) in enumerate(phase7_steps):
+            if on_step:
+                on_step(index, len(phase7_steps), source_name)
+            results[source_name] = sync_fn(company, db)
 
     return results
+
+
+def run_phase7_for_company(company_id: str, session_factory=None, on_step=None) -> tuple:
+    """
+    One company's Phase 7 pass on its OWN DB session (SQLAlchemy sessions are not
+    thread-safe, and a Streamlit page's session must stay on the page's thread).
+    Returns (company_id, legal_name, results) where results is the per-source dict
+    that sync_company_applicable_sources returns, or {"error": ...} when the run
+    itself blew up — one bad company must never take a batch down.
+    """
+    if session_factory is None:
+        from database import SessionFactory as session_factory  # lazy: database imports models/config only
+
+    session = session_factory()
+    try:
+        company = session.query(Company).filter_by(id=company_id).first()
+        if not company:
+            return company_id, None, {"error": "company not found"}
+        # Only pass the hook when there is one, so callers/tests that stub
+        # sync_company_applicable_sources with the old signature keep working.
+        step_kwargs = {"on_step": on_step} if on_step else {}
+        return company_id, company.legal_name, sync_company_applicable_sources(company, session, phases=[7], **step_kwargs)
+    except Exception as e:  # noqa: BLE001 — isolate one company's failure from the batch
+        session.rollback()
+        return company_id, None, {"error": f"{type(e).__name__}: {e}"}
+    finally:
+        session.close()
 
 
 def run_phase7_batch(company_ids: list, max_workers: int = 3, progress_cb=None, session_factory=None) -> dict:
@@ -172,25 +210,12 @@ def run_phase7_batch(company_ids: list, max_workers: int = 3, progress_cb=None, 
     if session_factory is None:
         from database import SessionFactory as session_factory  # lazy: database imports models/config only
 
-    def _one(cid):
-        session = session_factory()
-        try:
-            company = session.query(Company).filter_by(id=cid).first()
-            if not company:
-                return cid, None, {"error": "company not found"}
-            return cid, company.legal_name, sync_company_applicable_sources(company, session, phases=[7])
-        except Exception as e:  # noqa: BLE001 — isolate one company's failure from the batch
-            session.rollback()
-            return cid, None, {"error": f"{type(e).__name__}: {e}"}
-        finally:
-            session.close()
-
     results = {}
     total = len(company_ids)
     if not total:
         return results
     with ThreadPoolExecutor(max_workers=max(1, min(int(max_workers), total)), thread_name_prefix="phase7") as pool:
-        futures = [pool.submit(_one, cid) for cid in company_ids]
+        futures = [pool.submit(run_phase7_for_company, cid, session_factory) for cid in company_ids]
         for done, fut in enumerate(as_completed(futures), start=1):
             cid, name, res = fut.result()
             results[cid] = res
