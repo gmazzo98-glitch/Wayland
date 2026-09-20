@@ -12,10 +12,12 @@ the Brief:
     page, and can't be filtered away.
 """
 
+from collections import defaultdict
 from datetime import datetime
 import streamlit as st
 import plotly.express as px
 import pandas as pd
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models import Company, SignalRecord, SourceHealth
 from scoring import calculate_company_scores, rank_companies, is_prime_target, PRIME_NEED_MIN, PRIME_READINESS_BAND
@@ -25,15 +27,64 @@ SEGMENT_COLORS = {"Midcap": "#38BDF8", "SME": "#F59E0B"}
 SEGMENT_ORDER = ["Midcap", "SME"]
 
 
-def _render_completeness_banner(db: Session, companies, indicator_defs):
+# Only what the score needs; text_value / raw_payload_ref feed the per-signal
+# detail view on Company Intelligence, never the bulk ranking here, and they're
+# the bulk of the row's bytes over the wire.
+_SCORING_SIGNAL_COLS = (
+    SignalRecord.company_id, SignalRecord.signal_key, SignalRecord.status,
+    SignalRecord.numeric_value, SignalRecord.fetched_at,
+)
+
+
+def _signals_fingerprint(db: Session):
+    """One cheap aggregate query that changes whenever the pipeline writes signals."""
+    return tuple(db.query(func.count(SignalRecord.id), func.max(SignalRecord.fetched_at)).one())
+
+
+@st.cache_data(ttl=300, show_spinner="Scoring companies…")
+def _score_all_companies(_db: Session, _companies, _indicator_defs: dict, signals_fingerprint, weights_fingerprint):
+    """Scores every company from ONE bulk signal query (this used to be one query
+    per company, twice per render — ~2,000 round trips to a remote Postgres).
+
+    Cached across Streamlit reruns, so filter clicks don't recompute anything. The
+    two fingerprint args are the cache key: a pipeline write or an Indicator Weights
+    edit changes them and invalidates the cache immediately; the TTL is a backstop.
+    The underscore args are excluded from hashing.
+
+    Also refreshes Company's cached need_score/readiness_score/last_scored_at
+    snapshot — but only for rows whose score actually changed, and only when the
+    cache misses. Nothing in the app reads FROM these columns to render a score
+    (every view recomputes live from SignalRecords); they exist for external
+    consumers (a future BI/export query, PilotOutcome context).
+    """
+    signals_by_company = defaultdict(list)
+    for row in _db.query(*_SCORING_SIGNAL_COLS).all():
+        signals_by_company[row.company_id].append(row._asdict())
+
+    scores_by_id = {}
+    stale_rows = []
+    now = datetime.utcnow()
+    for comp in _companies:
+        scores = calculate_company_scores(signals_by_company.get(comp.id, []), _indicator_defs)
+        scores_by_id[comp.id] = scores
+        if (comp.need_score != scores["need_score"] or comp.readiness_score != scores["readiness_score"]
+                or comp.last_scored_at is None):
+            stale_rows.append({
+                "id": comp.id, "need_score": scores["need_score"],
+                "readiness_score": scores["readiness_score"], "last_scored_at": now,
+            })
+    if stale_rows:
+        _db.bulk_update_mappings(Company, stale_rows)
+        _db.commit()
+    return scores_by_id
+
+
+def _render_completeness_banner(db: Session, companies, indicator_defs, scores_by_id):
     # Mirror how scoring.py counts signals_total: a 'need'/'readiness' indicator
     # counts once, a 'both'-axis one counts once per axis (twice), 'context' never.
     scored_count = sum(2 if d["axis"] == "both" else 1 for d in indicator_defs.values() if d["axis"] != "context")
     total_possible = len(companies) * scored_count
-    total_checked = 0
-    for comp in companies:
-        signals = db.query(SignalRecord).filter_by(company_id=comp.id).all()
-        total_checked += calculate_company_scores(signals, indicator_defs)["signals_checked"]
+    total_checked = sum(scores_by_id[comp.id]["signals_checked"] for comp in companies)
     pct_run = (total_checked / total_possible * 100.0) if total_possible else 0.0
 
     sources = db.query(SourceHealth).all()
@@ -144,26 +195,19 @@ def render_target_matrix_page(db: Session):
         return
 
     indicator_defs = fetch_indicator_defs(db)
-    _render_completeness_banner(db, companies, indicator_defs)
+    scores_by_id = _score_all_companies(
+        db, companies, indicator_defs,
+        _signals_fingerprint(db), repr(sorted((k, sorted(d.items(), key=str)) for k, d in indicator_defs.items())),
+    )
+    # The score cache's write-back commit expires every loaded Company; re-query once
+    # (one round trip) so reading their attributes below doesn't lazy-refresh row by row.
+    companies = db.query(Company).all()
+    _render_completeness_banner(db, companies, indicator_defs, scores_by_id)
     st.markdown("---")
 
     matrix_data = []
-    now = datetime.utcnow()
     for comp in companies:
-        signals = db.query(SignalRecord).filter_by(company_id=comp.id).all()
-        scores = calculate_company_scores(signals, indicator_defs)
-
-        # Refresh Company's cached need_score/readiness_score/last_scored_at
-        # snapshot — this page computes a score for every company anyway, so
-        # it's the natural place to keep the cache from going stale. Nothing
-        # else in the app reads FROM these columns to render a score; every
-        # view still recomputes live from SignalRecords. The cache exists for
-        # external consumers (a future BI/export query, PilotOutcome context)
-        # that want "what did we last think" without re-running the engine.
-        comp.need_score = scores["need_score"]
-        comp.readiness_score = scores["readiness_score"]
-        comp.last_scored_at = now
-
+        scores = scores_by_id[comp.id]
         matrix_data.append({
             "id": comp.id,
             "legal_name": comp.legal_name,
@@ -179,7 +223,6 @@ def render_target_matrix_page(db: Session):
             "signals_checked": f"{scores['signals_checked']}/{scores['signals_total']}",
             "is_prime": is_prime_target(scores["need_score"], scores["readiness_score"]),
         })
-    db.commit()
     df = pd.DataFrame(matrix_data)
 
     all_segments = [s for s in SEGMENT_ORDER if s in df["segment"].unique()]
