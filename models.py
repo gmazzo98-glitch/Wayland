@@ -438,3 +438,49 @@ class ColumnMappingProfile(Base):
 
     def to_dict(self):
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+
+class CrawlerWorker(Base):
+    """
+    A computer that runs the Node crawlers on this app's behalf (the "Vienna Crawler
+    Worker" installed from the Crawler Setup page). One row per installation.
+
+    token_hash is the SHA-256 of the random token baked into that installation's
+    config — the plain token is shown/embedded once at creation and never stored. The
+    worker authenticates with it through the vienna_worker_* SQL functions
+    (worker/supabase_rpc.sql); it holds no database credentials. info is the worker's
+    own last self-report: version/build, Node, and the results of its self-test, which
+    is how the app knows an install is present, current and healthy.
+    """
+    __tablename__ = "crawler_workers"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(120), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=True)
+    info = Column(JSON, nullable=True)
+    revoked = Column(Boolean, default=False, nullable=False)
+
+
+class CrawlerTask(Base):
+    """
+    One crawler invocation queued for a CrawlerWorker: the same call
+    scrapers/node_crawler_base would have made locally, minus the process spawn.
+    request holds the input (CSV text or CLI args), timeout and the env for this run —
+    the env carries API keys, so the complete-function strips it once the task ends.
+    status: queued -> running -> done | error, or cancelled when the app gave up waiting.
+    """
+    __tablename__ = "crawler_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    worker_id = Column(String(36), ForeignKey("crawler_workers.id"), nullable=False, index=True)
+    crawler = Column(String(80), nullable=False)
+    kind = Column(String(20), nullable=False)            # 'csv' | 'node'
+    request = Column(JSON, nullable=False)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    result = Column(JSON, nullable=True)                 # {"rows": [...]}
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    claimed_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)

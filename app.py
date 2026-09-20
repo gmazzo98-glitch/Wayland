@@ -14,6 +14,7 @@ from views.pipeline_health import render_pipeline_health_page
 from views.paid_shortlist_gate import render_paid_shortlist_gate_page
 from views.indicator_weights import render_indicator_weights_page
 from views.crawl_widget import sync_session, render_crawl_widget
+from views.crawler_setup import render_crawler_setup_page, render_sidebar_target
 
 # Page Configuration
 st.set_page_config(
@@ -24,12 +25,42 @@ st.set_page_config(
 )
 
 # Initialize Database & Engine
-init_db()
-db = get_db_session()
-
-# Background deep crawls outlive page runs: pick up anything that finished since this
-# session last ran (refreshing stale rows) before any page reads the database.
-sync_session(db)
+try:
+    init_db()
+    db = get_db_session()
+    # Background deep crawls outlive page runs: pick up anything that finished since this
+    # session last ran (refreshing stale rows) before any page reads the database.
+    sync_session(db)
+except Exception as e:
+    from config import SQLALCHEMY_DATABASE_URI
+    st.error("### 🚨 Database Connection Error")
+    st.markdown(f"**Error Details:**\n```\n{e}\n```")
+    
+    if not SQLALCHEMY_DATABASE_URI.startswith("sqlite"):
+        st.markdown(
+            """
+            ---
+            ### 🛠️ Common Fixes for Cloud PostgreSQL (Supabase / Streamlit Cloud)
+            
+            1. **Supabase Paused Project (Most Common)**:
+               - Free tier projects are automatically paused after a period of inactivity.
+               - Log into [Supabase Dashboard](https://supabase.com/dashboard) and click **"Restore project"**.
+               
+            2. **IPv6 vs IPv4 (Connection Pooler)**:
+               - Streamlit Cloud runs on IPv4 infrastructure. Supabase's direct host (`db.[ref].supabase.co:5432`) often resolves only to IPv6 and fails.
+               - In Supabase (*Settings → Database → Connection string*), use the **Session Mode Connection Pooler** URI (`aws-0-[region].pooler.supabase.com` on port `6543` or `5432`) with `?sslmode=require`.
+               
+            3. **Special Characters in Password**:
+               - If your password has special characters (`@`, `:`, `#`, `%`, `?`), they must be URL-encoded (e.g., `@` &rarr; `%40`, `#` &rarr; `%23`).
+               
+            4. **Missing SSL Mode**:
+               - Append `?sslmode=require` to your `DATABASE_URL`.
+               
+            5. **Check Unredacted Logs**:
+               - In the bottom right corner of Streamlit Cloud, click **"Manage app" &rarr; "Logs"** to inspect the raw database driver logs.
+            """
+        )
+    st.stop()
 
 # Sidebar Header & Navigation
 st.sidebar.image("https://img.icons8.com/color/96/wheat.png", width=60)
@@ -45,9 +76,15 @@ page_selection = st.sidebar.radio(
         "🏢 Company Intelligence",
         "🎯 Scored Target Matrix",
         "💰 Shortlist Gate & Paid Pulls",
-        "⚖️ Indicator Weights"
+        "⚖️ Indicator Weights",
+        "🖥️ Crawler Setup"
     ]
 )
+
+st.sidebar.markdown("---")
+
+# Which computer the deep crawls run on (this server, or a helper's PC with the worker installed).
+render_sidebar_target(db)
 
 st.sidebar.markdown("---")
 
@@ -79,6 +116,8 @@ elif page_selection == "💰 Shortlist Gate & Paid Pulls":
     render_paid_shortlist_gate_page(db)
 elif page_selection == "⚖️ Indicator Weights":
     render_indicator_weights_page(db)
+elif page_selection == "🖥️ Crawler Setup":
+    render_crawler_setup_page(db)
 
 # Footer
 st.sidebar.markdown("---")

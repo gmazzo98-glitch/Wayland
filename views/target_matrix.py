@@ -26,6 +26,7 @@ from scoring import calculate_company_scores, rank_companies, is_prime_target, P
 from indicators import fetch_indicator_defs
 from crawl_jobs import get_manager, estimate_seconds, DEFAULT_WORKERS, MAX_WORKERS
 from views.crawl_widget import queue_crawl, flash
+from views.crawler_setup import resolve_crawl_target
 
 SEGMENT_COLORS = {"Midcap": "#38BDF8", "SME": "#F59E0B"}
 SEGMENT_ORDER = ["Midcap", "SME"]
@@ -328,6 +329,10 @@ def _render_crawl_bar(bar, df: pd.DataFrame, frames: dict):
                     notes.append(f"⚠️ {no_site} with no website on record (most crawlers need one)")
                 st.caption(" · ".join(notes))
 
+        where = resolve_crawl_target()  # this server, or a helper's computer with the worker installed
+        if not where["ok"]:
+            st.warning(where["problem"])
+
         confirmed = True
         if n > BIG_BATCH:
             with confirm_slot:
@@ -340,10 +345,11 @@ def _render_crawl_bar(bar, df: pd.DataFrame, frames: dict):
         with col_run:
             label = "➕ Add to running crawl" if running else "▶ Crawl selected"
             if st.button(label, type="primary", width="stretch",
-                         disabled=(not chosen) or stopping or not confirmed,
+                         disabled=(not chosen) or stopping or not confirmed or not where["ok"],
                          help="The crawl runs in the background — keep browsing, and follow it in the widget "
                               "at the bottom right of any page."):
-                queue_crawl({cid: by_id.at[cid, "legal_name"] for cid in chosen}, workers=workers)
+                queue_crawl({cid: by_id.at[cid, "legal_name"] for cid in chosen}, workers=workers,
+                            target=where["target"])
                 st.session_state[SELECTION_KEY] = set()
                 st.rerun()
 

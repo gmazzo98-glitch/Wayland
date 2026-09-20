@@ -153,7 +153,7 @@ def ensure_built(name: str, timeout: int = DEFAULT_BUILD_TIMEOUT) -> None:
         raise CrawlerRunError(f"npm run build failed for {name}: {(result.stderr or result.stdout)[-1500:]}")
 
 
-def _write_input_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
+def _csv_text(rows: List[Dict[str, Any]]) -> str:
     if not rows:
         raise CrawlerRunError("No input rows to write — nothing to crawl")
     fieldnames = list(rows[0].keys())
@@ -162,7 +162,19 @@ def _write_input_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
     writer.writeheader()
     for row in rows:
         writer.writerow(row)
-    path.write_text(buf.getvalue(), encoding="utf-8")
+    return buf.getvalue()
+
+
+def _write_input_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
+    path.write_text(_csv_text(rows), encoding="utf-8")
+
+
+def _remote_target() -> Optional[str]:
+    """The Crawler Worker (worker_hub.py) this call must run on, or None to run here.
+    Imported lazily: worker_hub pulls in the database layer, which a plain local crawl
+    (and the unit tests that stub subprocesses) never needs."""
+    from worker_hub import current_target
+    return current_target()
 
 
 def _read_dataset(dataset_dir: Path) -> List[Dict[str, Any]]:
@@ -194,7 +206,19 @@ def run_ts_crawler(
     timeout — callers (each scrapers/*_crawler.py's _fetch_live) let this
     propagate so run_adapter's existing fetch-then-fallback-to-simulate contract
     handles it, exactly like a requests.RequestException from any other adapter.
+
+    When the crawl was queued for a Crawler Worker (a helper's own computer), the same
+    call is executed there instead — the worker runs this exact command and posts the
+    dataset rows back (worker_hub.run_remote); nothing else about the caller changes.
     """
+    worker_id = _remote_target()
+    if worker_id:
+        from worker_hub import run_remote
+        return run_remote(worker_id, name, "csv",
+                          {"input_csv": _csv_text(input_rows), "extra_args": [str(a) for a in (extra_args or [])],
+                           "env": {k: str(v) for k, v in (env_overrides or {}).items()}},
+                          run_timeout)
+
     ensure_built(name, timeout=build_timeout)
     d = crawler_dir(name)
     tmp_dir = Path(tempfile.mkdtemp(prefix=f"vienna_{name.replace('-', '_')}_"))
@@ -238,8 +262,17 @@ def run_node_entrypoint(
     the CSV-input/dist-build pattern (linkedin-profile-crawler: plain .mjs, no
     build step, takes profile URLs directly as CLI args instead of an input
     file). Runs `node <entry_relpath> <cli_args...>` with an isolated
-    CRAWLEE_STORAGE_DIR and returns whatever Dataset.pushData() wrote.
+    CRAWLEE_STORAGE_DIR and returns whatever Dataset.pushData() wrote. Runs on the
+    queued-for Crawler Worker when there is one (see run_ts_crawler).
     """
+    worker_id = _remote_target()
+    if worker_id:
+        from worker_hub import run_remote
+        return run_remote(worker_id, name, "node",
+                          {"entry": entry_relpath, "cli_args": [str(a) for a in cli_args],
+                           "env": {k: str(v) for k, v in (env_overrides or {}).items()}},
+                          run_timeout)
+
     d = crawler_dir(name)
     tmp_dir = Path(tempfile.mkdtemp(prefix=f"vienna_{name.replace('-', '_')}_"))
     try:

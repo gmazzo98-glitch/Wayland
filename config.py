@@ -9,12 +9,32 @@ from dotenv import load_dotenv
 
 load_dotenv()  # loads .env if present — see .env.example for what it can set
 
+def get_config_var(key: str, default: str = None) -> str:
+    """Retrieve config from env var or streamlit.secrets if available."""
+    val = os.getenv(key)
+    if val:
+        return val
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return str(st.secrets[key])
+    except Exception:
+        pass
+    return default
+
 # Database URI (SQLite default for simple local/cloud deployment).
 # `or` rather than getenv's own default arg — a DATABASE_URL line present in
-# .env but left blank (os.getenv would return "" for that, not None) must
-# still fall back to SQLite, not try to connect to an empty string.
-DB_PATH = os.path.join(os.path.dirname(__file__), "vienna.db")
-SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH}"
+# .env but left blank must still fall back to SQLite, not try to connect to an empty string.
+raw_db_url = get_config_var("DATABASE_URL")
+if raw_db_url and raw_db_url.strip():
+    raw_db_url = raw_db_url.strip()
+    # Normalize legacy Heroku/Supabase postgres:// schemes to postgresql://
+    if raw_db_url.startswith("postgres://"):
+        raw_db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
+    SQLALCHEMY_DATABASE_URI = raw_db_url
+else:
+    DB_PATH = os.path.join(os.path.dirname(__file__), "vienna.db")
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
 
 # ---------------------------------------------------------------------------
 # Source credentials (Section 7 of the Technical Brief: budget/access are open
@@ -23,11 +43,11 @@ SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH}"
 # value when its credentials are missing. Each adapter module documents where
 # to obtain its own credentials (free registration URL) in its docstring.
 # ---------------------------------------------------------------------------
-EPO_OPS_CONSUMER_KEY = os.getenv("EPO_OPS_CONSUMER_KEY")
-EPO_OPS_CONSUMER_SECRET = os.getenv("EPO_OPS_CONSUMER_SECRET")
+EPO_OPS_CONSUMER_KEY = get_config_var("EPO_OPS_CONSUMER_KEY")
+EPO_OPS_CONSUMER_SECRET = get_config_var("EPO_OPS_CONSUMER_SECRET")
 
-EUIPO_CLIENT_ID = os.getenv("EUIPO_CLIENT_ID")
-EUIPO_CLIENT_SECRET = os.getenv("EUIPO_CLIENT_SECRET")
+EUIPO_CLIENT_ID = get_config_var("EUIPO_CLIENT_ID")
+EUIPO_CLIENT_SECRET = get_config_var("EUIPO_CLIENT_SECRET")
 # EUIPO's token endpoint is issued per-app on dev.euipo.europa.eu — confirm the
 # current value there rather than trusting a hardcoded default.
 EUIPO_TOKEN_URL = os.getenv("EUIPO_TOKEN_URL", "https://auth.euipo.europa.eu/oidc/accessToken")
@@ -63,6 +83,13 @@ GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
 SCRAPER_CRAWLERS_DIR = os.getenv("SCRAPER_CRAWLERS_DIR") or str(
     Path(__file__).resolve().parent.parent / "Scraper" / "crawlers"
 )
+
+# Crawler Worker (worker_hub.py): lets a helper's own computer run the crawlers when this
+# app is hosted somewhere that has no Scraper/crawlers folder (Streamlit Cloud). The installer
+# the Crawler Setup page hands out carries these two PUBLIC values (Supabase project URL +
+# publishable/anon key) and nothing secret — the worker's own token is what authorises it.
+SUPABASE_URL = get_config_var("SUPABASE_URL")
+SUPABASE_ANON_KEY = get_config_var("SUPABASE_ANON_KEY")
 
 # news-signals-crawler / innovation-participation-crawler still call the Anthropic API
 # directly for classification (unconverted — they're gated primarily on NEWSAPI_KEY
@@ -174,7 +201,7 @@ def has_credentials(source_name: str) -> bool:
     if source_name in SOURCE_PAID_ENABLE_FLAGS:
         return SOURCE_PAID_ENABLE_FLAGS[source_name]
     required = SOURCE_CREDENTIAL_VARS.get(source_name, [])
-    return all(os.getenv(var) for var in required)
+    return all(get_config_var(var) for var in required)
 
 # Indicator catalog (weights, axis, normalization bounds, freshness) lives in the
 # IndicatorDefinition table now — see indicators.py for the seed and

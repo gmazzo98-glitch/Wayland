@@ -56,6 +56,9 @@ def init_db():
     """Initialize database tables, the indicator catalog, and default source health entries."""
     Base.metadata.create_all(bind=engine)
     _migrate_sqlite_schema(engine)
+    # The crawler-worker RPC functions + row-level security (Postgres only; never raises).
+    from worker_hub import ensure_rpc
+    ensure_rpc(engine)
 
     db = get_db_session()
     try:

@@ -15,6 +15,10 @@ with a fake per-company runner.
 One job at a time, but it is a queue: submitting while a job is running appends
 the new companies to it (skipping any already queued or in flight) and tops the
 worker pool back up, instead of refusing or starting a second competing job.
+
+Each company remembers WHERE its crawlers run: None = on this machine, otherwise the id
+of a Crawler Worker (worker_hub.py) — a helper's own computer. That choice is set around
+the company's run so the subprocess layer can route it, and lets one queue mix targets.
 """
 
 import math
@@ -99,6 +103,7 @@ class _Job:
     workers: int
     started_at: float
     names: Dict[str, str] = field(default_factory=dict)
+    targets: Dict[str, Optional[str]] = field(default_factory=dict)  # company id -> worker id (None = local)
     pending: deque = field(default_factory=deque)
     in_flight: Dict[str, InFlight] = field(default_factory=dict)
     results: List[_Outcome] = field(default_factory=list)  # one per RUN — a company re-queued after it finished has two
@@ -154,10 +159,12 @@ class CrawlJobManager:
 
     # ---- control ---------------------------------------------------------------
 
-    def submit(self, companies: Dict[str, str], workers: int = DEFAULT_WORKERS) -> SubmitResult:
+    def submit(self, companies: Dict[str, str], workers: int = DEFAULT_WORKERS,
+               target: Optional[str] = None) -> SubmitResult:
         """
         Queues `companies` ({company_id: display name}). Starts a new job when none is
         running; otherwise appends to the running one. Never blocks on the crawl.
+        `target` is the Crawler Worker id to run them on, or None for this machine.
         """
         workers = max(1, min(int(workers), MAX_WORKERS))
         with self._lock:
@@ -176,6 +183,7 @@ class CrawlJobManager:
                 job = _Job(id=uuid.uuid4().hex[:8], workers=workers, started_at=time.time())
                 self._job = job
             job.names.update(fresh)
+            job.targets.update({cid: target for cid in fresh})
             job.pending.extend(fresh)
             job.total += len(fresh)
             # A running job whose earlier workers already retired (queue ran dry while one
@@ -230,7 +238,13 @@ class CrawlJobManager:
         started = time.time()
         try:
             run_company = self._run_company or _default_run_company()
-            _, _, results = run_company(cid, self._session_factory, on_step)
+            target = job.targets.get(cid)
+            if target:
+                from worker_hub import use_target  # lazy: only remote crawls need the DB-backed hub
+                with use_target(target):
+                    _, _, results = run_company(cid, self._session_factory, on_step)
+            else:
+                _, _, results = run_company(cid, self._session_factory, on_step)
         except Exception as e:  # noqa: BLE001 — a crashing runner must not kill the worker
             results = {"error": f"{type(e).__name__}: {e}"}
         outcome = _summarize(name, results, time.time() - started)

@@ -8,6 +8,7 @@ was — see Section 1 of GG_Dashboard_Technical_Brief.docx ("not a dashboard
 over a static dataset").
 """
 
+import contextvars
 import json
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
@@ -25,7 +26,9 @@ _FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="adapter-
 
 
 def _call_with_hard_timeout(fn: Callable, company, timeout: int = HARD_FETCH_TIMEOUT_SECONDS):
-    future = _FETCH_EXECUTOR.submit(fn, company)
+    # The pool's threads don't inherit the caller's context; carrying it over is what lets a
+    # crawl queued for a helper's computer (worker_hub.use_target) still know its target here.
+    future = _FETCH_EXECUTOR.submit(contextvars.copy_context().run, fn, company)
     try:
         return future.result(timeout=timeout)
     except FutureTimeoutError:

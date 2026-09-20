@@ -1188,8 +1188,13 @@ def _render_tab1_content(db: Session):
                                   "directories, innovation participation, digital maturity). Takes a few minutes; "
                                   "runs in the background — follow it in the widget at the bottom right."):
                     from views.crawl_widget import queue_crawl
-                    queue_crawl({company.id: company.legal_name}, workers=1)
-                    st.rerun()
+                    from views.crawler_setup import resolve_crawl_target
+                    where = resolve_crawl_target(db)
+                    if where["ok"]:
+                        queue_crawl({company.id: company.legal_name}, workers=1, target=where["target"])
+                        st.rerun()
+                    else:
+                        st.error(where["problem"])
 
         # Financial Profile — plain-language headline metrics + the complete table
         st.subheader("💰 Financial Profile")

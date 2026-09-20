@@ -20,6 +20,12 @@ from config import PHASE_CONFIG, SOURCE_CREDENTIAL_VARS, SOURCE_PAID_ENABLE_FLAG
 MODE_BADGES = {"live": "🟢 Live", "simulated": "🧪 Simulated"}
 
 
+def _mode_badge(source: SourceHealth) -> str:
+    if source.source_name == "EPO OPS" and source.total_calls == 0 and has_credentials("EPO OPS"):
+        return "✅ Configured"
+    return MODE_BADGES.get(source.mode, source.mode)
+
+
 FLAG_ENV_VAR_NAMES = {
     "Bundesanzeiger": "BUNDESANZEIGER_PAID_ENABLED",
     "Kununu Reseller": "KUNUNU_RESELLER_ENABLED",
@@ -124,9 +130,14 @@ def render_pipeline_health_page(db: Session):
         st.markdown("&nbsp;")
         if st.button("🕸️ Run Phase 7 Crawler Enrichment", use_container_width=True):
             from views.crawl_widget import queue_crawl
-            batch = target_companies[:int(p7_limit)]
-            queue_crawl({c.id: c.legal_name for c in batch}, workers=int(p7_workers))
-            st.rerun()
+            from views.crawler_setup import resolve_crawl_target
+            where = resolve_crawl_target(db)
+            if where["ok"]:
+                batch = target_companies[:int(p7_limit)]
+                queue_crawl({c.id: c.legal_name for c in batch}, workers=int(p7_workers), target=where["target"])
+                st.rerun()
+            else:
+                st.error(where["problem"])
 
     st.caption(
         "Phase 3 (Bundesanzeiger) and Phase 5 (Kununu) paid pulls are manual, per-company, and live on the "
@@ -152,7 +163,7 @@ def render_pipeline_health_page(db: Session):
                 "Phase": f"Phase {s.phase}",
                 "Source Name": s.source_name,
                 "Scope": scope_label,
-                "Mode": MODE_BADGES.get(s.mode, s.mode),
+                "Mode": _mode_badge(s),
                 "Run Status": "🟢 Healthy" if s.last_status in ("success", "idle") else ("🔴 Error" if s.last_status == "error" else s.last_status),
                 "Credentials": _credential_note(s.source_name),
                 "Total Calls": s.total_calls,
@@ -170,7 +181,7 @@ def render_pipeline_health_page(db: Session):
                 "Phase": "Phase",
                 "Source Name": "Source Name",
                 "Scope": st.column_config.TextColumn("Country Scope", width="medium"),
-                "Mode": "Live / Simulated",
+                "Mode": "Source status",
                 "Run Status": "Run Status",
                 "Credentials": "Credential Status",
                 "Total Calls": "API Calls",
@@ -182,6 +193,6 @@ def render_pipeline_health_page(db: Session):
             use_container_width=True,
             hide_index=True,
         )
-        st.caption("A source in Simulated mode is not broken — it just doesn't have credentials configured yet (or, for Bundesanzeiger/Kununu, the real puller isn't built). See the Credential Status column, and each adapter module's docstring, for how to enable it.")
+        st.caption("Configured means EPO OPS is ready to run. Live means a real pull completed. Check Run Status and Last Error for any failed attempt.")
     else:
         st.info("No sources registered yet. Run a trigger above to initialize source health tracking.")

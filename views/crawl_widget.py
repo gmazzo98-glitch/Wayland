@@ -63,10 +63,12 @@ def flash(message: str, icon: str) -> None:
     st.session_state[_FLASH] = (message, icon)
 
 
-def queue_crawl(companies: dict, workers: int = DEFAULT_WORKERS) -> SubmitResult:
+def queue_crawl(companies: dict, workers: int = DEFAULT_WORKERS, target=None) -> SubmitResult:
     """Queues companies ({id: name}) for a background deep crawl and leaves a message
-    for the next run to toast. Callers st.rerun() afterwards so the widget appears."""
-    result = get_manager().submit(companies, workers)
+    for the next run to toast. Callers st.rerun() afterwards so the widget appears.
+    `target` is the Crawler Worker id to run on (None = this server); callers get it
+    from views.crawler_setup.resolve_crawl_target."""
+    result = get_manager().submit(companies, workers, target=target)
     n = len(companies)
     if result.stopping:
         message, icon = "The running crawl is being stopped — try again once it has finished.", "🛑"
