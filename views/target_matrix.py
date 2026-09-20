@@ -15,6 +15,7 @@ the Brief:
 from collections import defaultdict
 from datetime import datetime
 import hashlib
+import re
 import streamlit as st
 import plotly.express as px
 import pandas as pd
@@ -24,6 +25,7 @@ from models import Company, SignalRecord, SourceHealth
 from scoring import calculate_company_scores, rank_companies, is_prime_target, PRIME_NEED_MIN, PRIME_READINESS_BAND
 from indicators import fetch_indicator_defs
 from crawl_jobs import get_manager, estimate_seconds, DEFAULT_WORKERS, MAX_WORKERS
+from views.crawl_widget import queue_crawl, flash
 
 SEGMENT_COLORS = {"Midcap": "#38BDF8", "SME": "#F59E0B"}
 SEGMENT_ORDER = ["Midcap", "SME"]
@@ -34,7 +36,7 @@ SEGMENT_ORDER = ["Midcap", "SME"]
 # and it only knows row positions, which go stale on every filter change or re-rank. The
 # tick column below is real cell data in an st.data_editor, so sorting can't touch it.
 SELECTION_KEY = "matrix_crawl_selection"
-BIG_BATCH = 30  # above this the run button needs an explicit "yes, that many" tick
+BIG_BATCH = 50  # above this the run button needs an explicit "yes, that many" tick
 TICK_COLUMN = "Crawl"
 
 # A keyed container is wrapped in an stLayoutWrapper that is barely taller than the bar
@@ -137,15 +139,133 @@ def _selectable_table(table_key: str, seg_df: pd.DataFrame, disp_df: pd.DataFram
     )
 
 
+# ---- bulk selection ---------------------------------------------------------------------
+# Ticking hundreds of rows by hand doesn't scale, and the sort order you see is client-side
+# (the server never learns it), so bulk picks are expressed as rules the server can evaluate.
+# Every rule works per segment: Midcap and SME are never pooled into one ranking.
+
+BULK_METRICS = {
+    "Need score": "need_score",
+    "Readiness score": "readiness_score",
+    "Data completeness": "total_completeness_pct",
+}
+
+
+def _with_website(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame[frame["website_url"].fillna("").astype(str).str.strip() != ""]
+
+
+def _top_n_ids(frames: dict, column: str, n: int, ascending: bool = False, require_website: bool = False) -> set:
+    """The n best rows of EACH segment frame by `column`."""
+    out = set()
+    for frame in frames.values():
+        pool = _with_website(frame) if require_website else frame
+        out |= set(pool.sort_values(column, ascending=ascending, kind="stable").head(n)["id"])
+    return out
+
+
+def _ids_in_score_ranges(frames: dict, need: tuple, readiness: tuple, require_website: bool = False) -> set:
+    """Rows whose Need and Readiness both fall inside their (low, high) range, inclusive."""
+    out = set()
+    for frame in frames.values():
+        pool = _with_website(frame) if require_website else frame
+        hit = pool["need_score"].between(*need) & pool["readiness_score"].between(*readiness)
+        out |= set(pool.loc[hit, "id"])
+    return out
+
+
+def _normalize_token(text: str) -> str:
+    return re.sub(r"[\W_]+", "", str(text).casefold())
+
+
+def _match_pasted_list(text: str, df: pd.DataFrame):
+    """
+    Matches a pasted list (one company per line — e.g. a column copied out of Excel — or
+    separated by tabs/semicolons) against registration numbers and legal names. Exact match
+    first (ignoring case, spacing and punctuation: 'HRB 670192' == 'hrb-670192'); failing that,
+    a fragment counts only if exactly one company contains it, so 'agrotech 02' resolves but
+    'agri' doesn't silently tick forty rows. Returns (ids, not_found, ambiguous).
+    """
+    by_reg = {_normalize_token(r): i for r, i in zip(df["registration_number"], df["id"]) if _normalize_token(r)}
+    by_name = {_normalize_token(n): i for n, i in zip(df["legal_name"], df["id"])}
+    ids, not_found, ambiguous = set(), [], []
+    for token in re.split(r"[\r\n\t;]+", text or ""):
+        token = token.strip()
+        key = _normalize_token(token)
+        if not key:
+            continue
+        exact = by_reg.get(key) or by_name.get(key)
+        if exact:
+            ids.add(exact)
+            continue
+        hits = {i for name, i in by_name.items() if key in name} if len(key) >= 4 else set()
+        if len(hits) == 1:
+            ids |= hits
+        else:
+            (ambiguous if hits else not_found).append(token)
+    return ids, not_found, ambiguous
+
+
+def _render_bulk_select(frames: dict, df: pd.DataFrame, selected: set) -> None:
+    """The '⚡ Bulk' popover: pick many companies with one rule instead of one click each."""
+    st.caption("Top-N and score rules apply to the companies currently shown (filters above), "
+               "separately for each segment.")
+    require_site = st.checkbox("Skip companies with no website on record", value=True, key="bulk_require_site",
+                               help="Most crawlers need a website, so ticking these would only waste crawl time.")
+
+    st.markdown("**Top N of each segment**")
+    col_n, col_metric, col_dir = st.columns([1, 1.6, 1.4])
+    n = col_n.number_input("N", min_value=1, max_value=1000, value=20, key="bulk_n")
+    metric = col_metric.selectbox("Ranked by", list(BULK_METRICS), key="bulk_metric")
+    order = col_dir.selectbox("Order", ["Highest first", "Lowest first"], key="bulk_order")
+    top_ids = _top_n_ids(frames, BULK_METRICS[metric], int(n), ascending=(order == "Lowest first"), require_website=require_site)
+    if st.button(f"Add top {int(n)} by {metric.lower()}  ({len(top_ids - selected)} new)", key="bulk_add_top",
+                 disabled=not (top_ids - selected), width="stretch"):
+        st.session_state[SELECTION_KEY] = selected | top_ids
+        st.rerun()
+
+    st.divider()
+    st.markdown("**By score range**")
+    need = st.slider("Need score", 0, 100, (50, 100), key="bulk_need")
+    readiness = st.slider("Readiness score", 0, 100, (40, 85), key="bulk_readiness",
+                          help="The default is the prime band's own Readiness window.")
+    range_ids = _ids_in_score_ranges(frames, need, readiness, require_website=require_site)
+    if st.button(f"Add all matching  ({len(range_ids)} match, {len(range_ids - selected)} new)", key="bulk_add_range",
+                 disabled=not (range_ids - selected), width="stretch"):
+        st.session_state[SELECTION_KEY] = selected | range_ids
+        st.rerun()
+
+    st.divider()
+    st.markdown("**Paste a list**")
+    pasted = st.text_area("One per line — legal names or registration numbers (e.g. a column copied from Excel)",
+                          key="bulk_paste", height=110, placeholder="AgroTech 02 Italia S.p.A.\nHRB 670192\n…")
+    # Never disabled: a text area only commits when it loses focus, so clicking straight after
+    # pasting would hit a still-disabled button and the click would be swallowed.
+    if st.button("Tick these", key="bulk_add_paste", width="stretch"):
+        found, not_found, ambiguous = _match_pasted_list(pasted, df)
+        if not pasted.strip():
+            flash("Paste a list first — one company name or registration number per line.", "📋")
+            st.rerun()
+        st.session_state[SELECTION_KEY] = selected | found
+        problems = []
+        if not_found:
+            problems.append(f"{len(not_found)} not found: " + ", ".join(not_found[:5]) + ("…" if len(not_found) > 5 else ""))
+        if ambiguous:
+            problems.append(f"{len(ambiguous)} ambiguous (matched several): " + ", ".join(ambiguous[:5]) + ("…" if len(ambiguous) > 5 else ""))
+        flash(f"Ticked {len(found)} from the list." + (" " + "; ".join(problems) if problems else ""), "📋")
+        st.rerun()
+
+
 def _short_duration(seconds: int) -> str:
     minutes = max(1, round(seconds / 60))
     return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d} min"
 
 
-def _render_crawl_bar(bar, df: pd.DataFrame, visible_ids: set, prime_visible_ids: set):
+def _render_crawl_bar(bar, df: pd.DataFrame, frames: dict):
     """The sticky 'N selected → crawl them' strip, filled after the tables (it needs
-    their selection) but placed above them."""
-    from views.crawl_widget import queue_crawl
+    their selection) but placed above them. `frames` = the ranked frame of each shown segment."""
+    visible_ids = {cid for frame in frames.values() for cid in frame["id"]}
+    prime_visible_ids = {cid for frame in frames.values() for cid in frame.loc[frame["is_prime"].astype(bool), "id"]}
 
     with bar:
         st.html(_SELECT_BAR_CSS)
@@ -160,8 +280,8 @@ def _render_crawl_bar(bar, df: pd.DataFrame, visible_ids: set, prime_visible_ids
 
         info = st.container()  # top row; filled last because its ETA needs the parallelism chosen below
         confirm_slot = st.container()
-        col_prime, col_all, col_clear, _, col_workers, col_run = st.columns(
-            [1.25, 0.95, 0.95, 1.2, 1.3, 2.3], vertical_alignment="center")
+        col_prime, col_all, col_bulk, col_clear, col_workers, col_run = st.columns(
+            [1.2, 0.9, 1.25, 0.95, 1.2, 2.2], vertical_alignment="center")
 
         with col_prime:
             if st.button("🎯 Prime", width="stretch", disabled=not prime_visible_ids,
@@ -173,6 +293,10 @@ def _render_crawl_bar(bar, df: pd.DataFrame, visible_ids: set, prime_visible_ids
                          help="Add every company currently shown (after the filters above) to the selection."):
                 st.session_state[SELECTION_KEY] = selected | visible_ids
                 st.rerun()
+        with col_bulk:
+            with st.popover("⚡ Bulk", width="stretch", disabled=not visible_ids,
+                            help="Pick many at once: top N by a score, a score range, or a pasted list."):
+                _render_bulk_select(frames, df, selected)
         with col_clear:
             st.button("Clear", width="stretch", disabled=not chosen,
                       on_click=lambda: st.session_state.__setitem__(SELECTION_KEY, set()))
@@ -208,8 +332,8 @@ def _render_crawl_bar(bar, df: pd.DataFrame, visible_ids: set, prime_visible_ids
         if n > BIG_BATCH:
             with confirm_slot:
                 confirmed = st.checkbox(
-                    f"Yes, queue all {n} — deep crawling is meant for a shortlist, and this could take hours "
-                    f"({_short_duration(estimate_seconds(n, workers))}+) and strain the free-tier rate limits.",
+                    f"Yes, queue all {n} — about {_short_duration(estimate_seconds(n, workers))}, and free-tier "
+                    f"rate limits (Groq, Wayback) may start failing crawlers.",
                     key="matrix_crawl_confirm_big",
                 )
 
@@ -456,13 +580,12 @@ def render_target_matrix_page(db: Session):
     # tables have reported their ticks.
     crawl_bar = st.container(key="crawl_select_bar")
 
-    visible_ids, prime_visible_ids = set(), set()
+    frames = {}
     for seg_name in [s for s in all_segments if s in selected_segments]:
         seg_slice = filtered_df[filtered_df["segment"] == seg_name]
         ranked_seg_df = pd.DataFrame(rank_companies(seg_slice.to_dict("records")), columns=seg_slice.columns)
-        visible_ids.update(ranked_seg_df["id"])
-        prime_visible_ids.update(ranked_seg_df.loc[ranked_seg_df["is_prime"].astype(bool), "id"])
+        frames[seg_name] = ranked_seg_df
         _segment_section(seg_name, ranked_seg_df)
         st.markdown("---")
 
-    _render_crawl_bar(crawl_bar, df, visible_ids, prime_visible_ids)
+    _render_crawl_bar(crawl_bar, df, frames)

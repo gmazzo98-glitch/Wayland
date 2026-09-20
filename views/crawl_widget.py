@@ -58,6 +58,11 @@ def sync_session(db) -> None:
         st.toast(flash[0], icon=flash[1])
 
 
+def flash(message: str, icon: str) -> None:
+    """Leaves a message to toast at the start of the next run (safe to call before st.rerun())."""
+    st.session_state[_FLASH] = (message, icon)
+
+
 def queue_crawl(companies: dict, workers: int = DEFAULT_WORKERS) -> SubmitResult:
     """Queues companies ({id: name}) for a background deep crawl and leaves a message
     for the next run to toast. Callers st.rerun() afterwards so the widget appears."""
@@ -72,7 +77,7 @@ def queue_crawl(companies: dict, workers: int = DEFAULT_WORKERS) -> SubmitResult
     else:
         skipped = f" ({result.already_queued} already queued)" if result.already_queued else ""
         message, icon = f"Added {_companies(result.added)} to the running crawl{skipped}.", "🕸️"
-    st.session_state[_FLASH] = (message, icon)
+    flash(message, icon)
     return result
 
 
