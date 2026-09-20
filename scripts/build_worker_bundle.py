@@ -176,7 +176,11 @@ def main() -> None:
         with zipfile.ZipFile(OUT_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             z.writestr("VERSION.json", json.dumps(info, indent=2))
             for arcname, src in entries:
-                z.write(src, arcname)
+                data = src.read_bytes()
+                if arcname.lower().endswith((".bat", ".vbs", ".ps1")):
+                    # Windows scripts want CRLF, whatever the checkout's line endings were.
+                    data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+                z.writestr(arcname, data)
 
     size_mb = OUT_ZIP.stat().st_size / 1_048_576
     print(f"\nWrote {OUT_ZIP.relative_to(ROOT)}  ({size_mb:.2f} MB)  version {info['version']}  build {build}")
