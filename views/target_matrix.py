@@ -14,6 +14,7 @@ the Brief:
 
 from collections import defaultdict
 from datetime import datetime
+import hashlib
 import streamlit as st
 import plotly.express as px
 import pandas as pd
@@ -22,9 +23,205 @@ from sqlalchemy.orm import Session
 from models import Company, SignalRecord, SourceHealth
 from scoring import calculate_company_scores, rank_companies, is_prime_target, PRIME_NEED_MIN, PRIME_READINESS_BAND
 from indicators import fetch_indicator_defs
+from crawl_jobs import get_manager, estimate_seconds, DEFAULT_WORKERS, MAX_WORKERS
 
 SEGMENT_COLORS = {"Midcap": "#38BDF8", "SME": "#F59E0B"}
 SEGMENT_ORDER = ["Midcap", "SME"]
+
+# Company ids the user has ticked as deep-crawl candidates, held BY ID in plain session
+# state. The tables' own notion of a selection can't carry this: st.dataframe's row
+# selection is wiped by the frontend whenever you sort (and reports "nothing selected"),
+# and it only knows row positions, which go stale on every filter change or re-rank. The
+# tick column below is real cell data in an st.data_editor, so sorting can't touch it.
+SELECTION_KEY = "matrix_crawl_selection"
+BIG_BATCH = 30  # above this the run button needs an explicit "yes, that many" tick
+TICK_COLUMN = "Crawl"
+
+# A keyed container is wrapped in an stLayoutWrapper that is barely taller than the bar
+# itself, and a sticky element can only stick within its parent — so the wrapper (whose
+# parent is the whole page column) is what has to be sticky, not the container.
+_SELECT_BAR_CSS = """
+<style>
+[data-testid="stLayoutWrapper"]:has(> .st-key-crawl_select_bar) {
+    position: sticky; top: 3.75rem; z-index: 90;
+}
+.st-key-crawl_select_bar {
+    background: #1E293B; border: 1px solid #334155; border-radius: 10px;
+    padding: 0.6rem 0.9rem; margin: 0.25rem 0 0.75rem; gap: 0.5rem;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.st-key-crawl_select_bar p { margin: 0; }
+</style>
+"""
+
+
+def _table_signature(frame: pd.DataFrame) -> str:
+    return hashlib.md5(pd.util.hash_pandas_object(frame, index=True).values.tobytes()).hexdigest()
+
+
+def _fold_edits(selected: set, ids_in_order: list, edited_rows: dict) -> set:
+    """
+    Applies a data_editor's edits to the selection. `edited_rows` maps a row's position in
+    the frame the editor was GIVEN (not the sorted view it may be showing) to its changed
+    cells; the edits are cumulative from that frame, so applying them again is harmless.
+    """
+    out = set(selected)
+    for pos, change in edited_rows.items():
+        if TICK_COLUMN in change and 0 <= pos < len(ids_in_order):
+            (out.add if change[TICK_COLUMN] else out.discard)(ids_in_order[pos])
+    return out
+
+
+def _widget_key(table_key: str, epoch: int) -> str:
+    return f"{table_key}__{epoch}"
+
+
+def _on_table_edit(table_key: str) -> None:
+    """The user ticked or unticked rows in one table: fold that into the selection."""
+    meta = st.session_state[f"{table_key}__meta"]
+    edits = st.session_state[_widget_key(table_key, meta["epoch"])]["edited_rows"]
+    selected = _fold_edits(st.session_state.get(SELECTION_KEY, set()), meta["ids"], edits)
+    st.session_state[SELECTION_KEY] = selected
+    meta["expected"] = selected & set(meta["ids"])  # the table already shows this
+
+
+def _selectable_table(table_key: str, seg_df: pd.DataFrame, disp_df: pd.DataFrame, column_config: dict) -> None:
+    """
+    A table with a tick column, driven by SELECTION_KEY in both directions.
+
+    An st.data_editor is identified by its input data: change the frame it is given and it
+    starts over, dropping edits it hasn't reported. So the input is a fixed BASELINE (the
+    selection at the moment it was built) that user ticks accumulate on top of, folded into
+    the selection by _on_table_edit. Anything else that changes the selection or the rows —
+    Clear, Add prime, a filter, a re-rank after a crawl, coming back from another page — makes
+    the baseline stale, and the table is then rebuilt from the current selection under a new
+    key (epoch). Sorting is view state inside the editor and touches none of this.
+    """
+    ids = seg_df["id"].tolist()
+    signature = _table_signature(disp_df)
+    selected = st.session_state.setdefault(SELECTION_KEY, set())
+    live = selected & set(ids)
+
+    meta_key = f"{table_key}__meta"
+    meta = st.session_state.get(meta_key)
+    stale = (
+        meta is None
+        or meta["ids"] != ids
+        or meta["signature"] != signature
+        or meta["expected"] != live                                     # changed from outside the table
+        or _widget_key(table_key, meta["epoch"]) not in st.session_state  # widget state was dropped (other page)
+    )
+    if stale:
+        meta = {"epoch": meta["epoch"] + 1 if meta else 0, "ids": ids, "signature": signature,
+                "baseline": live, "expected": live}
+        st.session_state[meta_key] = meta
+
+    frame = disp_df.copy()
+    frame.insert(0, TICK_COLUMN, [cid in meta["baseline"] for cid in ids])
+    st.data_editor(
+        frame,
+        column_config={
+            TICK_COLUMN: st.column_config.CheckboxColumn(
+                TICK_COLUMN, width="small", default=False,
+                help="Tick to queue this company for a deep crawl. Ticks survive sorting and filtering.",
+            ),
+            **column_config,
+        },
+        disabled=[c for c in frame.columns if c != TICK_COLUMN],
+        num_rows="fixed",
+        width="stretch",
+        hide_index=True,
+        key=_widget_key(table_key, meta["epoch"]),
+        on_change=_on_table_edit,
+        args=(table_key,),
+    )
+
+
+def _short_duration(seconds: int) -> str:
+    minutes = max(1, round(seconds / 60))
+    return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d} min"
+
+
+def _render_crawl_bar(bar, df: pd.DataFrame, visible_ids: set, prime_visible_ids: set):
+    """The sticky 'N selected → crawl them' strip, filled after the tables (it needs
+    their selection) but placed above them."""
+    from views.crawl_widget import queue_crawl
+
+    with bar:
+        st.html(_SELECT_BAR_CSS)
+        by_id = df.set_index("id")
+        selected = st.session_state.setdefault(SELECTION_KEY, set())
+        # (a deleted company can't be crawled, hence the membership test)
+        chosen = sorted((cid for cid in selected if cid in by_id.index), key=lambda cid: by_id.at[cid, "legal_name"].lower())
+        snap = get_manager().snapshot()
+        running = bool(snap and snap.running)
+        stopping = bool(running and snap.cancel_requested)
+        n = len(chosen)
+
+        info = st.container()  # top row; filled last because its ETA needs the parallelism chosen below
+        confirm_slot = st.container()
+        col_prime, col_all, col_clear, _, col_workers, col_run = st.columns(
+            [1.25, 0.95, 0.95, 1.2, 1.3, 2.3], vertical_alignment="center")
+
+        with col_prime:
+            if st.button("🎯 Prime", width="stretch", disabled=not prime_visible_ids,
+                         help="Add every prime-band company shown in the tables below to the selection."):
+                st.session_state[SELECTION_KEY] = selected | prime_visible_ids
+                st.rerun()
+        with col_all:
+            if st.button("☑ All", width="stretch", disabled=not visible_ids,
+                         help="Add every company currently shown (after the filters above) to the selection."):
+                st.session_state[SELECTION_KEY] = selected | visible_ids
+                st.rerun()
+        with col_clear:
+            st.button("Clear", width="stretch", disabled=not chosen,
+                      on_click=lambda: st.session_state.__setitem__(SELECTION_KEY, set()))
+        with col_workers:
+            if running:
+                workers = snap.workers
+                st.caption(f"{workers} in parallel")
+            else:
+                workers = int(st.number_input(
+                    "In parallel", min_value=1, max_value=MAX_WORKERS, value=DEFAULT_WORKERS,
+                    key="matrix_crawl_workers", label_visibility="collapsed",
+                    help="Companies crawled at the same time. 3 is the sweet spot on a 16 GB machine "
+                         "(one headless Chromium each) before rate limits start biting."))
+
+        with info:
+            if not chosen:
+                st.markdown("**🕸️ Deep crawl** — tick companies in the tables below to queue them for the crawlers.")
+            else:
+                seg_counts = by_id.loc[chosen, "segment"].value_counts()
+                per_segment = " · ".join(f"{seg_counts[s]} {s}" for s in SEGMENT_ORDER if s in seg_counts)
+                hidden = len([cid for cid in chosen if cid not in visible_ids])
+                hidden_note = f" · {hidden} hidden by filters" if hidden else ""
+                st.markdown(f"**🕸️ {n} selected** · {per_segment}{hidden_note}")
+                names = [by_id.at[cid, "legal_name"] for cid in chosen]
+                listed = ", ".join(names[:3]) + (f" +{n - 3} more" if n > 3 else "")
+                notes = [listed, f"about {_short_duration(estimate_seconds(n, workers))} at {workers} in parallel"]
+                no_site = int(by_id.loc[chosen, "website_url"].fillna("").astype(str).str.strip().eq("").sum())
+                if no_site:
+                    notes.append(f"⚠️ {no_site} with no website on record (most crawlers need one)")
+                st.caption(" · ".join(notes))
+
+        confirmed = True
+        if n > BIG_BATCH:
+            with confirm_slot:
+                confirmed = st.checkbox(
+                    f"Yes, queue all {n} — deep crawling is meant for a shortlist, and this could take hours "
+                    f"({_short_duration(estimate_seconds(n, workers))}+) and strain the free-tier rate limits.",
+                    key="matrix_crawl_confirm_big",
+                )
+
+        with col_run:
+            label = "➕ Add to running crawl" if running else "▶ Crawl selected"
+            if st.button(label, type="primary", width="stretch",
+                         disabled=(not chosen) or stopping or not confirmed,
+                         help="The crawl runs in the background — keep browsing, and follow it in the widget "
+                              "at the bottom right of any page."):
+                queue_crawl({cid: by_id.at[cid, "legal_name"] for cid in chosen}, workers=workers)
+                st.session_state[SELECTION_KEY] = set()
+                st.rerun()
 
 
 # Only what the score needs; text_value / raw_payload_ref feed the per-signal
@@ -168,8 +365,8 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
         "legal_name", "country", "registration_number", "need_score", "readiness_score",
         "total_completeness_pct", "signals_checked", "shortlist_status"
     ]]
-    st.dataframe(
-        disp_df,
+    _selectable_table(
+        f"matrix_table_{seg_name}", seg_df, disp_df,
         column_config={
             "legal_name": f"{seg_name} Company",
             "country": st.column_config.TextColumn("Country", width="small"),
@@ -180,8 +377,6 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
             "signals_checked": "Checked Signals",
             "shortlist_status": "Shortlist Status",
         },
-        use_container_width=True,
-        hide_index=True,
     )
 
 
@@ -216,6 +411,7 @@ def render_target_matrix_page(db: Session):
             "nace_code": comp.nace_code,
             "sector": comp.sector_name,
             "segment": comp.segment,
+            "website_url": comp.website_url,
             "shortlist_status": comp.shortlist_status,
             "need_score": scores["need_score"],
             "readiness_score": scores["readiness_score"],
@@ -255,8 +451,18 @@ def render_target_matrix_page(db: Session):
 
     st.markdown("---")
 
+    # Sticky "N selected → crawl" strip. Created here so it sits above the tables (and must be
+    # a direct child of the page for `position: sticky` to work), filled below once the
+    # tables have reported their ticks.
+    crawl_bar = st.container(key="crawl_select_bar")
+
+    visible_ids, prime_visible_ids = set(), set()
     for seg_name in [s for s in all_segments if s in selected_segments]:
         seg_slice = filtered_df[filtered_df["segment"] == seg_name]
         ranked_seg_df = pd.DataFrame(rank_companies(seg_slice.to_dict("records")), columns=seg_slice.columns)
+        visible_ids.update(ranked_seg_df["id"])
+        prime_visible_ids.update(ranked_seg_df.loc[ranked_seg_df["is_prime"].astype(bool), "id"])
         _segment_section(seg_name, ranked_seg_df)
         st.markdown("---")
+
+    _render_crawl_bar(crawl_bar, df, visible_ids, prime_visible_ids)
