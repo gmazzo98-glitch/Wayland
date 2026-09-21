@@ -63,7 +63,16 @@ PHASE_MANUAL = 6
 # revenue_latest/revenue_y-1/revenue_y-2), never for a single column, since a
 # trend needs two timepoints to compute. See detect_column_groups/
 # compute_group_value in company_service.py.
-TREND_INDICATOR_KEYS = {"revenue_trend", "ebit_trend", "margin_compression"}
+TREND_INDICATOR_KEYS = {"revenue_trend", "ebit_trend", "margin_compression", "ebitda_trend"}
+
+# Every monetary financial the app imports (AIDA "migl EUR") is held in THOUSANDS of euro — the
+# Company Intelligence page shows them with a "k" suffix. Any raw_min/raw_max on a monetary
+# indicator is therefore in k EUR too. (They were once written in whole euro, which scored every
+# real company at ~0 on cash and debt; see CATALOG_MIGRATIONS.)
+
+# Shared by the ebitda_trend seed row and its migration, so a fresh catalog and a migrated one end up identical.
+EBITDA_TREND_COMMENT = ("Informational only. Values used to be the latest EBITDA level in k EUR under this 'trend' name; "
+                        "recomputed as a real % change. A near-zero or negative base year makes the % meaningless.")
 
 INDICATOR_SEED = [
     # ---------------------------------------------------------------- Leadership & Succession
@@ -205,9 +214,9 @@ INDICATOR_SEED = [
          source_description="Bundesanzeiger annual filings", example_status="Decreasing/Stagnating"),
     dict(key="margin_compression", automation_tier="T1", redundancy_group="FIN_TREND", label="Margin Compression", category=CAT_FINANCIAL, axis="need",
          raw_min=0, raw_max=25, weight=3.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
-         proxy="Margin compression (%), from the existing Bundesanzeiger paid-pull scraper", cost_per_pull=5.0,
+         proxy="Fall in gross margin as % of revenue, in percentage points (earliest vs latest year); floors at 0", cost_per_pull=5.0,
          rationale="Margin compression signals unresolved cost or pricing pressure that a structured pilot can target — the spreadsheet's Gross Margin row, in the original Vienna direct-compression framing that scrapers/bundesanzeiger_paid.py already produces.",
-         comment="Compare against sector benchmarks rather than an absolute threshold — margin norms vary widely by industry. Kept as a direct 0-25% compression level (not a signed trend) to match what the existing scraper actually returns.",
+         comment="Compare against sector benchmarks rather than an absolute threshold — margin norms vary widely by industry. Kept as a direct 0-25 point compression level (not a signed trend). Imports convert an absolute margin amount to % of revenue first — see company_service.compute_group_value; an absolute k EUR figure must never land here.",
          source_description="Bundesanzeiger annual filings", example_status="Decreasing/Stagnating"),
     dict(key="revenue_trend", automation_tier="T1", redundancy_group="FIN_TREND", label="Revenue Trend", category=CAT_FINANCIAL, axis="need",
          invert=True, raw_min=-20, raw_max=15, weight=3.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
@@ -228,26 +237,26 @@ INDICATOR_SEED = [
          comment="Can also reflect a deliberately conservative, cash-preserving management style that may extend to reluctance in funding a pilot — verify appetite at first contact.",
          source_description="Bundesanzeiger annual filings", example_status="Low"),
     dict(key="total_assets", automation_tier="T1", redundancy_group="SEGMENT_FILTER", label="Total Assets", category=CAT_FINANCIAL, axis="readiness", curve_type="band",
-         raw_min=5000000, raw_max=50000000, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
-         proxy="Total assets from balance sheet", cost_per_pull=5.0,
+         raw_min=5000, raw_max=50000, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         proxy="Total assets from balance sheet (k EUR)", cost_per_pull=5.0,
          rationale="A medium asset base signals enough absorptive infrastructure to actually host and integrate a pilot's output — too small and there's nothing to attach the innovation to, too large and bureaucracy slows everything down.",
          comment="Scored as a band (sweet spot), not a straight line: too low or too high both taper the score down.",
          source_description="Bundesanzeiger annual filings", example_status="Medium"),
     dict(key="cash_position", automation_tier="T1", redundancy_group="FIN_STRAIN", axis_modifier="NEGATIVE", label="Cash Position", category=CAT_FINANCIAL, axis="readiness",
-         raw_min=0, raw_max=3000000, weight=3.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
-         proxy="Cash and cash equivalents from balance sheet, trend over 3 years", cost_per_pull=5.0,
+         raw_min=0, raw_max=3000, weight=3.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         proxy="Cash and cash equivalents from balance sheet (k EUR), trend over 3 years", cost_per_pull=5.0,
          rationale="Low or falling cash is a warning that the company may lack the discretionary budget to fund even a low-cost pilot, regardless of how much it needs to innovate.",
          comment="Functions as a downgrade flag that can pull down an otherwise promising NEED-heavy profile, not an independent opportunity signal.",
          source_description="Bundesanzeiger annual filings", example_status="Low/Decreasing"),
     dict(key="debt_level", automation_tier="T1", redundancy_group="FIN_STRAIN", axis_modifier="READINESS CAVEAT", label="Debt Level", category=CAT_FINANCIAL, axis="need",
-         raw_min=0, raw_max=20000000, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
-         proxy="Total debt from balance sheet, trend over 3 years", cost_per_pull=5.0,
+         raw_min=0, raw_max=20000, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         proxy="Total debt from balance sheet (k EUR), trend over 3 years", cost_per_pull=5.0,
          rationale="Rising debt signals financial strain that can motivate efficiency-seeking innovation, but high leverage often comes with covenant restrictions that lower practical readiness to commit to a pilot.",
          comment="Cross-check against Leverage and Interest Coverage Ratio before treating high debt as a pure opportunity signal.",
          source_description="Bundesanzeiger annual filings", example_status="High/Increasing"),
     dict(key="leverage_ratio", automation_tier="T1", redundancy_group="FIN_STRAIN", axis_modifier="READINESS CAVEAT", label="Leverage Ratio", category=CAT_FINANCIAL, axis="need",
          raw_min=0, raw_max=5, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
-         proxy="Debt/EBITDA or Debt/Equity ratio", cost_per_pull=5.0,
+         proxy="Financial leverage as the source defines it. AIDA's 'Rapporto di indebitamento' is total assets ÷ equity (a negative value means negative equity)", cost_per_pull=5.0,
          rationale="High leverage indicates financial pressure but also potential capital constraints on funding a pilot.",
          comment="Always interpret alongside sector-typical leverage norms — Mittelstand companies commonly run higher leverage than public peers as a matter of course.",
          source_description="Bundesanzeiger annual filings", example_status="High"),
@@ -642,6 +651,17 @@ INDICATOR_SEED = [
          comment="Sector-level, not company-level — use it to sequence which of the priority sectors to approach first, not to score individual companies. Kept at weight 0 / context for that reason, despite the source spreadsheet listing weight 2.",
          source_description="Press releases, accelerator/corporate-venturing case study pages, trade press",
          example_status="Multiple known cases in sector"),
+
+    # Informational trend that used to exist only as an ad-hoc row created by the data importer, which
+    # stored the latest EBITDA LEVEL under this "trend" name. Now a real % change, computed the same
+    # way as EBIT Trend. Context axis / weight 0: it duplicates EBIT Trend's construct, so it is shown
+    # but never scored.
+    dict(key="ebitda_trend", automation_tier="T1", label="EBITDA Trend", category=CAT_CONTEXT, axis="context",
+         weight=0.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         proxy="EBITDA % change, latest fiscal year vs the earliest of the last three (same method as EBIT Trend)",
+         rationale="Cash-earnings view of the same operating trend EBIT Trend scores; shown for context, not double-counted.",
+         comment=EBITDA_TREND_COMMENT,
+         source_description="AIDA / Bundesanzeiger annual filings", example_status="—"),
 ]
 
 
@@ -669,3 +689,69 @@ def seed_indicator_definitions(db: Session) -> int:
     if inserted:
         db.commit()
     return inserted
+
+
+# ---- guarded catalog migrations -------------------------------------------------------------------
+#
+# seed_indicator_definitions never overwrites a row, which is what protects human edits — and also
+# means a wrong default in the seed can never reach a database that already has the row. A migration
+# fixes that without giving up the protection: each change names the value the seed USED to ship and
+# is applied only while the row still holds exactly that. An edited row is left alone (and reported),
+# an already-migrated row no longer matches (so re-running is a no-op). `old` may be a plain value or a
+# predicate on the current value.
+CATALOG_MIGRATIONS = [
+    # Monetary bounds were in whole euro; every imported financial is in thousands of euro.
+    dict(id="k-eur-cash", key="cash_position", changes={"raw_max": (3000000.0, 3000.0)}),
+    dict(id="k-eur-debt", key="debt_level", changes={"raw_max": (20000000.0, 20000.0)}),
+    dict(id="k-eur-assets", key="total_assets", changes={"raw_min": (5000000.0, 5000.0), "raw_max": (50000000.0, 50000.0)}),
+    dict(id="leverage-definition", key="leverage_ratio", changes={
+        "proxy": ("Debt/EBITDA or Debt/Equity ratio",
+                  "Financial leverage as the source defines it. AIDA's 'Rapporto di indebitamento' is total assets ÷ equity "
+                  "(a negative value means negative equity)")}),
+    dict(id="margin-compression-unit", key="margin_compression", changes={
+        "proxy": ("Margin compression (%), from the existing Bundesanzeiger paid-pull scraper",
+                  "Fall in gross margin as % of revenue, in percentage points (earliest vs latest year); floors at 0")}),
+    # Ad-hoc rows the importer created for columns that turned out to mean something else.
+    dict(id="cogs-is-production-costs", key="cogs", changes={
+        "label": ("Cogs", "Production costs (AIDA 'Costi della produzione')"),
+        "proxy": (None, "Total costs of production in k EUR — NOT cost of goods sold (median 96% of revenue, above 100% for a quarter of companies). "
+                        "Do not use it as COGS."),
+        "comment": (lambda cur: (cur or "").startswith("Created from an uploaded dataset column"),
+                    "Informational, not scored. The source column is AIDA's 'Costi della produzione' (total production costs), "
+                    "not cost of goods sold, so it must not feed COGS Ratio. Materials cost is 'Materie prime e consumo'.")}),
+    dict(id="ebitda-is-a-trend-now", key="ebitda_trend", changes={
+        "proxy": (None, "EBITDA % change, latest fiscal year vs the earliest of the last three (same method as EBIT Trend)"),
+        "comment": (lambda cur: (cur or "").startswith("Created from an uploaded dataset column"), EBITDA_TREND_COMMENT)}),
+]
+
+
+def _matches(current, old) -> bool:
+    return old(current) if callable(old) else current == old
+
+
+def apply_catalog_migrations(db: Session, dry_run: bool = False) -> dict:
+    """
+    Applies CATALOG_MIGRATIONS to the live catalog. Returns {"applied": [(key, field, old, new)...],
+    "skipped": [(key, field, current_value)...]} — `skipped` are fields whose current value is neither
+    the old default nor the new one (a human edited them), which are deliberately left alone.
+    Idempotent: a field already at its new value is not reported at all. dry_run reports the same
+    thing and writes nothing.
+    """
+    applied, skipped = [], []
+    for mig in CATALOG_MIGRATIONS:
+        row = db.query(IndicatorDefinition).filter_by(key=mig["key"]).first()
+        if row is None:
+            continue
+        for field, (old, new) in mig["changes"].items():
+            current = getattr(row, field)
+            if current == new:
+                continue
+            if _matches(current, old):
+                if not dry_run:
+                    setattr(row, field, new)
+                applied.append((mig["key"], field, current, new))
+            else:
+                skipped.append((mig["key"], field, current))
+    if applied and not dry_run:
+        db.commit()
+    return {"applied": applied, "skipped": skipped}

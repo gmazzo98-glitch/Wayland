@@ -4,10 +4,16 @@ own homepage plus a small set of relevant pages (about/products/store
 locator/sustainability) and extracts store count, product-line count,
 founding year, and first-sustainability-report year.
 
-Feeds: product_portfolio_diversity, esg_reporting_recency, product_age
-(fallback when news-signals-crawler has no launch mentions), store_geo_distribution,
+Feeds: product_portfolio_diversity, esg_reporting_recency, store_geo_distribution,
 physical_stores_trend (only once a second run gives an actual two-point trend —
 see _stores_trend below; a single crawl is a snapshot, not a trend).
+
+Deliberately does NOT feed product_age. The extracted `founding_or_product_launch_year` is
+"founding year, else first-product-launch year" (merge.ts) and in practice it is the founding
+year (live values: 93, 61, 52 years). product_age means "years since the CORE PRODUCT LINE
+launched", so an old company is not an old product — writing it there scored every
+long-established firm as maximum product-obsolescence need. The year is still kept, in the
+crawler blob, as evidence.
 """
 
 from datetime import datetime
@@ -94,15 +100,6 @@ def _derive_signals(db: Session, company, row: dict) -> dict:
                 "summary": f"crawled {pages} pages of the company site, no sustainability/ESG report found",
                 "evidence": base_evidence,
             }
-
-    founding_year = row.get("founding_or_product_launch_year")
-    if field_status.get("founding_or_product_launch_year") == "value" and founding_year:
-        signals["product_age"] = {
-            "value": float(datetime.utcnow().year - int(founding_year)), "status": "present",
-            "summary": f"founding / first product launch year stated as {int(founding_year)}",
-            "evidence": {**base_evidence, "founding_or_product_launch_year": founding_year,
-                          "last_product_update_signal": row.get("last_product_update_signal")},
-        }
 
     # 'not_applicable' here means pure B2B / no retail footprint — the indicator's own
     # comment says to treat that as null, never as "zero stores = need".

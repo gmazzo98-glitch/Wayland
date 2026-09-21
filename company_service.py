@@ -447,7 +447,16 @@ COMPANY_FIELD_ALIASES = {
 # Base names (after suffix-stripping) that alias onto a computed trend
 # indicator — only offered/suggested when the column group actually has 2+
 # timepoints (see detect_column_groups / compute_group_value).
-TREND_BASE_ALIASES = {"revenue": "revenue_trend", "ebit": "ebit_trend", "gross_margin": "margin_compression"}
+TREND_BASE_ALIASES = {"revenue": "revenue_trend", "ebit": "ebit_trend", "gross_margin": "margin_compression",
+                      "ebitda": "ebitda_trend"}
+
+# How a derived (multi-column) signal was computed, stored on the SignalRecord so the number can be audited
+# without reading this file.
+DERIVATION_BASIS = {
+    "margin_compression": "percentage points of revenue: gross margin ÷ revenue at the earliest and latest year, "
+                          "the fall between them, floored at 0",
+    "ebitda_trend": "% change of EBITDA, latest vs earliest year, sign-safe (divided by the absolute base)",
+}
 
 # Base names that alias onto a direct-value (non-trend) indicator whose own
 # key doesn't literally match the stripped base name.
@@ -680,7 +689,63 @@ def _pick_latest_and_base(point_values: dict):
     return latest_val, base_val
 
 
-def compute_group_value(group: dict, row: dict, indicator_key: str = None):
+def _latest_and_base_suffixes(suffixes) -> tuple:
+    """The suffix naming the most recent point and the one naming the furthest-back point — the same
+    choice _pick_latest_and_base makes on values, but returning the names so a second column group
+    (e.g. revenue next to gross margin) can be read at the very same two points."""
+    y_points = sorted((int(sfx.split("-")[1]), sfx) for sfx in suffixes if sfx.startswith("y-"))
+    if "latest" in suffixes:
+        latest = "latest"
+    elif "value" in suffixes:
+        latest = "value"
+    else:
+        latest = y_points[0][1] if y_points else None
+    return latest, (y_points[-1][1] if y_points else None)
+
+
+def _margin_compression_points(group: dict, row: dict, companions: dict = None):
+    """
+    Fall in gross margin, as percentage points of revenue, between the earliest and the latest year
+    (floored at 0) — the unit the margin_compression indicator is defined in (0-25 points).
+
+    Imported margins are usually an AMOUNT, not a percentage (AIDA's "Margine sui consumi" is in
+    thousand EUR). The old code subtracted two amounts and stored the k EUR difference as if it were
+    points: 365 of 945 real values exceeded 100 "points". So:
+      * a revenue column next to the margin (same suffixes) -> the margin is an amount in the same unit
+        as revenue; convert each point to % of revenue first. A margin that comes out above 100% of
+        revenue can't be an amount of it, so the row is left unchecked.
+      * no revenue column -> only trust margins that already look like percentages (|value| <= 100);
+        anything else is left unchecked rather than guessed at.
+    A file carrying BOTH revenue and a margin already expressed in % would be misread by the first
+    rule; the real exports (AIDA) carry amounts, and that ambiguity can't be resolved from the data.
+    Returns None when it can't be computed.
+    """
+    latest_s, base_s = _latest_and_base_suffixes(group["points"])
+    if latest_s is None or base_s is None:
+        return None
+    margin = {s: _to_float(row.get(group["points"][s])) for s in (latest_s, base_s)}
+    if any(v is None for v in margin.values()):
+        return None
+
+    revenue_group = (companions or {}).get("revenue")
+    if revenue_group:
+        pct = {}
+        for s in (latest_s, base_s):
+            col = revenue_group["points"].get(s)
+            revenue = _to_float(row.get(col)) if col else None
+            if not revenue or revenue <= 0:
+                return None
+            pct[s] = margin[s] / revenue * 100.0
+        if any(abs(v) > 100.0 for v in pct.values()):
+            return None
+        return max(0.0, pct[base_s] - pct[latest_s])
+
+    if all(abs(v) <= 100.0 for v in margin.values()):
+        return max(0.0, margin[base_s] - margin[latest_s])
+    return None
+
+
+def compute_group_value(group: dict, row: dict, indicator_key: str = None, companions: dict = None):
     """
     Resolves one column-group's contribution to a target for a single row.
     Returns (numeric_value_or_None, status) with status 'present' or
@@ -692,8 +757,12 @@ def compute_group_value(group: dict, row: dict, indicator_key: str = None):
     'latest' point and the furthest-back 'y-N' point (% change, abs-based for
     signed metrics like EBIT so a sign flip in the base doesn't invert the
     trend direction; margin_compression is a direct point-decline instead of
-    a %, matching that indicator's own 0-25 "decline points" definition).
+    a %, matching that indicator's own 0-25 "decline points" definition — see
+    _margin_compression_points for how an amount is turned into percentage points).
     Anything else just takes the single most recent point.
+
+    companions: every detected column group of the same file ({base: group}), which lets a derived
+    signal read a second variable at the same points (margin compression needs revenue).
     """
     point_values = {suffix: row.get(col) for suffix, col in group["points"].items()}
     latest_val, base_val = _pick_latest_and_base(point_values)
@@ -704,7 +773,8 @@ def compute_group_value(group: dict, row: dict, indicator_key: str = None):
         if latest_num is None or base_num is None:
             return None, "not_yet_checked"
         if indicator_key == "margin_compression":
-            return max(0.0, base_num - latest_num), "present"
+            points = _margin_compression_points(group, row, companions)
+            return (None, "not_yet_checked") if points is None else (points, "present")
         if base_num == 0:
             return None, "not_yet_checked"
         return (latest_num - base_num) / abs(base_num) * 100.0, "present"
@@ -843,7 +913,7 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
             elif target.startswith("indicator:"):
                 sig_key = target.split(":", 1)[1]
                 if sig_key in indicator_defs:
-                    signal_updates[sig_key] = compute_group_value(group, row_dict, sig_key)
+                    signal_updates[sig_key] = compute_group_value(group, row_dict, sig_key, companions=groups)
 
         is_conflict = False
         if existing:
@@ -912,7 +982,10 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
             sig.is_simulated = False
             sig.source = dataset_name
             sig.fetched_at = fetched_at
-            sig.raw_payload_ref = json.dumps({"dataset": dataset_name, "signal_key": sig_key})
+            payload = {"dataset": dataset_name, "signal_key": sig_key}
+            if sig_key in DERIVATION_BASIS:
+                payload["basis"] = DERIVATION_BASIS[sig_key]
+            sig.raw_payload_ref = json.dumps(payload)
 
         # Blob side: the complete original row, every column, untouched by
         # the mapping — independent of which subset just got interpreted

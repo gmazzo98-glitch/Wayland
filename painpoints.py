@@ -111,8 +111,9 @@ _SEED_ROWS = [
                 note="% change in EBIT, sign-safe when the base year was a loss."),
              _r("ebit_margin", "lower", 4, -2, 3, "%",
                 note="EBIT ÷ revenue, latest year. Real portfolio: median 5.9%, 10th percentile -3.6%."),
-             _r("gross_margin_change_pp", "lower", -1, -8, 2, " pp",
-                note="Change in gross margin as % of revenue, latest vs earliest year. Real portfolio 10th percentile: -6.1 pp."),
+             _r("margin_compression", "higher", 1, 8, 2, " pp", valid_range=(0, 100),
+                note="Fall in gross margin as % of revenue, earliest vs latest year (0 when it did not fall). "
+                     "Real portfolio: 10th percentile of the change is -6.1 pp."),
          ]),
     dict(key="debt_service_strain", label="Debt-service strain", category=CAT_FIN,
          description="Earnings barely cover the interest bill, or the balance sheet is heavily geared — money is going to lenders, not to change.",
@@ -122,7 +123,8 @@ _SEED_ROWS = [
              _r("interest_coverage_ratio", "lower", 3, 1.5, 3, "×",
                 note="EBIT ÷ interest expense. Below ~3× is generally read as weak cover; real portfolio 10th percentile is 2.9×."),
              _r("leverage_ratio", "higher", 4, 8, 2, "×", negative_is_severe=True,
-                note="Catalogued as Debt/EBITDA or Debt/Equity. A negative value means negative equity or negative EBITDA under either reading, so it counts as fully severe."),
+                note="AIDA's 'Rapporto di indebitamento' = total assets ÷ equity (checked on all 954 rows). 4× means equity funds a quarter "
+                     "of the balance sheet; negative means negative equity, which counts as fully severe."),
          ]),
     dict(key="liquidity_squeeze", label="Thin cash cushion", category=CAT_FIN,
          description="Cash on hand covers only a few weeks of revenue — little room to absorb a bad quarter or fund change.",
@@ -148,7 +150,8 @@ _SEED_ROWS = [
          caveat="Sector-dependent: compare against the sector's typical cost structure before reading a high share as a company problem.",
          rules=[
              _r("energy_cost", "higher", 8, 13, 3, "% of revenue"),
-             _r("materials_cost", "higher", 40, 55, 2, "% of revenue"),
+             _r("materials_cost", "higher", 50, 65, 2, "% of revenue",
+                note="Materials ÷ revenue. Machinery makers in the real portfolio: median 44%, 75th percentile 53%, 90th 63%."),
              _r("raw_material_cost", "higher", 45, 62, 2, "% of COGS"),
              _r("cogs_ratio", "higher", 70, 85, 2, "% of revenue"),
              _r("service_costs", "higher", 14, 22, 1, "% of revenue"),
@@ -266,8 +269,6 @@ PAIN_POINT_SEED = [dict(row, sort_order=(i + 1) * 10) for i, row in enumerate(_S
 # catalogued indicator can't silently stay invisible to pain-point detection.
 EXEMPT_NEED_INDICATORS = {
     "new_generation_management": "A trigger event and outreach-timing signal, not a problem the company has.",
-    "margin_compression": "Stored values are absolute k€ declines in gross margin (365 of 945 exceed 100), not the 0-25 percentage "
-                          "points the catalog defines — gross_margin_change_pp replaces it here until that is fixed.",
     "debt_level": "An absolute k€ level says nothing without a size denominator; debt burden is judged through "
                   "interest_coverage_ratio and leverage_ratio.",
     "sector_export_exposure": "A sector-level macro figure: it would fire identically for every company in a sector, "
@@ -288,11 +289,6 @@ PROPOSED_INDICATORS = {
         how="EBIT ÷ revenue (latest year), from the imported AIDA rows.",
         evidence="ebit_latest and revenue_latest are present for all 953 imported companies.",
         feeds=["profit_erosion"]),
-    "gross_margin_change_pp": dict(
-        label="Gross-margin change (pp)", kind="derivation", status="ready_to_build",
-        how="Gross margin as % of revenue, latest year minus the earliest year, from the imported AIDA rows.",
-        evidence="Present for 945 of 953. Replaces margin_compression, whose stored values are absolute k€ (365 of 945 exceed 100).",
-        feeds=["profit_erosion"]),
     "cash_to_revenue": dict(
         label="Cash cover (months of revenue)", kind="derivation", status="ready_to_build",
         how="Cash ÷ (revenue ÷ 12), from the imported AIDA rows.",
@@ -306,10 +302,22 @@ PROPOSED_INDICATORS = {
         feeds=["underinvestment"]),
     "cogs_ratio": dict(
         label="COGS ratio (existing indicator, no valid input)", kind="needs_source", status="needs_decision",
-        how="Needs a real cost-of-goods-sold figure.",
-        evidence="The imported 'cogs' column behaves like total operating cost (median 96% of revenue, 25% of companies above 109%), "
+        how="Italian statutory accounts have no cost-of-goods-sold line. Use Materials Cost (materie prime e consumo) instead.",
+        evidence="The imported 'cogs' column is AIDA's 'Costi della produzione' — total production costs, median 96% of revenue — "
                  "so it must not be used as COGS.",
         feeds=["input_cost_pressure"]),
+    "materials_cost": dict(
+        label="Materials cost (existing indicator, no producer yet)", kind="derivation", status="ready_to_build",
+        how="'Materie prime e consumo' ÷ 'Ricavi vendite e prestazioni' (latest year) — add the column to the AIDA import.",
+        evidence="Filled for 954 of 954 companies in WAYLAND_FINANCIAL_PL_C28_SME_50_99_V0.xls but not in the imported Main file. "
+                 "Median 44% of revenue, 90th percentile 63%. It is a Need-axis indicator, so it moves Need scores once populated.",
+        feeds=["input_cost_pressure"]),
+    "labour_cost": dict(
+        label="Labour cost (existing indicator, no producer yet)", kind="derivation", status="ready_to_build",
+        how="'Totale costi del personale' ÷ 'Ricavi vendite e prestazioni' (latest year) — add the column to the AIDA import.",
+        evidence="Filled for 954 of 954 companies in WAYLAND_FINANCIAL_PL_C28_SME_50_99_V0.xls but not in the imported Main file. "
+                 "Median 23% of revenue, 90th percentile 37.5%. Need-axis indicator: moves Need scores once populated.",
+        feeds=["workforce_strain"]),
     "reported_distress_news": dict(
         label="Distress mentions in the press", kind="crawler", status="needs_source",
         how="Add insolvency / short-time-work (Cassa Integrazione) / lay-off / energy-cost concept buckets to the "
@@ -365,6 +373,67 @@ def seed_pain_point_definitions(db: Session) -> int:
     if inserted:
         db.commit()
     return inserted
+
+
+# Guarded edits to rows that already exist in a database (the seed never overwrites, so a better default
+# can't otherwise reach them). Same contract as indicators.CATALOG_MIGRATIONS: an edit applies only while
+# the rule still holds exactly the values the seed used to ship; a rule a human has changed is left alone.
+# `replace_with` swaps the whole rule (its indicator changed); `changes` edits fields of one rule.
+PAIN_POINT_MIGRATIONS = [
+    dict(id="margin-compression-fixed", key="profit_erosion", indicator="gross_margin_change_pp",
+         guard=dict(worse_when="lower", warn=-1, severe=-8, weight=2),
+         replace_with=_r("margin_compression", "higher", 1, 8, 2, " pp", valid_range=(0, 100),
+                         note="Fall in gross margin as % of revenue, earliest vs latest year (0 when it did not fall). "
+                              "Real portfolio: 10th percentile of the change is -6.1 pp.")),
+    dict(id="leverage-definition", key="debt_service_strain", indicator="leverage_ratio",
+         changes={"note": (
+             "Catalogued as Debt/EBITDA or Debt/Equity. A negative value means negative equity or negative EBITDA under either reading, so it counts as fully severe.",
+             "AIDA's 'Rapporto di indebitamento' = total assets ÷ equity (checked on all 954 rows). 4× means equity funds a quarter "
+             "of the balance sheet; negative means negative equity, which counts as fully severe.")}),
+    dict(id="materials-calibrated", key="input_cost_pressure", indicator="materials_cost",
+         changes={"warn": (40, 50), "severe": (55, 65),
+                  "note": (None, "Materials ÷ revenue. Machinery makers in the real portfolio: median 44%, 75th percentile 53%, 90th 63%.")}),
+]
+
+
+def apply_pain_point_migrations(db: Session, dry_run: bool = False) -> dict:
+    """Applies PAIN_POINT_MIGRATIONS. Returns {"applied": [(key, indicator)...], "skipped": [(key, indicator, why)...]}.
+    Idempotent: a rule already in its new shape is neither changed nor reported. dry_run reports and writes nothing."""
+    applied, skipped = [], []
+    for mig in PAIN_POINT_MIGRATIONS:
+        row = db.query(PainPointDefinition).filter_by(key=mig["key"]).first()
+        if row is None:
+            continue
+        rules = [dict(r) for r in (row.rules or [])]
+        idx = next((i for i, r in enumerate(rules) if r["indicator"] == mig["indicator"]), None)
+        if idx is None:
+            continue   # already replaced, or removed by a human
+        rule, changed = rules[idx], False
+        if "replace_with" in mig:
+            if all(rule.get(k) == v for k, v in mig["guard"].items()):
+                if mig["replace_with"]["indicator"] in {r["indicator"] for r in rules}:
+                    rules.pop(idx)      # the replacement is already there; just drop the old rule
+                else:
+                    rules[idx] = dict(mig["replace_with"])
+                changed = True
+            else:
+                skipped.append((mig["key"], mig["indicator"], "rule was edited"))
+        else:
+            for field, (old, new) in mig["changes"].items():
+                if rule.get(field) == new:
+                    continue
+                if rule.get(field) == old:
+                    rule[field] = new
+                    changed = True
+                else:
+                    skipped.append((mig["key"], mig["indicator"], f"{field} was edited"))
+        if changed:
+            if not dry_run:
+                row.rules = rules          # a fresh list: SQLAlchemy doesn't see in-place JSON mutation
+            applied.append((mig["key"], mig["indicator"]))
+    if applied and not dry_run:
+        db.commit()
+    return {"applied": applied, "skipped": skipped}
 
 
 def fetch_pain_point_defs(db: Session, include_inactive: bool = False) -> List[dict]:

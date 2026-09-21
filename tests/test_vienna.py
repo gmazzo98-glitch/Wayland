@@ -327,8 +327,9 @@ def test_indicator_catalog_row_count_matches_reconciled_total():
     # 78-variable gg_indicators.json ground truth (69 of which already had a
     # match here; see indicators.py's module docstring), + 2 more rows
     # (sector_growth_benchmark, revenue_growth_vs_sector) added on top of that
-    # reconciled set for the company-vs-market growth comparison.
-    assert len(INDICATOR_SEED) == 86
+    # reconciled set for the company-vs-market growth comparison, + 1 (ebitda_trend) that
+    # used to exist only as an ad-hoc importer row holding an EBITDA level under a "trend" name.
+    assert len(INDICATOR_SEED) == 87
 
 def test_indicator_catalog_automation_tier_is_valid():
     for row in INDICATOR_SEED:

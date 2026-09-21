@@ -224,7 +224,8 @@ def test_company_website_derive_signals_basic():
     signals = company_website_crawler._derive_signals(None, None, row)
     assert_signal(signals["product_portfolio_diversity"], 6.0, "present")
     assert_signal(signals["esg_reporting_recency"], 3.0, "present")
-    assert_signal(signals["product_age"], 20.0, "present")
+    # A founding year is not the age of the core product line — it must never become product_age.
+    assert "product_age" not in signals
     assert_signal(signals["store_geo_distribution"], 2.0, "present")
     assert "physical_stores_trend" not in signals  # no prior snapshot to diff against
 
