@@ -14,6 +14,8 @@ Usage:
 Classes (how the gap closes):
     LIVE          real data already in the database for most companies
     COMPUTE       the inputs are ALREADY in the database; a compute pass over them writes the signal
+    IMPORT        the inputs are in files you already HAVE (the raw AIDA exports in Wayland/Data) but were
+                  never imported: map the columns, no new AIDA pull
     RUN           a working, free adapter/crawler exists and simply has not been run over the list
     GATED         built, but blocked by a key, a flag or a policy decision
     BUILD         no producer yet; a concrete source exists (see `where`)
@@ -52,8 +54,11 @@ GAP_PLAN = {
     "independent_board_members": ("COMPUTE", "company_people roles (ADV group)", "same pass"),
     "new_generation_management": ("COMPUTE", "roster ages + appointment dates via sync_succession_signal; correctly sparse "
                                              "(only written when a family handover is actually detected)", "same pass"),
-    "cogs_ratio": ("COMPUTE", "AIDA raw: cogs_latest / revenue_latest (100% of companies)", "small ratio step"),
-    "capex_ratio": ("COMPUTE", "AIDA raw: (material + immaterial capex) / revenue (77-89%)", "small ratio step"),
+    "cogs_ratio": ("COMPUTE", "materials share of revenue = 1 - gross_margin / revenue, where the imported gross_margin is AIDA's "
+                              "'Margine sui consumi' (an amount, 100%). NOT the imported cogs_* column: the data audit found that is total "
+                              "PRODUCTION costs (~ revenue - EBIT), a different ratio. Label it as a materials-based proxy", "small ratio step"),
+    "capex_ratio": ("COMPUTE", "imported material + immaterial capex / revenue (77-89% of companies); take the absolute value "
+                               "(investments are stored as outflows)", "small ratio step"),
     "number_of_employees": ("COMPUTE", "AIDA raw employees_latest / Company.headcount (100%) - a segment filter, not scored", "trivial"),
 
     # ---- RUN: built, free, never run over the list ---------------------------------------------------
@@ -99,26 +104,29 @@ GAP_PLAN = {
                                "new adapter"),
     "job_posting_velocity": ("NOT_ITALY", "Arbeitsagentur is DE-only. Italy has no equivalent open API: derive it from two careers-page "
                                           "crawls (the same two-point trick as physical_stores_trend)", "small build"),
-    "rd_expense_ratio": ("NOT_ITALY", "Bundesanzeiger (paid, DE). Italy: AIDA 'costi di sviluppo' re-export, or the public Registro Imprese "
+    "rd_expense_ratio": ("NOT_ITALY", "Bundesanzeiger (paid, DE). Italy: not in the six exports either (they hold 'Immobilizzazioni immateriali "
+                                      "(Investimenti)', a coarse proxy). Options: an AIDA pull with 'costi di sviluppo', or the public Registro Imprese "
                                       "list of 'PMI innovative' (which must show R&D >= 3%) - verify the open-data file", "AIDA re-export"),
 
     # ---- BUILD: no producer, a source exists ---------------------------------------------------------
-    "total_assets": ("BUILD", "AIDA column already mapped but EMPTY in the export (0/953): re-export 'Totale attivo'", "AIDA re-export"),
-    "labour_cost": ("BUILD", "AIDA 'Costi del personale' (income statement B9) - not in the current export", "AIDA re-export"),
-    "average_salary": ("BUILD", "labour cost / employees - both AIDA fields", "AIDA re-export"),
-    "materials_cost": ("BUILD", "AIDA 'Costi materie prime, sussidiarie, di consumo' (B6)", "AIDA re-export"),
-    "raw_material_cost": ("BUILD", "same B6 line (the catalog splits materials from raw materials; one source feeds both)", "AIDA re-export"),
-    "service_costs": ("BUILD", "AIDA 'Costi per servizi' (B7)", "AIDA re-export"),
+    "total_assets": ("IMPORT", "WAYLAND_FINANCIAL_CAPACITY export, 'TOTALE ATTIVO' x3 years (100%); the Main sheet's column is empty (0/953)", "map one column"),
+    "labour_cost": ("IMPORT", "WAYLAND_FINANCIAL_PL export, 'Totale costi del personale' x3 years (100%)", "map columns"),
+    "average_salary": ("IMPORT", "labour cost / 'Dipendenti' - both in the FINANCIAL_PL export (100%)", "map + ratio"),
+    "materials_cost": ("IMPORT", "WAYLAND_FINANCIAL_PL export, 'Materie prime e consumo' x3 years (100%)", "map columns"),
+    "raw_material_cost": ("IMPORT", "same 'Materie prime e consumo' line (the catalog splits materials from raw materials; one source feeds both)", "map columns"),
+    "service_costs": ("BUILD", "AIDA 'Costi per servizi' (B7) - NOT in the six exports on disk; needs a new AIDA pull", "AIDA re-export"),
     "logistics_cost": ("BUILD", "not separable: Italian statements fold freight into B7. Proxy or first-contact", "proxy / manual"),
     "energy_cost": ("BUILD", "not reported separately in Italian statements; sector-level ISTAT/Eurostat energy intensity is the only "
                              "external proxy - otherwise first-contact", "proxy / manual"),
     "energy_transition_capex": ("BUILD", "not in statements. Signals: sustainability report (website crawler), GSE/Transizione 4.0-5.0 incentives, "
                                          "press. Weak; consider first-contact", "hard"),
-    "subsidiary_participations": ("BUILD", "AIDA column mapped but EMPTY (0/953): re-export 'Partecipazioni'", "AIDA re-export"),
-    "private_funding": ("BUILD", "AIDA shareholder type (PE / VC) in an 'Azionisti' export; or news mentions of funding rounds", "AIDA re-export"),
-    "family_ownership_share": ("BUILD", "AIDA shareholders with % - same surname as the officers = family share (context, not scored)", "AIDA re-export"),
-    "years_international_activity": ("BUILD", "company-website LLM pass on the about/history page ('esportiamo dal ...'); AIDA export split if licensed", "website LLM"),
-    "international_sales_volume": ("BUILD", "AIDA 'ricavi esteri' where available, else website LLM ('esportiamo il 70%') - weight 3", "AIDA / website LLM"),
+    "subsidiary_participations": ("IMPORT", "WAYLAND_STRUCTURE_LEGAL_OWNERSHIP export, 'Numero di partecipazioni disponibili' (622 companies have some) "
+                                             "+ the 'Partecipate' list with %", "map columns"),
+    "private_funding": ("IMPORT", "WAYLAND_SHAREHOLDERS_CONTROL export, 'Azionisti Tipo' (shareholder type, to detect PE / VC / financial holders) "
+                                  "+ '% Diretta/Totale' (100%); news mentions of funding rounds as a complement", "map + classify"),
+    "family_ownership_share": ("IMPORT", "same shareholder rows: shareholders sharing the officers' surname, by '% Totale' (context, not scored)", "map + surname match"),
+    "years_international_activity": ("BUILD", "company-website LLM pass on the about/history page ('esportiamo dal ...')", "website LLM"),
+    "international_sales_volume": ("BUILD", "no export revenue in the AIDA exports on disk; website LLM ('esportiamo il 70%') or a new AIDA pull - weight 3", "website LLM / AIDA"),
     "online_sales_volume": ("BUILD", "presence of a shop is known (digital-maturity); the VOLUME is not published - first-contact", "manual"),
     "product_differentiation": ("BUILD", "website LLM on the home/product pages (claims, certifications, patents cited)", "website LLM"),
     "product_innovativeness": ("BUILD", "press launch mentions + website 'novita' pages; overlaps press_launch_mentions", "RSS/website"),
@@ -147,7 +155,7 @@ GAP_PLAN = {
     "raw_material_rarity": ("MANUAL", "first-contact questionnaire", ""),
 }
 
-CLASS_ORDER = ["LIVE", "COMPUTE", "RUN", "GATED", "NOT_ITALY", "BUILD", "MANUAL", "UNCLASSIFIED"]
+CLASS_ORDER = ["LIVE", "COMPUTE", "IMPORT", "RUN", "GATED", "NOT_ITALY", "BUILD", "MANUAL", "UNCLASSIFIED"]
 
 
 def _connect(url: str):
