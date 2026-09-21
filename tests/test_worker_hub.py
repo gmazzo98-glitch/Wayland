@@ -143,7 +143,9 @@ def test_a_targeted_crawl_goes_to_the_worker_and_never_spawns_locally(monkeypatc
     assert (sent["wid"], sent["name"], sent["kind"], sent["timeout"]) == ("w1", "digital-maturity-crawler", "csv", 77)
     assert sent["request"]["input_csv"].splitlines()[0] == "company_id,homepage_url"
     assert sent["request"]["extra_args"] == ["--flag"]
-    assert sent["request"]["env"] == {"NEWSAPI_KEY": "k", "N": "5"}  # subprocess env values are always strings
+    # Subprocess env values are always strings, and every crawler is told to hand back what it has
+    # 30s before its 77s kill timer (SOFT_DEADLINE_SECONDS) — see node_crawler_base.
+    assert sent["request"]["env"] == {"SOFT_DEADLINE_SECONDS": "47", "NEWSAPI_KEY": "k", "N": "5"}
 
 
 def test_the_node_entrypoint_crawler_routes_too(monkeypatch):
@@ -223,11 +225,13 @@ def test_run_remote_gives_up_and_cancels_a_task_nobody_picks_up(factory, db, mon
 
 # ---- the job manager carries the target through -----------------------------------------------------------
 
-def test_the_job_manager_runs_each_company_on_its_own_target():
+def test_the_job_manager_runs_each_company_on_its_own_target(monkeypatch):
     from crawl_jobs import CrawlJobManager
-    seen = {}
+    seen, sized = {}, []
+    # Sizing the slots reads the worker's row from the database; that has its own tests below.
+    monkeypatch.setattr(worker_hub, "apply_worker_capacity", lambda wid, factory=None: sized.append(wid))
 
-    def runner(cid, session_factory=None, on_step=None):
+    def runner(cid, session_factory=None, on_step=None, phases=None):
         seen[cid] = worker_hub.current_target()
         return cid, cid, {}
 
@@ -237,6 +241,64 @@ def test_the_job_manager_runs_each_company_on_its_own_target():
     m.submit({"b": "B"}, workers=1)
     m.wait(10)
     assert seen == {"a": "w1", "b": None}
+    assert sized == ["w1"], "only a crawl queued for a worker sizes that worker's slots"
+
+
+def _worker_db(tmp_path, info):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from models import Base, CrawlerWorker
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(f"sqlite:///{(tmp_path / 'w.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    s = factory()
+    s.add(CrawlerWorker(id="w1", name="Friend PC", token_hash="x", info=info))
+    s.commit()
+    s.close()
+    return factory
+
+
+def test_a_workers_reported_capacity_sizes_the_app_side_slots(tmp_path):
+    import resource_governor
+    resource_governor.reset_for_tests()
+    worker_hub._capacity_checked.clear()
+    worker_hub.apply_worker_capacity("w1", _worker_db(tmp_path, {"max_parallel": 2, "protocol": 1}))
+    gov = resource_governor.get_governor("w1")
+    assert gov.capacity("process") == 2 and gov.capacity("browser") == 2
+    resource_governor.reset_for_tests()
+
+
+def test_capacity_is_only_reread_once_a_minute_and_a_failure_never_raises(tmp_path, monkeypatch):
+    import resource_governor
+    resource_governor.reset_for_tests()
+    worker_hub._capacity_checked.clear()
+    factory = _worker_db(tmp_path, {"max_parallel": 3})
+    worker_hub.apply_worker_capacity("w1", factory)
+    assert resource_governor.get_governor("w1").capacity("process") == 3
+    # Within the refresh window the database is not asked again.
+    worker_hub.apply_worker_capacity("w1", lambda: pytest.fail("re-read too soon"))
+    # Past it, a database that errors leaves the previous capacity in place and does not raise.
+    worker_hub._capacity_checked["w1"] -= worker_hub.CAPACITY_REFRESH_SECONDS + 1
+
+    def broken():
+        raise RuntimeError("db down")
+
+    worker_hub.apply_worker_capacity("w1", broken)
+    assert resource_governor.get_governor("w1").capacity("process") == 3
+    resource_governor.reset_for_tests()
+
+
+def test_a_worker_that_has_reported_nothing_keeps_the_default_capacity(tmp_path):
+    import resource_governor
+    resource_governor.reset_for_tests()
+    worker_hub._capacity_checked.clear()
+    # No heartbeat yet (info is empty) or an old build that never sent max_parallel.
+    worker_hub.apply_worker_capacity("w1", _worker_db(tmp_path, None))
+    assert resource_governor.get_governor("w1").capacity("process") == resource_governor.default_capacities()["process"]
+    worker_hub._capacity_checked.clear()
+    worker_hub.apply_worker_capacity("missing-worker", _worker_db(tmp_path / "second", {}))
+    resource_governor.reset_for_tests()
 
 
 # ---- the setup file ---------------------------------------------------------------------------------------

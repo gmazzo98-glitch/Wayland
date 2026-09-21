@@ -81,17 +81,25 @@ def render_pipeline_health_page(db: Session):
 
     st.caption(f"Triggers below will execute for **{len(target_companies)}** target companies, running only APIs applicable to each company's country.")
 
+    from crawl_jobs import MAX_WORKERS
+    from views.crawl_widget import queue_crawl
+
+    api_workers = st.number_input(
+        "Companies in parallel (Phase 1 / Phase 4)", min_value=1, max_value=MAX_WORKERS, value=4, key="api_workers",
+        help="Phases 1 and 4 run in the background like the deep crawl: keep working, and follow progress in the "
+             "widget at the bottom right. Within each company its sources also run at the same time.")
+
     col_t1, col_t2, col_t3 = st.columns(3)
 
     from company_service import sync_company_applicable_sources
 
     with col_t1:
         if st.button("🚀 Run Phase 1 Free APIs Sync", use_container_width=True):
-            with st.spinner(f"Syncing Phase 1 APIs across {len(target_companies)} companies (activating country-relevant APIs)..."):
-                for comp in target_companies:
-                    sync_company_applicable_sources(comp, db, phases=[1])
-                st.success(f"Phase 1 API sync completed across {len(target_companies)} companies! Check the mode column below.")
-                st.rerun()
+            # In the background, several companies at once. It used to loop over every company on this
+            # page's own thread, one at a time, blocking the whole app behind a spinner — for a full list
+            # that is hours, which is why these sources had never been run over the imported companies.
+            queue_crawl({c.id: c.legal_name for c in target_companies}, workers=int(api_workers), phases=(1,))
+            st.rerun()
 
     with col_t2:
         if st.button("🔍 Run Phase 2 Commercial Register Base", use_container_width=True):
@@ -104,22 +112,21 @@ def render_pipeline_health_page(db: Session):
 
     with col_t3:
         if st.button("🌐 Run Phase 4 Website & Social Layer", use_container_width=True):
-            with st.spinner(f"Running Wappalyzer, own-site scan, and news search for {len(target_companies)} companies..."):
-                for comp in target_companies:
-                    sync_company_applicable_sources(comp, db, phases=[4])
-                st.success(f"Phase 4 pass complete across {len(target_companies)} companies!")
-                st.rerun()
+            queue_crawl({c.id: c.legal_name for c in target_companies}, workers=int(api_workers), phases=(4,))
+            st.rerun()
 
     st.markdown("&nbsp;")
     st.markdown("**🕸️ Phase 7 — Crawler Deep Enrichment (Node-based, slower)**")
     st.caption(
         "Each of the 8 crawlers under Scraper/crawlers/ spawns its own subprocess per company "
-        "(Node/Playwright startup, sometimes an LLM call) — 2-4 minutes per company end to end. "
-        "Several companies run in parallel, each on its own DB session; 3 in flight is the sweet spot on a "
-        "16 GB machine (one headless Chromium each) before the Groq and Wayback rate limits start biting. "
-        "Cap the batch size below; this is meant for shortlisted companies, not the full list — to hand-pick "
-        "companies instead, tick them on **🎯 Scored Target Matrix**. Crawls run in the background: keep "
-        "working, and follow progress in the widget at the bottom right of any page."
+        "(Node/Playwright startup, sometimes an LLM call). A company's crawlers run at the same time, so it "
+        "takes as long as its slowest one (about 2 minutes) rather than the sum, and several companies run in "
+        "parallel on top of that. What may really run together is capped per resource — 4 headless Chromium "
+        "instances, 2 Wayback lookups, and ONE company-website extraction at a time — because the free LLM "
+        "tier's tokens-per-minute budget, not parallelism, is what limits that crawler: a second free provider "
+        "(CRAWLER_LLM_FALLBACK_API_KEY in .env) is the only way to speed it up further. "
+        "Cap the batch size below; to hand-pick companies instead, tick them on **🎯 Scored Target Matrix**. "
+        "Crawls run in the background: keep working, and follow progress in the widget at the bottom right of any page."
     )
     col_p7a, col_p7b, col_p7c = st.columns([1, 1, 2])
     with col_p7a:

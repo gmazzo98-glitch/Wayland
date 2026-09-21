@@ -84,105 +84,230 @@ def get_applicable_sources_for_company(company: Company) -> list:
     return applicable
 
 
-def sync_company_applicable_sources(company: Company, db: Session, phases: list = None, on_step=None) -> dict:
-    """
-    Executes live/simulated pipeline adapters for a single company,
-    activating ONLY the sources applicable to that company's country.
+class SourceStep:
+    """One source's sync for one company: what to call, and how long it usually takes."""
+    __slots__ = ("name", "fn", "phase")
 
-    on_step(index, total, source_name), when given, is called just BEFORE each
-    Phase 7 crawler starts (0-based index). Phase 7 is 8 sequential subprocesses at
-    2-4 minutes per company, so this is the only signal that a run is alive and
-    which crawler it is in; the other phases are quick and don't report steps.
-    """
-    if phases is None:
-        phases = [1, 4]
+    def __init__(self, name: str, fn, phase: int):
+        self.name, self.fn, self.phase = name, fn, phase
 
-    results = {}
+
+# Slowest first when a company's steps are started together: a run lasts as long as its slowest
+# step, so that one must never start last. Measured 2026-09-21: website ~100-170s (token-bound),
+# digital ~40-170s (archive-bound), jobs ~70s, directory ~50s; everything else is quick or gated.
+_SLOWEST_FIRST = (
+    "Company Website Crawler", "Digital Maturity Crawler", "Job Postings Crawler", "Directory Listing Crawler",
+    "Review Crawler", "LinkedIn Profile Crawler", "News Signals Crawler", "Innovation Participation Crawler",
+)
+
+
+def plan_source_steps(company: Company, phases: list) -> tuple:
+    """
+    The single definition of what each phase runs for this company: (steps, after), where `steps`
+    are the independent per-source syncs — in the order the phases list them — and `after` are
+    computations over what those steps just wrote, which must run once they have all finished.
+    Both the sequential path (sync_company_applicable_sources) and the concurrent one
+    (run_company_phases) execute exactly this plan, so they can never drift apart.
+    """
+    steps, after = [], []
     country = company.country or "Germany"
 
     if 1 in phases:
         # EU / Universal Phase 1 APIs (Both DE & IT)
-        results["EPO OPS"] = epo_ops.sync_company_patents(company, db)
-        results["EUIPO"] = euipo.sync_company_trademarks(company, db)
-        results["EU Funding Portal"] = eu_funding.sync_company_grants(company, db)
-        results["Eurostat Sector Growth"] = eurostat_sector_growth.sync_sector_growth_benchmark(company, db)
-
+        steps += [
+            SourceStep("EPO OPS", epo_ops.sync_company_patents, 1),
+            SourceStep("EUIPO", euipo.sync_company_trademarks, 1),
+            SourceStep("EU Funding Portal", eu_funding.sync_company_grants, 1),
+            SourceStep("Eurostat Sector Growth", eurostat_sector_growth.sync_sector_growth_benchmark, 1),
+        ]
         # Germany-specific Phase 1 APIs
         if country == "Germany":
-            results["Destatis"] = destatis.sync_sector_export_exposure(company, db)
-            results["Arbeitsagentur"] = arbeitsagentur.sync_job_velocity(company, db)
-
+            steps += [
+                SourceStep("Destatis", destatis.sync_sector_export_exposure, 1),
+                SourceStep("Arbeitsagentur", arbeitsagentur.sync_job_velocity, 1),
+            ]
         # Revenue Growth vs. Sector is a pure computation over two already-
         # stored signals (revenue_trend from a financial import, sector_growth_
         # benchmark from the Eurostat call just above) — re-run every sync so
         # it stays current whichever of the two most recently changed.
-        compute_revenue_growth_vs_sector(db, company)
+        after.append(compute_revenue_growth_vs_sector)
 
     if 2 in phases and country == "Germany":
-        results["Handelsregister"] = handelsregister_free.index_handelsregister_snapshot(company, db)
+        steps.append(SourceStep("Handelsregister", handelsregister_free.index_handelsregister_snapshot, 2))
 
     if 4 in phases:
         # Phase 4 Web & Social (Both DE & IT)
-        results["Wappalyzer"] = wappalyzer_local.sync_tech_stack(company, db)
-        results["Management Diversity"] = management_diversity.sync_management_diversity(company, db)
+        steps += [
+            SourceStep("Wappalyzer", wappalyzer_local.sync_tech_stack, 4),
+            SourceStep("Management Diversity", management_diversity.sync_management_diversity, 4),
+        ]
         # News/Press: the Google Programmable Search adapter is better (real search
         # ranking, article snippets) but needs a paid-tier key, and with none set it
         # only ever wrote placeholder values. The keyless Google News RSS adapter
         # covers the same signals for free, so it's the default and CSE takes over
         # only when actually configured — one producer per signal_key either way.
         if has_credentials("Google News"):
-            results["Partnership News"] = google_news.sync_partnership_news(company, db)
-            results["Innovation Statements"] = google_news.sync_innovation_statements(company, db)
+            steps += [
+                SourceStep("Partnership News", google_news.sync_partnership_news, 4),
+                SourceStep("Innovation Statements", google_news.sync_innovation_statements, 4),
+            ]
         else:
-            results["Google News RSS"] = google_news_rss.sync_news_rss(company, db)
+            steps.append(SourceStep("Google News RSS", google_news_rss.sync_news_rss, 4))
 
     if 7 in phases:
         # Phase 7 — Node/Crawlee crawlers (Scraper/crawlers/), both DE & IT. Slower
         # than every other phase (each call spawns a subprocess), so never part of
         # the default auto_sync=[1, 4] path — always an explicit trigger.
-        phase7_steps = [
-            ("Company Website Crawler", company_website_crawler.sync_company_website),
-            ("Job Postings Crawler", job_postings_crawler.sync_job_postings),
-            ("Review Crawler", review_crawler.sync_reviews),
-            ("News Signals Crawler", news_signals_crawler.sync_news_signals),
-            ("Directory Listing Crawler", directory_listing_crawler.sync_directory_listing),
-            ("Innovation Participation Crawler", innovation_participation_crawler.sync_innovation_participation),
-            ("Digital Maturity Crawler", digital_maturity_crawler.sync_digital_maturity),
-            ("LinkedIn Profile Crawler", linkedin_profile_crawler.sync_linkedin_profiles),
+        steps += [
+            SourceStep("Company Website Crawler", company_website_crawler.sync_company_website, 7),
+            SourceStep("Job Postings Crawler", job_postings_crawler.sync_job_postings, 7),
+            SourceStep("Review Crawler", review_crawler.sync_reviews, 7),
+            SourceStep("News Signals Crawler", news_signals_crawler.sync_news_signals, 7),
+            SourceStep("Directory Listing Crawler", directory_listing_crawler.sync_directory_listing, 7),
+            SourceStep("Innovation Participation Crawler", innovation_participation_crawler.sync_innovation_participation, 7),
+            SourceStep("Digital Maturity Crawler", digital_maturity_crawler.sync_digital_maturity, 7),
+            SourceStep("LinkedIn Profile Crawler", linkedin_profile_crawler.sync_linkedin_profiles, 7),
         ]
-        for index, (source_name, sync_fn) in enumerate(phase7_steps):
-            if on_step:
-                on_step(index, len(phase7_steps), source_name)
-            results[source_name] = sync_fn(company, db)
+    return steps, after
 
+
+def sync_company_applicable_sources(company: Company, db: Session, phases: list = None, on_step=None) -> dict:
+    """
+    Executes live/simulated pipeline adapters for a single company,
+    activating ONLY the sources applicable to that company's country.
+
+    Sequential, on the caller's own session — what company creation and the one-off buttons use.
+    The background queue runs the very same plan concurrently instead (run_company_phases).
+
+    on_step(index, total, source_name), when given, is called just BEFORE each
+    Phase 7 crawler starts (0-based index); the other phases don't report steps.
+    """
+    if phases is None:
+        phases = [1, 4]
+
+    steps, after = plan_source_steps(company, phases)
+    phase7_total = sum(1 for s in steps if s.phase == 7)
+    results, phase7_index = {}, 0
+    for step in steps:
+        if step.phase == 7:
+            if on_step:
+                on_step(phase7_index, phase7_total, step.name)
+            phase7_index += 1
+        results[step.name] = step.fn(company, db)
+    for compute in after:
+        compute(db, company)
     return results
 
 
-def run_phase7_for_company(company_id: str, session_factory=None, on_step=None) -> tuple:
+def _open_step_session(session_factory):
+    """A session that keeps its loaded attributes across commits. A crawl runs for minutes, and a
+    default session expires everything on commit — so the crawler thread's first read of
+    `company.website_url` opened a transaction that held one pooled connection until the crawl
+    ended. Several steps of several companies at once would exhaust the pool (and Supabase's
+    session pooler allows only 15 clients). Kept attributes mean the connection is returned
+    after each commit and a step only holds one while it is actually reading or writing."""
+    try:
+        return session_factory(expire_on_commit=False)
+    except TypeError:  # a plain callable (tests) that takes no options
+        return session_factory()
+
+
+def run_company_phases(company_id: str, phases: list, session_factory=None, on_step=None, parallel: bool = True) -> tuple:
     """
-    One company's Phase 7 pass on its OWN DB session (SQLAlchemy sessions are not
+    One company's pass over `phases` on its OWN DB sessions (SQLAlchemy sessions are not
     thread-safe, and a Streamlit page's session must stay on the page's thread).
-    Returns (company_id, legal_name, results) where results is the per-source dict
-    that sync_company_applicable_sources returns, or {"error": ...} when the run
-    itself blew up — one bad company must never take a batch down.
+    Returns (company_id, legal_name, results) where results is the per-source dict, or
+    {"error": ...} when the run itself blew up — one bad company must never take a batch down.
+
+    With parallel=True (the default) the company's sources run at the same time, each on its own
+    session, so the run lasts as long as its slowest source instead of the sum of all of them
+    (measured 421s sequential vs ~170s for the same company). Which of them actually run
+    together is decided by the resource governor (resource_governor.py), not here: this only
+    says they MAY. A step that raises is recorded as that source's error and does not affect
+    the others.
+
+    on_step(index, total, source_name[, "done"]) fires when a step starts and again when it
+    ends; `index` is how many steps had FINISHED at that moment.
     """
     if session_factory is None:
         from database import SessionFactory as session_factory  # lazy: database imports models/config only
 
-    session = session_factory()
+    session = _open_step_session(session_factory)
     try:
         company = session.query(Company).filter_by(id=company_id).first()
         if not company:
             return company_id, None, {"error": "company not found"}
-        # Only pass the hook when there is one, so callers/tests that stub
-        # sync_company_applicable_sources with the old signature keep working.
-        step_kwargs = {"on_step": on_step} if on_step else {}
-        return company_id, company.legal_name, sync_company_applicable_sources(company, session, phases=[7], **step_kwargs)
+        name = company.legal_name
+        steps, after = plan_source_steps(company, phases)
+        if not parallel or len(steps) <= 1:
+            step_kwargs = {"on_step": on_step} if on_step else {}
+            return company_id, name, sync_company_applicable_sources(company, session, phases=phases, **step_kwargs)
     except Exception as e:  # noqa: BLE001 — isolate one company's failure from the batch
         session.rollback()
         return company_id, None, {"error": f"{type(e).__name__}: {e}"}
     finally:
+        # Closed BEFORE the steps run, on purpose: the read above left a transaction open, which
+        # would otherwise pin a pooled connection for the whole (minutes-long) concurrent run.
         session.close()
+
+    try:
+        results = _run_steps_concurrently(company_id, steps, session_factory, on_step)
+        if after:
+            tail = _open_step_session(session_factory)
+            try:
+                company = tail.query(Company).filter_by(id=company_id).first()
+                for compute in after:
+                    compute(tail, company)
+            finally:
+                tail.close()
+        return company_id, name, results
+    except Exception as e:  # noqa: BLE001
+        return company_id, None, {"error": f"{type(e).__name__}: {e}"}
+
+
+def _run_steps_concurrently(company_id: str, steps: list, session_factory, on_step) -> dict:
+    from concurrent.futures import ThreadPoolExecutor
+    import contextvars
+    import threading
+
+    ordered = sorted(steps, key=lambda s: _SLOWEST_FIRST.index(s.name) if s.name in _SLOWEST_FIRST else len(_SLOWEST_FIRST))
+    total = len(ordered)
+    lock, finished, results = threading.Lock(), [0], {}
+
+    def run_step(step: SourceStep):
+        if on_step:
+            with lock:
+                started_after = finished[0]
+            on_step(started_after, total, step.name)
+        session = _open_step_session(session_factory)
+        try:
+            company = session.query(Company).filter_by(id=company_id).first()
+            outcome = step.fn(company, session) if company else {"status": "error", "error": "company not found"}
+        except Exception as e:  # noqa: BLE001 — a step must never take the company's other steps down
+            session.rollback()
+            outcome = {"status": "error", "error": f"{type(e).__name__}: {e}", "mode": "simulated"}
+        finally:
+            session.close()
+        with lock:
+            results[step.name] = outcome
+            finished[0] += 1
+            done = finished[0]
+        if on_step:
+            on_step(done, total, step.name, "done")
+
+    # Threads do not inherit the caller's context; copying it is what carries the crawl's chosen
+    # worker (worker_hub.use_target) into every step.
+    with ThreadPoolExecutor(max_workers=total, thread_name_prefix=f"steps-{company_id[:6]}") as pool:
+        futures = [pool.submit(contextvars.copy_context().run, run_step, step) for step in ordered]
+        for future in futures:
+            future.result()
+    # Same key order as the sequential path, whatever order the steps happened to finish in.
+    return {step.name: results[step.name] for step in steps}
+
+
+def run_phase7_for_company(company_id: str, session_factory=None, on_step=None) -> tuple:
+    """One company's Phase 7 pass — see run_company_phases."""
+    return run_company_phases(company_id, [7], session_factory, on_step)
 
 
 def run_phase7_batch(company_ids: list, max_workers: int = 3, progress_cb=None, session_factory=None) -> dict:

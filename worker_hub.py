@@ -74,6 +74,36 @@ def use_target(worker_id: Optional[str]):
         _target.reset(token)
 
 
+_capacity_checked: Dict[str, float] = {}
+CAPACITY_REFRESH_SECONDS = 60
+
+
+def apply_worker_capacity(worker_id: str, session_factory=None) -> None:
+    """Sizes the app-side resource slots for this worker from the `max_parallel` it reports in its
+    heartbeat. A worker runs at most that many crawlers at once; a task queued beyond that just
+    waits unclaimed until CLAIM_WAIT_SECONDS runs out and the app gives up on it, so the app must
+    not have more in flight than the worker can take. Re-read at most once a minute, and never
+    raises: a database hiccup leaves the previous (or default) capacity in place."""
+    from resource_governor import configure_remote
+
+    now = time.time()
+    if now - _capacity_checked.get(worker_id, 0.0) < CAPACITY_REFRESH_SECONDS:
+        return
+    _capacity_checked[worker_id] = now
+    try:
+        db = (session_factory or _session_factory())()
+        try:
+            worker = db.get(CrawlerWorker, worker_id)
+            reported = int(((worker.info or {}).get("max_parallel")) or 0) if worker else 0
+        finally:
+            db.close()
+    except Exception as e:  # noqa: BLE001
+        print(f"[worker_hub] could not read worker capacity: {type(e).__name__}: {str(e).splitlines()[0]}")
+        return
+    if reported > 0:
+        configure_remote(worker_id, reported)
+
+
 def local_crawlers_available() -> bool:
     """True when THIS machine can run the crawlers itself: the Scraper/crawlers folder is
     checked out (config.SCRAPER_CRAWLERS_DIR) and Node is installed. On a hosted deployment

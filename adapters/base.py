@@ -10,11 +10,14 @@ over a static dataset").
 
 import contextvars
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
 from typing import Callable, Dict, Any
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from models import SignalRecord, SourceHealth
+from resource_governor import WaitClock, use_wait_clock
 
 # DNS resolution is not reliably bounded by requests'/urllib3's own `timeout=`
 # on every platform (the getaddrinfo() call can block past it) — a single
@@ -22,20 +25,36 @@ from models import SignalRecord, SourceHealth
 # Every fetch_live() call gets a hard wall-clock budget here, independent of
 # whatever timeouts the adapter itself sets.
 HARD_FETCH_TIMEOUT_SECONDS = 20
-_FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="adapter-fetch")
+# Two pools, because the two kinds of fetch have nothing in common. Plain HTTP adapters finish in
+# seconds; a crawler wrapper holds its thread for up to a few minutes while its Node process runs
+# (and, with several companies crawled at once, dozens of them wait on resource slots at the same
+# time). In ONE shared pool of 8, a burst of long crawls left every quick API call queued behind
+# them, and — because the timeout used to start at submission — "timed out" without having run.
+_FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=24, thread_name_prefix="adapter-fetch")
+_CRAWLER_EXECUTOR = ThreadPoolExecutor(max_workers=64, thread_name_prefix="crawler-fetch")
+_POLL_SECONDS = 0.25
 
 
 def _call_with_hard_timeout(fn: Callable, company, timeout: int = HARD_FETCH_TIMEOUT_SECONDS):
     # The pool's threads don't inherit the caller's context; carrying it over is what lets a
     # crawl queued for a helper's computer (worker_hub.use_target) still know its target here.
-    future = _FETCH_EXECUTOR.submit(contextvars.copy_context().run, fn, company)
-    try:
-        return future.result(timeout=timeout)
-    except FutureTimeoutError:
-        raise TimeoutError(
-            f"No response within {timeout}s (a slow/hanging DNS lookup or connection "
-            f"is a common cause) — treating this as a failed live attempt."
-        )
+    ctx = contextvars.copy_context()
+    # Time spent waiting for a resource slot (resource_governor) is reported to this clock, and is
+    # not counted against `timeout`: the budget is for RUNNING, not for queueing behind other crawls.
+    clock = WaitClock()
+    ctx.run(use_wait_clock, clock)
+    executor = _CRAWLER_EXECUTOR if timeout > HARD_FETCH_TIMEOUT_SECONDS else _FETCH_EXECUTOR
+    future = executor.submit(ctx.run, fn, company)
+    started = time.monotonic()
+    while True:
+        try:
+            return future.result(timeout=_POLL_SECONDS)
+        except FutureTimeoutError:
+            if time.monotonic() - started - clock.seconds() > timeout:
+                raise TimeoutError(
+                    f"No response within {timeout}s (a slow/hanging DNS lookup or connection "
+                    f"is a common cause) — treating this as a failed live attempt."
+                )
 
 
 def get_or_create_source_health(db: Session, source_name: str, phase: int) -> SourceHealth:
@@ -50,6 +69,13 @@ def get_or_create_source_health(db: Session, source_name: str, phase: int) -> So
         # the column default.
         sh = SourceHealth(source_name=source_name, phase=phase, total_calls=0, total_cost=0.0, error_count=0)
         db.add(sh)
+        try:
+            db.flush()
+        except IntegrityError:
+            # source_name is the primary key, and several companies now run the same source at
+            # once: another session inserted the row between our query and our insert. Theirs wins.
+            db.rollback()
+            sh = db.query(SourceHealth).filter_by(source_name=source_name).one()
     return sh
 
 
@@ -112,7 +138,10 @@ def run_adapter(
     than changing the shared default for every other adapter.
     """
     source_health = get_or_create_source_health(db, source_name, phase)
-    source_health.total_calls += 1
+    # Counters are incremented IN SQL (UPDATE ... SET total_calls = total_calls + 1), not read,
+    # bumped and written back: with several companies running the same source at once, the
+    # read-modify-write version lost updates (two sessions both read 5 and both wrote 6).
+    source_health.total_calls = SourceHealth.total_calls + 1
     source_health.last_run_at = datetime.utcnow()
     source_health.last_status = "running"
     db.commit()
@@ -138,14 +167,14 @@ def run_adapter(
         source_health.last_status = "success"
         source_health.last_error_message = None
         if used_live:
-            source_health.total_cost += cost_per_call
+            source_health.total_cost = SourceHealth.total_cost + cost_per_call
         db.commit()
         return {"status": "success", "mode": source_health.mode, "signals": result["signals"]}
 
     except Exception as e:
         db.rollback()
         source_health = get_or_create_source_health(db, source_name, phase)
-        source_health.error_count += 1
+        source_health.error_count = SourceHealth.error_count + 1
         source_health.last_status = "error"
         source_health.last_error_message = str(e)[:500]
         db.commit()

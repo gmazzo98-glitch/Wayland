@@ -103,6 +103,6 @@ def build_setup_zip(config: Dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
-def make_config(worker_name: str, token: str, supabase_url: str, anon_key: str, max_parallel: int = 3) -> Dict[str, Any]:
+def make_config(worker_name: str, token: str, supabase_url: str, anon_key: str, max_parallel: int = 4) -> Dict[str, Any]:
     return {"name": worker_name, "token": token, "supabaseUrl": supabase_url, "anonKey": anon_key,
             "maxParallel": max_parallel}

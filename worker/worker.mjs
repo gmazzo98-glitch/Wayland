@@ -38,6 +38,10 @@ const PROTOCOL = 1;
 const ENV_ALLOWLIST = new Set([
   'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL', 'WAYBACK_DELAY_MS', 'SEARCH_PROVIDER',
   'NEWSAPI_KEY', 'ANTHROPIC_API_KEY', 'BUILTWITH_API_KEY', 'LINKEDIN_LI_AT',
+  // Wall-clock the crawler may use before it must hand back what it has (set a little under the
+  // kill timeout), and the optional second LLM provider used when the first is rate-limited.
+  'SOFT_DEADLINE_SECONDS', 'LLM_FALLBACK_API_KEY', 'LLM_FALLBACK_BASE_URL', 'LLM_FALLBACK_MODEL',
+  'LLM_REASONING_EFFORT',
 ]);
 
 function readJson(file) {
@@ -250,7 +254,7 @@ async function main() {
   process.on('SIGINT', () => process.exit(0));
   process.on('SIGTERM', () => process.exit(0));
 
-  const maxParallel = Math.max(1, Math.min(Number(CONFIG.maxParallel) || 3, 6));
+  const maxParallel = Math.max(1, Math.min(Number(CONFIG.maxParallel) || 4, 8));
   let running = 0;
   let selfTestReport = await selfTest();
   let selfTestAt = Date.now();

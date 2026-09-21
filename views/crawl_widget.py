@@ -11,7 +11,7 @@ in this Streamlit — a fragment refresh never interrupts a page that is mid-run
 
 import streamlit as st
 
-from crawl_jobs import get_manager, JobSnapshot, SubmitResult, DEFAULT_WORKERS
+from crawl_jobs import get_manager, JobSnapshot, SubmitResult, DEFAULT_WORKERS, DEFAULT_PHASES
 
 POLL_SECONDS = 2
 MAX_LISTED_IN_FLIGHT = 3
@@ -63,22 +63,25 @@ def flash(message: str, icon: str) -> None:
     st.session_state[_FLASH] = (message, icon)
 
 
-def queue_crawl(companies: dict, workers: int = DEFAULT_WORKERS, target=None) -> SubmitResult:
-    """Queues companies ({id: name}) for a background deep crawl and leaves a message
-    for the next run to toast. Callers st.rerun() afterwards so the widget appears.
+def queue_crawl(companies: dict, workers: int = DEFAULT_WORKERS, target=None, phases=DEFAULT_PHASES) -> SubmitResult:
+    """Queues companies ({id: name}) for a background run and leaves a message for the next
+    run to toast. Callers st.rerun() afterwards so the widget appears.
     `target` is the Crawler Worker id to run on (None = this server); callers get it
-    from views.crawler_setup.resolve_crawl_target."""
-    result = get_manager().submit(companies, workers, target=target)
+    from views.crawler_setup.resolve_crawl_target. `phases` is which pipeline phases to run:
+    the default (7) is the deep crawl; (1,) / (4,) are the API and web/news layers, which
+    used to block the page for the whole list."""
+    result = get_manager().submit(companies, workers, target=target, phases=phases)
     n = len(companies)
+    what = _job_label(phases).lower()
     if result.stopping:
         message, icon = "The running crawl is being stopped — try again once it has finished.", "🛑"
     elif result.added == 0:
         message, icon = f"{'It is' if n == 1 else 'Those are'} already queued for crawling.", "ℹ️"
     elif result.new_job:
-        message, icon = f"Deep crawl started for {_companies(result.added)} — progress is in the widget at the bottom right.", "🕸️"
+        message, icon = f"{_job_label(phases)} started for {_companies(result.added)} — progress is in the widget at the bottom right.", "🕸️"
     else:
         skipped = f" ({result.already_queued} already queued)" if result.already_queued else ""
-        message, icon = f"Added {_companies(result.added)} to the running crawl{skipped}.", "🕸️"
+        message, icon = f"Added {_companies(result.added)} to the running {what}{skipped}.", "🕸️"
     flash(message, icon)
     return result
 
@@ -120,7 +123,7 @@ def _widget() -> None:
 def _render_running(snap: JobSnapshot, manager) -> None:
     head, action = st.columns([4, 1.4], vertical_alignment="center")
     with head:
-        st.markdown("**🕸️ Deep crawl " + ("stopping…" if snap.cancel_requested else "running") + "**")
+        st.markdown(f"**🕸️ {_job_label(snap.phases)} " + ("stopping…" if snap.cancel_requested else "running") + "**")
     with action:
         if not snap.cancel_requested:
             st.button("Stop", key="crawl_stop", on_click=manager.cancel, width="stretch",
@@ -134,7 +137,12 @@ def _render_running(snap: JobSnapshot, manager) -> None:
         lines.append(f"Waiting for {_companies(len(snap.in_flight))} already in progress to finish; "
                      f"{snap.pending} still queued will be skipped.")
     for item in snap.in_flight[:MAX_LISTED_IN_FLIGHT]:
-        step = f" · {item.step_name.removesuffix(' Crawler')} {item.step_index + 1}/{item.step_total}" if item.step_total else ""
+        # A company's sources run side by side, so show how many are done and which are running now.
+        step = ""
+        if item.step_total:
+            step = f" · {item.step_index}/{item.step_total} done"
+            if item.running:
+                step += " · " + _sources(item.running)
         lines.append(f"⏳ **{_clip(item.name)}**{step}")
     if len(snap.in_flight) > MAX_LISTED_IN_FLIGHT:
         lines.append(f"…and {len(snap.in_flight) - MAX_LISTED_IN_FLIGHT} more in progress")
@@ -148,7 +156,7 @@ def _render_finished(snap: JobSnapshot) -> None:
     icon = "🛑" if snap.state == "cancelled" else ("⚠️" if snap.failed or snap.with_source_errors else "✅")
     head, action = st.columns([5, 1], vertical_alignment="center")
     with head:
-        st.markdown(f"**{icon} Deep crawl {'stopped' if snap.state == 'cancelled' else 'finished'}**")
+        st.markdown(f"**{icon} {_job_label(snap.phases)} {'stopped' if snap.state == 'cancelled' else 'finished'}**")
     with action:
         st.button("✕", key="crawl_dismiss", help="Dismiss", width="stretch",
                   on_click=lambda job_id=snap.id: st.session_state.__setitem__(_DISMISSED_JOB, job_id))
@@ -182,13 +190,23 @@ def _companies(n: int) -> str:
     return f"{n} company" if n == 1 else f"{n} companies"
 
 
+def _job_label(phases) -> str:
+    """Phase 7 (the Node crawlers) is the 'deep crawl'; phases 1/2/4 alone are quick API/web calls."""
+    return "Deep crawl" if 7 in tuple(phases) else "Source sync"
+
+
+def _sources(names, limit: int = 3) -> str:
+    short = [n.removesuffix(" Crawler") for n in names]
+    return ", ".join(short[:limit]) + (f" +{len(short) - limit}" if len(short) > limit else "")
+
+
 def _completion_message(snap: JobSnapshot):
     if snap.state == "cancelled":
-        return f"Deep crawl stopped — {snap.done} of {snap.total} crawled, {snap.skipped} skipped.", "🛑"
+        return f"{_job_label(snap.phases)} stopped — {snap.done} of {snap.total} done, {snap.skipped} skipped.", "🛑"
     problems = len(snap.failed) + len(snap.with_source_errors)
     if problems:
-        return f"Deep crawl finished — {_companies(snap.done)} crawled, {problems} with errors.", "⚠️"
-    return f"Deep crawl finished — {_companies(snap.done)} crawled.", "✅"
+        return f"{_job_label(snap.phases)} finished — {_companies(snap.done)} processed, {problems} with errors.", "⚠️"
+    return f"{_job_label(snap.phases)} finished — {_companies(snap.done)} processed.", "✅"
 
 
 def _duration(seconds: float) -> str:

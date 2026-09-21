@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session
 
 from config import SCRAPER_CRAWLERS_DIR
 from models import RawImportRecord
+from resource_governor import get_governor
 
 # When set, every crawler subprocess's stdout+stderr is appended to a file in this
 # directory (one per crawler name). Off by default; the benchmark/verification harness
@@ -67,6 +68,16 @@ def _log_subprocess(name: str, args: List[str], result) -> None:
 
 DEFAULT_BUILD_TIMEOUT = 180
 DEFAULT_RUN_TIMEOUT = 90
+# Every crawler is told to finish on its own this many seconds before it would be killed, so a slow
+# run hands back what it has instead of nothing. (A killed crawler loses its whole row — including
+# the pages already read. Crawlers that don't know the setting ignore it.)
+SOFT_DEADLINE_MARGIN = 30
+
+
+def _with_soft_deadline(env_overrides: Optional[Dict[str, str]], run_timeout: int) -> Dict[str, str]:
+    env = {"SOFT_DEADLINE_SECONDS": str(max(10, int(run_timeout) - SOFT_DEADLINE_MARGIN))}
+    env.update({k: str(v) for k, v in (env_overrides or {}).items()})
+    return env
 
 
 class CrawlerRunError(RuntimeError):
@@ -212,12 +223,14 @@ def run_ts_crawler(
     dataset rows back (worker_hub.run_remote); nothing else about the caller changes.
     """
     worker_id = _remote_target()
+    overrides = _with_soft_deadline(env_overrides, run_timeout)
     if worker_id:
         from worker_hub import run_remote
-        return run_remote(worker_id, name, "csv",
-                          {"input_csv": _csv_text(input_rows), "extra_args": [str(a) for a in (extra_args or [])],
-                           "env": {k: str(v) for k, v in (env_overrides or {}).items()}},
-                          run_timeout)
+        with get_governor(worker_id).slot(name):
+            return run_remote(worker_id, name, "csv",
+                              {"input_csv": _csv_text(input_rows), "extra_args": [str(a) for a in (extra_args or [])],
+                               "env": overrides},
+                              run_timeout)
 
     ensure_built(name, timeout=build_timeout)
     d = crawler_dir(name)
@@ -232,12 +245,15 @@ def run_ts_crawler(
 
         env = dict(os.environ)
         env["CRAWLEE_STORAGE_DIR"] = str(storage_dir)
-        env.update(env_overrides or {})
+        env.update(overrides)
 
-        try:
-            result = _run(args, cwd=d, env=env, timeout=run_timeout)
-        except subprocess.TimeoutExpired as e:
-            raise CrawlerRunError(f"{name} timed out after {run_timeout}s") from e
+        # The slot is held only while the process runs. Waiting for it is not counted against the
+        # calling adapter's time budget (see resource_governor.WaitClock).
+        with get_governor(None).slot(name):
+            try:
+                result = _run(args, cwd=d, env=env, timeout=run_timeout)
+            except subprocess.TimeoutExpired as e:
+                raise CrawlerRunError(f"{name} timed out after {run_timeout}s") from e
         _log_subprocess(name, args, result)
 
         if result.returncode != 0:
@@ -266,12 +282,13 @@ def run_node_entrypoint(
     queued-for Crawler Worker when there is one (see run_ts_crawler).
     """
     worker_id = _remote_target()
+    overrides = _with_soft_deadline(env_overrides, run_timeout)
     if worker_id:
         from worker_hub import run_remote
-        return run_remote(worker_id, name, "node",
-                          {"entry": entry_relpath, "cli_args": [str(a) for a in cli_args],
-                           "env": {k: str(v) for k, v in (env_overrides or {}).items()}},
-                          run_timeout)
+        with get_governor(worker_id).slot(name):
+            return run_remote(worker_id, name, "node",
+                              {"entry": entry_relpath, "cli_args": [str(a) for a in cli_args], "env": overrides},
+                              run_timeout)
 
     d = crawler_dir(name)
     tmp_dir = Path(tempfile.mkdtemp(prefix=f"vienna_{name.replace('-', '_')}_"))
@@ -282,12 +299,13 @@ def run_node_entrypoint(
 
         env = dict(os.environ)
         env["CRAWLEE_STORAGE_DIR"] = str(storage_dir)
-        env.update(env_overrides or {})
+        env.update(overrides)
 
-        try:
-            result = _run(args, cwd=d, env=env, timeout=run_timeout)
-        except subprocess.TimeoutExpired as e:
-            raise CrawlerRunError(f"{name} timed out after {run_timeout}s") from e
+        with get_governor(None).slot(name):
+            try:
+                result = _run(args, cwd=d, env=env, timeout=run_timeout)
+            except subprocess.TimeoutExpired as e:
+                raise CrawlerRunError(f"{name} timed out after {run_timeout}s") from e
         _log_subprocess(name, args, result)
 
         if result.returncode != 0:

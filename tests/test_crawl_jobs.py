@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from crawl_jobs import CrawlJobManager, estimate_seconds, SECONDS_PER_COMPANY_ESTIMATE
+from crawl_jobs import CrawlJobManager, estimate_seconds, SECONDS_PER_COMPANY_ESTIMATE, LLM_SECONDS_PER_COMPANY, MAX_WORKERS
 
 
 def _wait_for(predicate, timeout=3.0):
@@ -31,15 +31,17 @@ class GatedRunner:
         self.started = []
         self.threads = {}
         self.results = {}
+        self.phases_seen = {}
         self._lock = threading.Lock()
 
     def gate(self, cid):
         self.gates[cid] = threading.Event()
         return self.gates[cid]
 
-    def __call__(self, cid, session_factory=None, on_step=None):
+    def __call__(self, cid, session_factory=None, on_step=None, phases=None):
         with self._lock:
             self.started.append(cid)
+            self.phases_seen[cid] = phases
             self.threads[cid] = threading.current_thread().name
         gate = self.gates.get(cid)
         if gate:
@@ -176,9 +178,9 @@ def test_progress_counts_crawlers_finished_inside_running_companies():
     runner = GatedRunner()
     gate = runner.gate("a")
 
-    def stepping(cid, session_factory=None, on_step=None):
+    def stepping(cid, session_factory=None, on_step=None, phases=None):
         on_step(4, 8, "Review Crawler")
-        return runner(cid, session_factory, on_step)
+        return runner(cid, session_factory, on_step, phases)
 
     mgr = CrawlJobManager(run_company=stepping)
     mgr.submit(_names("a", "b"), workers=1)
@@ -242,12 +244,12 @@ def test_nothing_to_add_does_not_start_a_job():
 
 def test_worker_count_is_clamped():
     runner = GatedRunner()
-    gates = {c: runner.gate(c) for c in map(str, range(10))}
+    gates = {c: runner.gate(c) for c in map(str, range(MAX_WORKERS + 4))}
     mgr = CrawlJobManager(run_company=runner)
     mgr.submit(_names(*gates), workers=999)
-    assert _wait_for(lambda: len(runner.started) == 6)
+    assert _wait_for(lambda: len(runner.started) == MAX_WORKERS)
     time.sleep(0.05)
-    assert len(runner.started) == 6  # MAX_WORKERS, not 999
+    assert len(runner.started) == MAX_WORKERS  # the cap, not 999
     for g in gates.values():
         g.set()
     assert mgr.wait(3)
@@ -276,9 +278,77 @@ def test_appending_while_the_last_worker_is_retiring_never_loses_a_company():
     assert mgr.wait(3)
 
 
-def test_estimate_scales_in_batches_of_the_worker_count():
+def test_estimate_scales_in_batches_of_the_worker_count(monkeypatch):
+    monkeypatch.delenv("CRAWLER_LLM_FALLBACK_API_KEY", raising=False)
     assert estimate_seconds(0, 3) == 0
     assert estimate_seconds(1, 3) == SECONDS_PER_COMPANY_ESTIMATE
-    assert estimate_seconds(3, 3) == SECONDS_PER_COMPANY_ESTIMATE
-    assert estimate_seconds(4, 3) == 2 * SECONDS_PER_COMPANY_ESTIMATE
-    assert estimate_seconds(10, 1) == 10 * SECONDS_PER_COMPANY_ESTIMATE
+    assert estimate_seconds(3, 3) == 3 * LLM_SECONDS_PER_COMPANY  # the LLM floor exceeds one 150s wave
+    # Few LLM-free phases: purely waves of `workers`.
+    assert estimate_seconds(4, 3, phases=(1,)) == 2 * 20
+    assert estimate_seconds(10, 1, phases=(4,)) == 10 * 30
+
+
+def test_the_llm_budget_is_a_floor_under_a_deep_crawl_estimate(monkeypatch):
+    """6 real companies took 623s at 3 in flight - the waves alone would have said 300s - because the
+    website crawls are serialised by the token budget, however many companies run at once."""
+    monkeypatch.delenv("CRAWLER_LLM_FALLBACK_API_KEY", raising=False)
+    assert estimate_seconds(6, 3) == 6 * LLM_SECONDS_PER_COMPANY
+    assert estimate_seconds(6, 8) == 6 * LLM_SECONDS_PER_COMPANY, "more workers cannot beat the token budget"
+    # A second provider doubles the budget (two LLM slots).
+    monkeypatch.setenv("CRAWLER_LLM_FALLBACK_API_KEY", "k")
+    assert estimate_seconds(6, 3) == 3 * LLM_SECONDS_PER_COMPANY
+    # Phases that never touch the LLM are not held to it.
+    assert estimate_seconds(6, 3, phases=(1, 4)) == 2 * 30
+
+
+def test_a_companys_sources_overlap_and_all_show_as_running():
+    """A company's sources run at the same time, so the snapshot must list every one that is
+    running (not just the latest), and drop each when it ends."""
+    runner = GatedRunner()
+    gate = runner.gate("a")
+
+    def overlapping(cid, session_factory=None, on_step=None, phases=None):
+        on_step(0, 3, "Company Website Crawler")
+        on_step(0, 3, "Digital Maturity Crawler")
+        on_step(0, 3, "Job Postings Crawler")
+        on_step(1, 3, "Job Postings Crawler", "done")
+        return runner(cid, session_factory, on_step, phases)
+
+    mgr = CrawlJobManager(run_company=overlapping)
+    mgr.submit(_names("a"), workers=1)
+    assert _wait_for(lambda: mgr.snapshot().in_flight and mgr.snapshot().in_flight[0].step_index == 1)
+    item = mgr.snapshot().in_flight[0]
+    assert set(item.running) == {"Company Website Crawler", "Digital Maturity Crawler"}
+    assert item.step_index == 1 and item.step_total == 3
+    # One source done of three, on the only company: a third of it.
+    assert mgr.snapshot().fraction == pytest.approx(1 / 3)
+    gate.set()
+    assert mgr.wait(3)
+    assert mgr.snapshot().in_flight == ()
+
+
+def test_each_company_carries_the_phases_it_was_queued_with():
+    runner = GatedRunner()
+    mgr = CrawlJobManager(run_company=runner)
+    mgr.submit(_names("a"), workers=1, phases=(1, 4))
+    assert mgr.wait(3)
+    mgr.submit(_names("b"), workers=1)
+    assert mgr.wait(3)
+    assert runner.phases_seen == {"a": (1, 4), "b": (7,)}
+
+
+def test_phases_are_normalised_and_reported_on_the_snapshot():
+    runner = GatedRunner()
+    gate = runner.gate("a")
+    mgr = CrawlJobManager(run_company=runner)
+    mgr.submit(_names("a"), workers=1, phases=[4, 1, 4])
+    assert _wait_for(lambda: mgr.snapshot() is not None)
+    assert mgr.snapshot().phases == (1, 4)
+    gate.set()
+    assert mgr.wait(3)
+
+
+def test_estimate_uses_the_slowest_phase_of_the_company(monkeypatch):
+    monkeypatch.delenv("CRAWLER_LLM_FALLBACK_API_KEY", raising=False)
+    assert estimate_seconds(3, 3, phases=(1, 4)) < estimate_seconds(3, 3, phases=(7,))
+    assert estimate_seconds(3, 3, phases=(1, 4, 7)) == estimate_seconds(3, 3, phases=(7,))

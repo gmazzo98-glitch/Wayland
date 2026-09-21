@@ -112,6 +112,15 @@ CRAWLER_LLM_BASE_URL = os.getenv("CRAWLER_LLM_BASE_URL", "https://api.groq.com/o
 # strict schema-guaranteed tool calling (the other: gpt-oss-20b, smaller/faster).
 CRAWLER_LLM_MODEL = os.getenv("CRAWLER_LLM_MODEL", "openai/gpt-oss-120b")
 
+# Optional SECOND provider for the same extraction. The free tier's per-minute token cap is the
+# hard limit on how fast company-website-crawler can go (see resource_governor.py), and running
+# two crawls against ONE account only makes both hit 429s. A second free account (e.g. Cerebras
+# or Google AI Studio — both OpenAI-compatible) is the only way past it: when the primary
+# answers 429, the call goes to this one instead of waiting the cap out. Unset = no fallback.
+CRAWLER_LLM_FALLBACK_API_KEY = os.getenv("CRAWLER_LLM_FALLBACK_API_KEY")
+CRAWLER_LLM_FALLBACK_BASE_URL = os.getenv("CRAWLER_LLM_FALLBACK_BASE_URL")
+CRAWLER_LLM_FALLBACK_MODEL = os.getenv("CRAWLER_LLM_FALLBACK_MODEL")
+
 # news-signals-crawler / innovation-participation-crawler: without a real key
 # these default to SEARCH_PROVIDER=mock, which returns FIXED FAKE Wikipedia
 # search results — that is never acceptable to present as a live pull, so the

@@ -16,6 +16,13 @@ One job at a time, but it is a queue: submitting while a job is running appends
 the new companies to it (skipping any already queued or in flight) and tops the
 worker pool back up, instead of refusing or starting a second competing job.
 
+Two levels of concurrency, deliberately separate. `workers` is how many COMPANIES are in
+flight at once. Inside one company, its sources (the 8 crawlers, or the APIs of phases 1/4)
+run side by side as well - company_service.run_company_phases - so a company takes as long
+as its slowest source, not the sum. What may really run together is bounded by the resource
+governor (resource_governor.py): Chromium instances, the LLM token budget, the Wayback rate
+limit. So raising `workers` keeps the pipeline full without over-subscribing any of them.
+
 Each company remembers WHERE its crawlers run: None = on this machine, otherwise the id
 of a Crawler Worker (worker_hub.py) — a helper's own computer. That choice is set around
 the company's run so the subprocess layer can route it, and lets one queue mix targets.
@@ -30,25 +37,44 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 DEFAULT_WORKERS = 3
-MAX_WORKERS = 6
-# Measured 93-222s per company across real runs (see company_service.run_phase7_batch);
-# used only for the "about how long will this take" hint shown before a run starts.
-SECONDS_PER_COMPANY_ESTIMATE = 190
+MAX_WORKERS = 8
+# Wall-clock for ONE company's Phase 7 pass with its crawlers running together: about as long as
+# the slowest one (see company_service.run_company_phases). Measured 2026-09-21: 148s for a real
+# company. Used only for the "about how long will this take" hint shown before a run starts -
+# once companies finish, the widget's ETA uses the durations actually observed.
+SECONDS_PER_COMPANY_ESTIMATE = 150
+# Phase 1 (APIs) and Phase 4 (web / news) are seconds of network calls per company.
+SECONDS_PER_COMPANY_BY_PHASE = {1: 20, 2: 5, 4: 30, 7: SECONDS_PER_COMPANY_ESTIMATE}
+DEFAULT_PHASES = (7,)
+# The company-website crawler is limited by the LLM's tokens-per-minute budget, not by how many run
+# at once: ~19k tokens per company against a bucket refilling at 8k/min is ~105s of budget each
+# (measured: 6 companies took 623s, i.e. 104s each, however many were in flight). So a batch can
+# never finish faster than n x this / LLM slots, whatever the parallelism.
+LLM_SECONDS_PER_COMPANY = 105
 
 
-def estimate_seconds(n_companies: int, workers: int) -> int:
-    """Rough wall-clock for n companies at `workers` in flight — batches of `workers`."""
+def estimate_seconds(n_companies: int, workers: int, phases=DEFAULT_PHASES) -> int:
+    """Rough wall-clock for n companies at `workers` in flight. A company's phases run together, so
+    its time is that of its slowest phase; companies go in waves of `workers`. For phase 7 the
+    serialised LLM budget is a floor under that (see LLM_SECONDS_PER_COMPANY)."""
     if n_companies <= 0:
         return 0
-    return math.ceil(n_companies / max(1, workers)) * SECONDS_PER_COMPANY_ESTIMATE
+    per_company = max((SECONDS_PER_COMPANY_BY_PHASE.get(p, SECONDS_PER_COMPANY_ESTIMATE) for p in phases),
+                      default=SECONDS_PER_COMPANY_ESTIMATE)
+    estimate = math.ceil(n_companies / max(1, workers)) * per_company
+    if 7 in phases:
+        from resource_governor import default_capacities
+        estimate = max(estimate, math.ceil(n_companies * LLM_SECONDS_PER_COMPANY / max(1, default_capacities()["llm"])))
+    return int(estimate)
 
 
 @dataclass(frozen=True)
 class InFlight:
     name: str
-    step_index: int = 0          # crawlers already finished for this company (= 0-based index of the running one)
+    step_index: int = 0          # sources already FINISHED for this company
     step_total: int = 0
-    step_name: str = ""
+    step_name: str = ""          # the source that started most recently
+    running: Tuple[str, ...] = ()  # every source running for this company right now (they overlap)
 
 
 @dataclass(frozen=True)
@@ -69,6 +95,7 @@ class JobSnapshot:
     cancel_requested: bool
     fraction: float              # 0..1, counts crawlers finished inside in-flight companies too
     eta_seconds: Optional[float]
+    phases: Tuple[int, ...] = DEFAULT_PHASES   # every phase any company in this job runs
 
     @property
     def running(self) -> bool:
@@ -104,6 +131,7 @@ class _Job:
     started_at: float
     names: Dict[str, str] = field(default_factory=dict)
     targets: Dict[str, Optional[str]] = field(default_factory=dict)  # company id -> worker id (None = local)
+    phases: Dict[str, Tuple[int, ...]] = field(default_factory=dict)  # company id -> phases to run
     pending: deque = field(default_factory=deque)
     in_flight: Dict[str, InFlight] = field(default_factory=dict)
     results: List[_Outcome] = field(default_factory=list)  # one per RUN — a company re-queued after it finished has two
@@ -133,7 +161,7 @@ def _summarize(name: str, results, seconds: float) -> _Outcome:
 
 class CrawlJobManager:
     def __init__(self, run_company: Callable = None, session_factory=None):
-        # run_company(company_id, session_factory, on_step) -> (company_id, name, results)
+        # run_company(company_id, session_factory, on_step, phases) -> (company_id, name, results)
         self._run_company = run_company
         self._session_factory = session_factory
         self._lock = threading.Lock()
@@ -160,12 +188,14 @@ class CrawlJobManager:
     # ---- control ---------------------------------------------------------------
 
     def submit(self, companies: Dict[str, str], workers: int = DEFAULT_WORKERS,
-               target: Optional[str] = None) -> SubmitResult:
+               target: Optional[str] = None, phases=DEFAULT_PHASES) -> SubmitResult:
         """
         Queues `companies` ({company_id: display name}). Starts a new job when none is
         running; otherwise appends to the running one. Never blocks on the crawl.
-        `target` is the Crawler Worker id to run them on, or None for this machine.
+        `target` is the Crawler Worker id to run them on, or None for this machine (it only
+        matters for phase 7, the Node crawlers). `phases` is which pipeline phases to run.
         """
+        phases = tuple(sorted({int(p) for p in phases})) or DEFAULT_PHASES
         workers = max(1, min(int(workers), MAX_WORKERS))
         with self._lock:
             job = self._job
@@ -184,6 +214,7 @@ class CrawlJobManager:
                 self._job = job
             job.names.update(fresh)
             job.targets.update({cid: target for cid in fresh})
+            job.phases.update({cid: phases for cid in fresh})
             job.pending.extend(fresh)
             job.total += len(fresh)
             # A running job whose earlier workers already retired (queue ran dry while one
@@ -230,21 +261,31 @@ class CrawlJobManager:
                     self._retire_locked(job)
 
     def _execute(self, job: _Job, cid: str, name: str) -> None:
-        def on_step(index: int, total: int, step_name: str) -> None:
+        def on_step(index: int, total: int, step_name: str, event: str = "start") -> None:
+            # A company's sources overlap, so this is called from several threads at once, both
+            # when a source starts and when it ends; `index` is how many had finished by then.
             with self._lock:
-                if cid in job.in_flight:
-                    job.in_flight[cid] = InFlight(name, index, total, step_name)
+                current = job.in_flight.get(cid)
+                if current is None:
+                    return
+                running = [r for r in current.running if r != step_name]
+                if event != "done":
+                    running.append(step_name)
+                job.in_flight[cid] = InFlight(name, index, total,
+                                              current.step_name if event == "done" else step_name, tuple(running))
 
         started = time.time()
         try:
             run_company = self._run_company or _default_run_company()
             target = job.targets.get(cid)
+            phases = job.phases.get(cid, DEFAULT_PHASES)
             if target:
-                from worker_hub import use_target  # lazy: only remote crawls need the DB-backed hub
+                from worker_hub import use_target, apply_worker_capacity  # lazy: only remote crawls need the DB-backed hub
+                apply_worker_capacity(target, self._session_factory)
                 with use_target(target):
-                    _, _, results = run_company(cid, self._session_factory, on_step)
+                    _, _, results = run_company(cid, self._session_factory, on_step, phases)
             else:
-                _, _, results = run_company(cid, self._session_factory, on_step)
+                _, _, results = run_company(cid, self._session_factory, on_step, phases)
         except Exception as e:  # noqa: BLE001 — a crashing runner must not kill the worker
             results = {"error": f"{type(e).__name__}: {e}"}
         outcome = _summarize(name, results, time.time() - started)
@@ -286,12 +327,16 @@ class CrawlJobManager:
             cancel_requested=job.cancel_requested,
             fraction=min(1.0, (done + partial) / job.total) if job.total else 0.0,
             eta_seconds=eta,
+            phases=tuple(sorted({p for ph in job.phases.values() for p in ph})) or DEFAULT_PHASES,
         )
 
 
 def _default_run_company() -> Callable:
-    from company_service import run_phase7_for_company  # lazy: pulls in every adapter
-    return run_phase7_for_company
+    from company_service import run_company_phases  # lazy: pulls in every adapter
+
+    def run(company_id, session_factory, on_step, phases):
+        return run_company_phases(company_id, list(phases), session_factory, on_step)
+    return run
 
 
 _manager: Optional[CrawlJobManager] = None

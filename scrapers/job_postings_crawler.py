@@ -201,15 +201,24 @@ def _apex_homepage(website_url: str):
     return "https://www." + ".".join(labels[-2:])
 
 
-def _probe_paths_concurrently(home_url: str, home_norm: str, deadline: float):
-    """The fixed-path fallback, five requests at a time — sequentially it took 40-48s
-    on every site with no careers signpost (the common case), most of the budget."""
-    urls = [urljoin(home_url.rstrip("/") + "/", p.lstrip("/")) for p in CAREERS_PATHS]
-    remaining = max(1.0, deadline - time.monotonic())
-    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="careers-probe") as pool:
-        futures = [pool.submit(_get, u) for u in urls]
+_PROBE_WORKERS = 10
+
+
+def _first_careers_page(candidates: list, home_norm: str, deadline: float):
+    """
+    Fetches every (url, found_via) candidate AT THE SAME TIME and returns the first one, in the
+    order given, that really is a careers page. Order is what decides among several that pass —
+    it is the candidate list's own ranking (best-scored homepage link first) — so the outcome is
+    the same as trying them one after another; only the waiting is not serial. One at a time, a
+    site with slow or hanging pages cost up to 6s per candidate on the way to a "no careers page"
+    verdict (70s for one real company that has none).
+    """
+    if not candidates:
+        return None
+    with ThreadPoolExecutor(max_workers=min(_PROBE_WORKERS, len(candidates)), thread_name_prefix="careers-probe") as pool:
+        futures = [pool.submit(_get, url) for url, _ in candidates]
         try:
-            for path, fut in zip(CAREERS_PATHS, futures):
+            for (url, via), fut in zip(candidates, futures):
                 try:
                     resp = fut.result(timeout=max(0.1, deadline - time.monotonic()))
                 except FutureTimeoutError:
@@ -217,11 +226,19 @@ def _probe_paths_concurrently(home_url: str, home_norm: str, deadline: float):
                 except requests.RequestException:
                     continue
                 if _looks_like_careers_page(resp, home_norm):
-                    return {"url": resp.url, "found_via": f"path probe {path}"}
+                    return {"url": resp.url, "found_via": via}
         finally:
             for fut in futures:
                 fut.cancel()
     return None
+
+
+def _probe_paths_concurrently(home_url: str, home_norm: str, deadline: float):
+    """The fixed-path fallback: all 20 guesses in flight at once (sequentially it took 40-48s
+    on every site with no careers signpost — the common case — most of the budget)."""
+    return _first_careers_page(
+        [(urljoin(home_url.rstrip("/") + "/", p.lstrip("/")), f"path probe {p}") for p in CAREERS_PATHS],
+        home_norm, deadline)
 
 
 def _discover_careers_page(website_url: str, budget_seconds: float = _DISCOVERY_BUDGET_SECONDS, _try_apex: bool = True):
@@ -274,23 +291,16 @@ def _discover_careers_page(website_url: str, budget_seconds: float = _DISCOVERY_
     candidates = sorted(scored.values(), key=lambda c: -c[0])
     candidates += [(1, loc, "sitemap.xml") for loc in _sitemap_candidates(home.url, deadline)]
 
-    found = None
-    seen, tried = set(), 0
+    picked, seen = [], set()
     for score, url, via in candidates:
         key = _normalized(url)
         if key in seen or key == home_url:
             continue
         seen.add(key)
-        if time.monotonic() > deadline or tried >= _MAX_DISCOVERED_CANDIDATES:
+        if len(picked) >= _MAX_DISCOVERED_CANDIDATES:
             break
-        tried += 1
-        try:
-            resp = _get(url)
-        except requests.RequestException:
-            continue
-        if _looks_like_careers_page(resp, home_url):
-            found = {"url": resp.url, "found_via": via}
-            break
+        picked.append((url, via))
+    found = _first_careers_page(picked, home_url, deadline) if time.monotonic() <= deadline else None
     if found is None and time.monotonic() < deadline:
         found = _probe_paths_concurrently(home.url, home_url, deadline)
     if found is not None:

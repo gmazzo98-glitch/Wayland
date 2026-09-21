@@ -20,7 +20,10 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from adapters.base import run_adapter
-from config import CRAWLER_LLM_API_KEY, CRAWLER_LLM_BASE_URL, CRAWLER_LLM_MODEL
+from config import (
+    CRAWLER_LLM_API_KEY, CRAWLER_LLM_BASE_URL, CRAWLER_LLM_MODEL,
+    CRAWLER_LLM_FALLBACK_API_KEY, CRAWLER_LLM_FALLBACK_BASE_URL, CRAWLER_LLM_FALLBACK_MODEL,
+)
 from models import RawImportRecord
 from scrapers.node_crawler_base import (
     CrawlerRunError, run_ts_crawler, rows_for_company, save_crawler_blob,
@@ -136,13 +139,18 @@ def sync_company_website(company, db_session: Session) -> dict:
         # Ollama instead, no code change needed on either side.
         env = {"LLM_API_KEY": CRAWLER_LLM_API_KEY, "LLM_BASE_URL": CRAWLER_LLM_BASE_URL,
                "LLM_MODEL": CRAWLER_LLM_MODEL} if CRAWLER_LLM_API_KEY else {}
-        # 130s, not the 90s default: enabling SDK retries on 429s (see llm.ts) makes a
-        # 13-15 page crawl legitimately take up to ~60-90s under free-tier rate limiting
-        # — verified live to time out at 90s for a real company ("No response within 90s"),
-        # losing the entire crawl (no blob, no signal) rather than the graceful per-page
-        # degradation this crawler is designed for.
+        if CRAWLER_LLM_API_KEY and CRAWLER_LLM_FALLBACK_API_KEY:
+            env["LLM_FALLBACK_API_KEY"] = CRAWLER_LLM_FALLBACK_API_KEY
+            if CRAWLER_LLM_FALLBACK_BASE_URL:
+                env["LLM_FALLBACK_BASE_URL"] = CRAWLER_LLM_FALLBACK_BASE_URL
+            if CRAWLER_LLM_FALLBACK_MODEL:
+                env["LLM_FALLBACK_MODEL"] = CRAWLER_LLM_FALLBACK_MODEL
+        # The crawl is bound by the free tier's token bucket (8k + 133 tokens/s, ~19k tokens for a
+        # 14-page company = ~80-110s measured), so it needs real headroom: 170s, of which the
+        # crawler itself stops at 140s (node_crawler_base.SOFT_DEADLINE_MARGIN) and writes the pages
+        # it has read, flagged incomplete. It used to be killed at 130s with nothing to show for it.
         rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}],
-                               env_overrides=env, run_timeout=130)
+                               env_overrides=env, run_timeout=170)
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("company-website-crawler returned no row for this company")
@@ -173,7 +181,7 @@ def sync_company_website(company, db_session: Session) -> dict:
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=bool(company.website_url and CRAWLER_LLM_API_KEY),
-        fetch_live=_fetch_live, simulate=_simulate, timeout=150,
+        fetch_live=_fetch_live, simulate=_simulate, timeout=190,
     )
 
     if captured.get("row"):
