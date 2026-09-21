@@ -87,16 +87,18 @@ def test_not_checked_is_a_gap_never_a_clear():
 
 
 def test_an_indicator_missing_from_the_catalog_is_reported_as_a_named_gap():
-    r = evaluate(pp(P._r("ebit_margin", "lower", 4, -2, 3, "%")), sig("ebit_margin", -5))
+    # A proposal that is still only a plan (the press-distress bucket does not exist yet).
+    r = evaluate(pp(P._r("reported_distress_news", "higher", 1, 4, 3, " mentions")), sig("reported_distress_news", 5))
     d = r["drivers"][0]
     assert not d["assessed"] and d["unassessed_reason"] == "not_in_catalog"
-    assert "EBIT" in d["unassessed_text"] and d["producer"]["proposed"] is True
+    assert "insolvency" in d["unassessed_text"] and d["producer"]["proposed"] is True
 
 
 def test_it_starts_working_the_moment_the_indicator_exists():
-    defs = dict(INDICATOR_DEFS, ebit_margin={"key": "ebit_margin", "label": "EBIT margin", "axis": "context",
-                                             "freshness_days": 365, "source_system": "Derived", "automation_tier": "T1", "phase": 3})
-    r = evaluate(pp(P._r("ebit_margin", "lower", 4, -2, 3, "%")), sig("ebit_margin", -2), defs=defs)
+    key = "reported_distress_news"
+    defs = dict(INDICATOR_DEFS, **{key: {"key": key, "label": "Distress mentions", "axis": "context",
+                                         "freshness_days": 365, "source_system": "Google News RSS", "automation_tier": "T2", "phase": 4}})
+    r = evaluate(pp(P._r(key, "higher", 1, 4, 3, " mentions")), sig(key, 6), defs=defs)
     assert r["status"] == "severe"
 
 

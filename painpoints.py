@@ -126,21 +126,29 @@ _SEED_ROWS = [
                 note="AIDA's 'Rapporto di indebitamento' = total assets ÷ equity (checked on all 954 rows). 4× means equity funds a quarter "
                      "of the balance sheet; negative means negative equity, which counts as fully severe."),
          ]),
+    dict(key="insolvency_procedure", label="Insolvency / restructuring procedure", category=CAT_FIN,
+         description="The company registry shows an open court-supervised procedure — composition with creditors, protective measures, insolvency or liquidation.",
+         pilot_angle="Not a pilot prospect: turnaround, restructuring and cash-preservation advisers are the relevant counterparties.",
+         caveat="'Open' is inferred from a missing closing date, so read the procedure text before acting on it. Relocations and mergers, which share the registry column, are not counted.",
+         rules=[
+             _r("distress_procedure", "higher", 0, 1, 1, "",
+                note="1 = a distress-type procedure without a recorded closing date; 0 = none on record."),
+         ]),
     dict(key="liquidity_squeeze", label="Thin cash cushion", category=CAT_FIN,
          description="Cash on hand covers only a few weeks of revenue — little room to absorb a bad quarter or fund change.",
          pilot_angle="Receivables/payables automation, inventory optimisation, cash-flow forecasting.",
          caveat="Also lowers Readiness (no discretionary budget).",
          rules=[
-             _r("cash_to_revenue", "lower", 0.75, 0.15, 1, " months of revenue",
-                note="Cash ÷ (revenue ÷ 12). Real portfolio: median 1.4 months, 25th percentile 0.5, 10th 0.1."),
+             _r("cash_to_revenue", "lower", 0.5, 0.05, 1, " months of revenue",
+                note="Cash ÷ (revenue ÷ 12). Real portfolio: 10th percentile 0.1 months, 25th 0.5, median 1.4. Cash only: Italian SMEs often run on overdraft and credit lines that never show as cash, so treat a low reading as a prompt to ask, not a verdict."),
          ]),
     dict(key="underinvestment", label="Under-investment in capacity", category=CAT_FIN,
          description="Capital spending is very low relative to revenue — equipment and technology are being sweated rather than renewed.",
          pilot_angle="Retrofit/upgrade kits, leasing-based automation, predictive maintenance.",
          caveat="Can also be deliberate cash preservation; it may extend to reluctance to fund a pilot.",
          rules=[
-             _r("capex_ratio", "lower", 1.5, 0.3, 1, "% of revenue",
-                note="Set against the real portfolio: median 1.8% of revenue, 10th percentile ~0%."),
+             _r("capex_ratio", "lower", 1.0, 0.2, 1, "% of revenue",
+                note="(Material + immaterial capex) ÷ revenue. Real portfolio: 10th percentile ~0%, 25th 0.6%, median 1.8%, 75th 4.0%."),
          ]),
 
     # ------------------------------------------------------------------ Cost & supply chain
@@ -246,8 +254,9 @@ _SEED_ROWS = [
          rules=[
              _r("management_age", "higher", 58, 64, 3, " yrs"),
              _r("senior_mgmt_tenure", "higher", 15, 25, 2, " yrs"),
-             _r("management_turnover", "higher", 2, 5, 1.5, " changes in 3 yrs",
-                note="Counted from the imported roster, which can include non-executive roles — low weight for that reason."),
+             _r("management_turnover", "higher", 4, 8, 1.5, " changes in 3 yrs",
+                note="Appointment or resignation events in three years, from the roster (auditors excluded). Includes routine mandate renewals, "
+                     "so the bar is high: real portfolio median 3, 75th percentile 4, 90th 6."),
          ]),
 
     # ------------------------------------------------------------------ Risk & compliance
@@ -284,40 +293,12 @@ EXEMPT_NEED_INDICATORS = {
 # missing; 'needs_decision' = buildable, but it would change existing Need scores or needs a
 # calibration call first; 'needs_source' = a new data source or crawler step.
 PROPOSED_INDICATORS = {
-    "ebit_margin": dict(
-        label="EBIT margin", kind="derivation", status="ready_to_build",
-        how="EBIT ÷ revenue (latest year), from the imported AIDA rows.",
-        evidence="ebit_latest and revenue_latest are present for all 953 imported companies.",
-        feeds=["profit_erosion"]),
-    "cash_to_revenue": dict(
-        label="Cash cover (months of revenue)", kind="derivation", status="ready_to_build",
-        how="Cash ÷ (revenue ÷ 12), from the imported AIDA rows.",
-        evidence="cash_latest and revenue_latest are present for all 953 imported companies.",
-        feeds=["liquidity_squeeze"]),
-    "capex_ratio": dict(
-        label="CapEx ratio (existing indicator, no producer yet)", kind="derivation", status="needs_decision",
-        how="(Material + immaterial capex) ÷ revenue, from the imported AIDA rows.",
-        evidence="Inputs present for all 953. But it is a Need-axis indicator (weight 2), so populating it moves Need scores, "
-                 "and its 1-15% bounds would rate the median company (1.8%) as near-maximum need — recalibrate first.",
-        feeds=["underinvestment"]),
     "cogs_ratio": dict(
         label="COGS ratio (existing indicator, no valid input)", kind="needs_source", status="needs_decision",
         how="Italian statutory accounts have no cost-of-goods-sold line. Use Materials Cost (materie prime e consumo) instead.",
-        evidence="The imported 'cogs' column is AIDA's 'Costi della produzione' — total production costs, median 96% of revenue — "
+        evidence="The imported 'cogs' figure is AIDA's 'Costi della produzione' — total production costs, median 96% of revenue — "
                  "so it must not be used as COGS.",
         feeds=["input_cost_pressure"]),
-    "materials_cost": dict(
-        label="Materials cost (existing indicator, no producer yet)", kind="derivation", status="ready_to_build",
-        how="'Materie prime e consumo' ÷ 'Ricavi vendite e prestazioni' (latest year) — add the column to the AIDA import.",
-        evidence="Filled for 954 of 954 companies in WAYLAND_FINANCIAL_PL_C28_SME_50_99_V0.xls but not in the imported Main file. "
-                 "Median 44% of revenue, 90th percentile 63%. It is a Need-axis indicator, so it moves Need scores once populated.",
-        feeds=["input_cost_pressure"]),
-    "labour_cost": dict(
-        label="Labour cost (existing indicator, no producer yet)", kind="derivation", status="ready_to_build",
-        how="'Totale costi del personale' ÷ 'Ricavi vendite e prestazioni' (latest year) — add the column to the AIDA import.",
-        evidence="Filled for 954 of 954 companies in WAYLAND_FINANCIAL_PL_C28_SME_50_99_V0.xls but not in the imported Main file. "
-                 "Median 23% of revenue, 90th percentile 37.5%. Need-axis indicator: moves Need scores once populated.",
-        feeds=["workforce_strain"]),
     "reported_distress_news": dict(
         label="Distress mentions in the press", kind="crawler", status="needs_source",
         how="Add insolvency / short-time-work (Cassa Integrazione) / lay-off / energy-cost concept buckets to the "
@@ -329,11 +310,39 @@ PROPOSED_INDICATORS = {
         how="Classify the review crawler's recent review snippets into delivery / quality / service themes.",
         evidence="The review crawler already returns recent_review_snippets (empty when no profile is found).",
         feeds=["quality_decline", "logistics_complexity"]),
-    "legal_procedure_flag": dict(
-        label="Open insolvency / legal procedure", kind="api", status="needs_source",
-        how="The AIDA export has a legal_procedure_flag column; it was empty in the imported file — re-export it filled.",
-        evidence="Column exists in the imported raw rows (all values blank).",
-        feeds=["liquidity_squeeze", "debt_service_strain"]),
+    # ---- Fields to tick in the next AIDA export. The raw exports already hold everything the importer uses; these
+    # are the lines they do NOT hold. Field names are AIDA/BvD's standard Italian labels as far as we know — confirm
+    # each in the export dialog before relying on the exact wording.
+    "interest_expense": dict(
+        label="Interest expense (a true interest cover)", kind="aida_export", status="needs_source",
+        how="Tick 'Oneri finanziari' (financial charges) in the income-statement export; the importer then computes EBIT ÷ interest itself.",
+        evidence="209 of 953 companies show 'n.s.' for AIDA's interest cover, which cannot be told apart from missing data without the expense line.",
+        feeds=["debt_service_strain"]),
+    "net_debt": dict(
+        label="Net financial debt (net debt ÷ EBITDA)", kind="aida_export", status="needs_source",
+        how="Tick 'Debiti verso banche' and the other financial-debt lines, or 'Posizione finanziaria netta' if AIDA offers it.",
+        evidence="Total debt (already imported) mixes trade payables with bank debt; leverage today is total assets ÷ equity, not a debt measure.",
+        feeds=["debt_service_strain", "liquidity_squeeze"]),
+    "working_capital_days": dict(
+        label="Receivable / payable / inventory days", kind="aida_export", status="needs_source",
+        how="Tick 'Crediti verso clienti', 'Debiti verso fornitori' and 'Rimanenze' (or AIDA's precomputed 'Durata media dei crediti/debiti').",
+        evidence="Cash cover (already derived) says how much cash there is, not why: slow customers, a bloated warehouse, or suppliers paid too fast.",
+        feeds=["liquidity_squeeze"]),
+    "service_costs": dict(
+        label="Service costs (existing indicator, no producer yet)", kind="aida_export", status="needs_source",
+        how="Tick 'Costi per servizi' and 'Costi per godimento di beni di terzi' (services and leases) in the income-statement export.",
+        evidence="A Need-axis indicator (weight 1) with no producer today; the raw exports do not carry the line.",
+        feeds=["input_cost_pressure"]),
+    "international_sales_volume": dict(
+        label="Export share (existing indicator, no producer yet)", kind="aida_export", status="needs_source",
+        how="Look for an export / foreign-revenue field in AIDA's company profile (its name and coverage vary — check availability).",
+        evidence="Weight 3 on the Need axis and the pain point for unrealised market reach, with no source at all today.",
+        feeds=["market_reach_gap"]),
+    "longer_history": dict(
+        label="Five or more years of each series", kind="aida_export", status="needs_source",
+        how="Extend every financial series in the export beyond three years (AIDA normally keeps more).",
+        evidence="A two-year change on a near-zero base makes 33 EBIT trends meaningless (beyond ±999%); a 5-year CAGR would not.",
+        feeds=["growth_stall", "profit_erosion"]),
 }
 
 
@@ -390,6 +399,17 @@ PAIN_POINT_MIGRATIONS = [
              "Catalogued as Debt/EBITDA or Debt/Equity. A negative value means negative equity or negative EBITDA under either reading, so it counts as fully severe.",
              "AIDA's 'Rapporto di indebitamento' = total assets ÷ equity (checked on all 954 rows). 4× means equity funds a quarter "
              "of the balance sheet; negative means negative equity, which counts as fully severe.")}),
+    dict(id="cash-cover-calibrated", key="liquidity_squeeze", indicator="cash_to_revenue",
+         changes={"warn": (0.75, 0.5), "severe": (0.15, 0.05), "note": ("Cash ÷ (revenue ÷ 12). Real portfolio: median 1.4 months, 25th percentile 0.5, 10th 0.1.", "Cash ÷ (revenue ÷ 12). Real portfolio: 10th percentile 0.1 months, 25th 0.5, median 1.4. Cash only: Italian SMEs often run on overdraft and credit lines that never show as cash, so treat a low reading as a prompt to ask, not a verdict.")}),
+    dict(id="turnover-calibrated", key="leadership_transition", indicator="management_turnover",
+         changes={"warn": (2, 4), "severe": (5, 8),
+                  "note": ("Counted from the imported roster, which can include non-executive roles — low weight for that reason.",
+                           "Appointment or resignation events in three years, from the roster (auditors excluded). Includes routine mandate renewals, "
+                           "so the bar is high: real portfolio median 3, 75th percentile 4, 90th 6.")}),
+    dict(id="capex-calibrated", key="underinvestment", indicator="capex_ratio",
+         changes={"warn": (1.5, 1.0), "severe": (0.3, 0.2),
+                  "note": ("Set against the real portfolio: median 1.8% of revenue, 10th percentile ~0%.",
+                           "(Material + immaterial capex) ÷ revenue. Real portfolio: 10th percentile ~0%, 25th 0.6%, median 1.8%, 75th 4.0%.")}),
     dict(id="materials-calibrated", key="input_cost_pressure", indicator="materials_cost",
          changes={"warn": (40, 50), "severe": (55, 65),
                   "note": (None, "Materials ÷ revenue. Machinery makers in the real portfolio: median 44%, 75th percentile 53%, 90th 63%.")}),

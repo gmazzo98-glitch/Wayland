@@ -2130,6 +2130,35 @@ def _dedup_people_by_identity(people: list) -> list:
     return [p for _, p in best.values()]
 
 
+# Not management: the statutory-audit committee ("sindaci", BvD position type AudC) and external advisors
+# (the AIDA "ADV" group — auditors). AIDA lists them in the same roster as the board, and an audit of the real
+# import showed they are a third of it (2,262 of 7,003 rows). Counted as management they aged the team by ~2
+# years, DOUBLED the turnover count, and inflated "independent board members" with people who are not on the board.
+_STATUTORY_AUDITOR_RE = re.compile(r"\b(sindac[oa]|collegio sindacale|revisor[ei]|statutory auditor|auditor)\b", re.IGNORECASE)
+ADVISOR_ROLE_GROUP = "ADV"
+
+
+def _is_not_management(person: CompanyPerson) -> bool:
+    """True for statutory auditors and external advisors — people a roster lists but who don't run the company."""
+    if (person.role_group or "").upper() == ADVISOR_ROLE_GROUP:
+        return True
+    for key, value in (person.raw_fields or {}).items():
+        if str(key).strip().lower().endswith("tipologia di posizione") and "AudC" in str(value):
+            return True
+    return bool(_STATUTORY_AUDITOR_RE.search(person.role or ""))
+
+
+def _management_roster(db: Session, company: Company) -> list:
+    """The company's people with auditors/advisors removed, collapsed to one row per real person."""
+    return _dedup_people_by_identity([
+        p for p in db.query(CompanyPerson)
+        .filter_by(company_id=company.id)
+        .filter(or_(CompanyPerson.age.isnot(None), CompanyPerson.role_group == FLAT_IMPORT_ROLE_GROUP))
+        .all()
+        if not _is_not_management(p)
+    ])
+
+
 def detect_family_and_succession(db: Session, company: Company) -> dict:
     """
     Looks at CompanyPerson rows with a known age, OR rows from the flexible
@@ -2151,12 +2180,7 @@ def detect_family_and_succession(db: Session, company: Company) -> dict:
              "young_manager": CompanyPerson or None,
              "years_since_handover": float or None}}.
     """
-    people = _dedup_people_by_identity(
-        db.query(CompanyPerson)
-        .filter_by(company_id=company.id)
-        .filter(or_(CompanyPerson.age.isnot(None), CompanyPerson.role_group == FLAT_IMPORT_ROLE_GROUP))
-        .all()
-    )
+    people = _management_roster(db, company)
 
     by_surname = {}
     for p in people:
@@ -2401,12 +2425,7 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
     """
     results = {key: {"written": False, "value": None} for key in MANAGEMENT_COMPOSITION_INDICATOR_KEYS}
 
-    people = _dedup_people_by_identity(
-        db.query(CompanyPerson)
-        .filter_by(company_id=company.id)
-        .filter(or_(CompanyPerson.age.isnot(None), CompanyPerson.role_group == FLAT_IMPORT_ROLE_GROUP))
-        .all()
-    )
+    people = _management_roster(db, company)
     if not people:
         return results
     current = [p for p in people if _person_is_current(p)]

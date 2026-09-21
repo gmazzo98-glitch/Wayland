@@ -40,7 +40,8 @@ SEVERITY_COLORS = {"emerging": "#184f95", "moderate": "#3987e5", "severe": "#9ec
 SURFACE = "#0F172A"
 
 KIND_LABELS = {"derivation": "derive from data already held", "crawler": "crawler / adapter extension",
-               "api": "new data source", "needs_source": "needs a real source", "manual": "manual entry"}
+               "api": "new data source", "needs_source": "needs a real source", "manual": "manual entry",
+               "aida_export": "tick it in the next AIDA export"}
 PROPOSAL_STATUS_LABELS = {"ready_to_build": "🟢 Ready to build", "needs_decision": "🟠 Needs a decision first",
                           "needs_source": "🔵 Needs a new source"}
 

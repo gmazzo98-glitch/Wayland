@@ -53,6 +53,25 @@ def get_db_session():
     """Get a database session for query execution."""
     return ScopedSession()
 
+def seed_source_health(db) -> int:
+    """One SourceHealth row per distinct source in the indicator catalog. source_name is the primary key, so a source
+    the catalog lists at two phases must still yield ONE row (the earliest phase) — a duplicate insert here stops the
+    whole app booting, which is exactly what happened when new catalog rows used one source at phases 2 and 3.
+    Returns how many rows were added."""
+    existing_sources = {s.source_name for s in db.query(SourceHealth).all()}
+    sources_to_seed = {}
+    for ind in db.query(IndicatorDefinition).filter_by(is_active=True).all():
+        if ind.source_system:
+            sources_to_seed[ind.source_system] = min(ind.phase, sources_to_seed.get(ind.source_system, ind.phase))
+    added = 0
+    for source_name, phase in sources_to_seed.items():
+        if source_name not in existing_sources:
+            db.add(SourceHealth(source_name=source_name, phase=phase, last_status="idle", total_calls=0, total_cost=0.0))
+            added += 1
+    db.commit()
+    return added
+
+
 def init_db():
     """Initialize database tables, the indicator catalog, and default source health entries."""
     Base.metadata.create_all(bind=engine)
@@ -73,23 +92,7 @@ def init_db():
         seed_pain_point_definitions(db)
         apply_pain_point_migrations(db)
 
-        existing_sources = {s.source_name for s in db.query(SourceHealth).all()}
-
-        sources_to_seed = set()
-        for ind in db.query(IndicatorDefinition).filter_by(is_active=True).all():
-            if ind.source_system:
-                sources_to_seed.add((ind.source_system, ind.phase))
-
-        for source_name, phase in sources_to_seed:
-            if source_name not in existing_sources:
-                db.add(SourceHealth(
-                    source_name=source_name,
-                    phase=phase,
-                    last_status="idle",
-                    total_calls=0,
-                    total_cost=0.0
-                ))
-        db.commit()
+        seed_source_health(db)
     except Exception as e:
         db.rollback()
         raise e

@@ -70,6 +70,9 @@ TREND_INDICATOR_KEYS = {"revenue_trend", "ebit_trend", "margin_compression", "eb
 # indicator is therefore in k EUR too. (They were once written in whole euro, which scored every
 # real company at ~0 on cash and debt; see CATALOG_MIGRATIONS.)
 
+# source_system of everything derived from the AIDA exports; also the SourceHealth row aida_import updates.
+SRC_AIDA = "AIDA Raw Exports"
+
 # Shared by the ebitda_trend seed row and its migration, so a fresh catalog and a migrated one end up identical.
 EBITDA_TREND_COMMENT = ("Informational only. Values used to be the latest EBITDA level in k EUR under this 'trend' name; "
                         "recomputed as a real % change. A near-zero or negative base year makes the % meaningless.")
@@ -231,7 +234,7 @@ INDICATOR_SEED = [
          comment="A very low ratio indicates distress severe enough to crowd out discretionary pilot budget — don't read the trend alone without checking the absolute level.",
          source_description="Bundesanzeiger annual filings (EBIT and interest expense lines)", example_status="Decreasing/Stagnating"),
     dict(key="capex_ratio", automation_tier="T1", redundancy_group="CAPEX_APPETITE", label="CapEx Ratio", category=CAT_FINANCIAL, axis="need",
-         invert=True, raw_min=1, raw_max=15, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         invert=True, raw_min=0, raw_max=4, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
          proxy="CapEx as % of revenue, trend over 3 years", cost_per_pull=5.0,
          rationale="Persistently low capital investment signals underinvestment in physical or technological capacity.",
          comment="Can also reflect a deliberately conservative, cash-preserving management style that may extend to reluctance in funding a pilot — verify appetite at first contact.",
@@ -282,13 +285,13 @@ INDICATOR_SEED = [
 
     # ---------------------------------------------------------------- Cost Structure & Margin Pressure
     dict(key="materials_cost", automation_tier="T1", redundancy_group="COST_PRESSURE", label="Materials Cost", category=CAT_COST, axis="need",
-         raw_min=10, raw_max=60, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         raw_min=25, raw_max=65, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
          proxy="Materials cost as % of revenue, trend over 3 years", cost_per_pull=5.0,
          rationale="Rising input costs squeeze margin and motivate sourcing or process innovation.",
          comment="Sensitive to commodity price cycles outside the company's control — corroborate with Cost of Raw Materials.",
          source_description="Bundesanzeiger annual filings", example_status="High/Increasing"),
     dict(key="labour_cost", automation_tier="T1", redundancy_group="COST_PRESSURE", label="Labour Cost", category=CAT_COST, axis="need",
-         raw_min=15, raw_max=55, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         raw_min=10, raw_max=45, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
          proxy="Personnel cost as % of revenue, trend over 3 years", cost_per_pull=5.0,
          rationale="Rising labor cost share increases the appeal of automation or productivity-focused pilots.",
          comment="Can simply reflect a tight regional labor market rather than a company-specific issue — check against Bundesagentur für Arbeit regional wage data.",
@@ -496,8 +499,8 @@ INDICATOR_SEED = [
          source_description="LinkedIn tenure distribution, Kununu/Glassdoor reviews, Bundesagentur für Arbeit regional turnover statistics",
          example_status="Low"),
     dict(key="average_salary", automation_tier="T1", redundancy_group="WORKFORCE_CAPABILITY", label="Average Salary", category=CAT_WORKFORCE, axis="readiness",
-         raw_min=35000, raw_max=90000, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
-         proxy="Average personnel cost per employee (Personalaufwand ÷ headcount)", cost_per_pull=5.0,
+         raw_min=35, raw_max=90, weight=2.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         proxy="Average personnel cost per employee, k EUR (Personalaufwand ÷ headcount)", cost_per_pull=5.0,
          rationale="Above-average pay suggests the company can attract and retain more skilled staff — a proxy for the internal capacity needed to run and absorb a pilot's findings.",
          comment="Benchmark against sector-average personnel cost per employee rather than an absolute threshold.",
          source_description="Bundesanzeiger annual filings (Personalaufwand line), Kununu/Glassdoor salary estimates", example_status="Medium-High"),
@@ -662,6 +665,76 @@ INDICATOR_SEED = [
          rationale="Cash-earnings view of the same operating trend EBIT Trend scores; shown for context, not double-counted.",
          comment=EBITDA_TREND_COMMENT,
          source_description="AIDA / Bundesanzeiger annual filings", example_status="—"),
+
+    # ---- Derived from the AIDA raw exports (aida_import.py). All context / weight 0: they are EVIDENCE — read by the
+    # pain-point rules and shown on the company page — and never move a Need/Readiness score until someone
+    # gives them a weight on the Indicator Weights page.
+    dict(key="ebit_margin", automation_tier="T1", label="EBIT Margin", category=CAT_FINANCIAL, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
+         proxy="EBIT ÷ revenue, latest fiscal year (%)",
+         rationale="The LEVEL of operating profitability. EBIT Trend says whether it is moving; a company can be shrinking from a fat margin or stable on a razor-thin one.",
+         comment="Read by the Eroding profitability pain point. Real portfolio: median 5.9%, 10th percentile -3.6%.",
+         source_description="AIDA: RISULTATO OPERATIVO ÷ Ricavi vendite e prestazioni", example_status="Thin / negative"),
+    dict(key="net_margin", automation_tier="T1", label="Net Margin", category=CAT_FINANCIAL, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
+         proxy="Net income ÷ revenue, latest fiscal year (%)",
+         rationale="What is left after financing, tax and one-offs — the gap to EBIT margin shows how much the balance sheet costs.",
+         comment="Informational. Real portfolio: median 3.7%, 10th percentile -3.5%.",
+         source_description="AIDA: Utile Netto ÷ Ricavi vendite e prestazioni", example_status="—"),
+    dict(key="cash_to_revenue", automation_tier="T1", label="Cash Cover (months of revenue)", category=CAT_FINANCIAL, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
+         proxy="Cash ÷ (revenue ÷ 12): how many months of sales the company holds in cash",
+         rationale="Cash Position is an absolute amount and means nothing without size. Cash cover is the size-relative liquidity cushion.",
+         comment="Read by the Thin cash cushion pain point. Real portfolio: median 1.4 months, 25th percentile 0.5, 10th 0.1.",
+         source_description="AIDA: TOT. DISPON. LIQUIDE ÷ (Ricavi ÷ 12)", example_status="Under a month"),
+    dict(key="intangibles_share", automation_tier="T1", label="Intangible Assets Share", category=CAT_INNOVATION_GAP, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
+         proxy="Intangible fixed assets as % of total assets",
+         rationale="A rough proxy for capitalised know-how, software and development spend that is not visible in a patent count.",
+         comment="Informational. Real portfolio: median 1.2%, 90th percentile 10.7% — most machinery makers carry almost none.",
+         source_description="AIDA: TOTALE IMMOB. IMMATERIALI ÷ TOTALE ATTIVO", example_status="Low"),
+    dict(key="revenue_per_employee", automation_tier="T1", label="Revenue per Employee", category=CAT_WORKFORCE, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
+         proxy="Revenue ÷ employees, latest fiscal year (k EUR)",
+         rationale="A productivity read: low revenue per head in a sector of peers points at manual, labour-heavy operations.",
+         comment="Informational; compare within the sector, not across sectors. Real portfolio: median 258 k EUR.",
+         source_description="AIDA: Ricavi vendite e prestazioni ÷ Dipendenti", example_status="—"),
+    dict(key="employee_growth", automation_tier="T1", label="Headcount Growth", category=CAT_WORKFORCE, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
+         proxy="Headcount % change, latest fiscal year vs the earliest of the last three",
+         rationale="Hiring against flat revenue, or shrinking headcount on rising revenue, both say something the revenue trend alone does not.",
+         comment="Informational. Real portfolio: median +3.7%, 5th percentile -16%, 95th +45%.",
+         source_description="AIDA: Dipendenti (three years)", example_status="—"),
+    dict(key="distress_procedure", automation_tier="T1", label="Formal Distress Procedure on Record", category=CAT_RISK, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
+         proxy="1 when the company registry shows an insolvency, composition-with-creditors, protective-measures or liquidation procedure with no recorded closing date; 0 otherwise",
+         rationale="A court-supervised procedure is the strongest distress evidence there is, and usually means no discretionary pilot budget.",
+         comment="Read by the Insolvency / restructuring procedure pain point. Relocations and mergers, which fill the same registry column, are not counted. 'Open' is inferred from a missing closing date, so read the text before acting on it.",
+         source_description="AIDA: Procedura/Cessazione with its start and closing dates", example_status="Concordato preventivo"),
+    dict(key="last_accounts_year", automation_tier="T1", label="Year of Latest Filed Accounts", category=CAT_CONTEXT, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
+         proxy="Calendar year in which the company's latest available accounts closed",
+         rationale="Every financial figure is 'as of' this date. It is FY2025 for most of the portfolio, FY2024 for a third, and years old for a handful — those figures describe a company that may no longer exist in that shape.",
+         comment="Informational. A company whose latest accounts are 2+ years old should not be scored as if its numbers were current.",
+         source_description="AIDA: Data di chiusura ultimo bilancio", example_status="2025"),
+    dict(key="bvd_independence", automation_tier="T1", label="BvD Independence Indicator", category=CAT_GOVERNANCE, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=730,
+         proxy="Bureau van Dijk's ownership-independence class, as an ordinal: 1 = A (most independent), 2 = B, 3 = C, 4 = D (least independent)",
+         rationale="Whether a company decides for itself or answers to a parent — the difference between a 2-week and a 6-month approval chain.",
+         comment="Informational. About two thirds of the real portfolio is class D. Read with Group Size: a D-class company in a group of 300 is a subsidiary, not an owner-managed Mittelstand firm.",
+         source_description="AIDA: Indicatore d'Indipendenza BvD", example_status="1 (independent)"),
+    dict(key="group_size", automation_tier="T1", label="Corporate Group Size", category=CAT_GOVERNANCE, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=730,
+         proxy="Number of companies in the corporate group the company belongs to (1 = standalone)",
+         rationale="A large group means decisions, budgets and vendor choices are made above the company you are talking to.",
+         comment="Informational. Real portfolio: median 4, but a quarter belong to groups of 13+ and the top decile to groups of 100+.",
+         source_description="AIDA: N. di società nel gruppo societario", example_status="1"),
+    dict(key="foreign_ownership_share", automation_tier="T1", label="Foreign Ownership Share", category=CAT_GOVERNANCE, axis="context",
+         weight=0.0, phase=3, source_system=SRC_AIDA, freshness_days=730,
+         proxy="% of equity held by non-Italian shareholders, from the disclosed shareholder list",
+         rationale="Foreign parents, above all German ones, are the natural bridge for GG's German-Italian angle and often decide budgets abroad.",
+         comment="Informational. Only written when the disclosed shareholders account for at least 75% of the equity; the text names the countries.",
+         source_description="AIDA: Azionisti — country, type and % totale", example_status="Held by a German parent"),
 ]
 
 
@@ -704,6 +777,16 @@ CATALOG_MIGRATIONS = [
     dict(id="k-eur-cash", key="cash_position", changes={"raw_max": (3000000.0, 3000.0)}),
     dict(id="k-eur-debt", key="debt_level", changes={"raw_max": (20000000.0, 20000.0)}),
     dict(id="k-eur-assets", key="total_assets", changes={"raw_min": (5000000.0, 5000.0), "raw_max": (50000000.0, 50000.0)}),
+    # Bounds recalibrated once real data existed. Centred on the real portfolio (all machinery SMEs) so a score means
+    # "high or low against its peers": materials cost has a 44% median (the old range centred on 35%), capex a 1.8%
+    # median (the old range gave half the portfolio maximum need), personnel cost a 23% median.
+    dict(id="calibrate-materials-cost", key="materials_cost", changes={"raw_min": (10.0, 25.0), "raw_max": (60.0, 65.0)}),
+    dict(id="calibrate-labour-cost", key="labour_cost", changes={"raw_min": (15.0, 10.0), "raw_max": (55.0, 45.0)}),
+    dict(id="calibrate-capex-ratio", key="capex_ratio", changes={"raw_min": (1.0, 0.0), "raw_max": (15.0, 4.0)}),
+    dict(id="average-salary-k-eur", key="average_salary", changes={
+        "raw_min": (35000.0, 35.0), "raw_max": (90000.0, 90.0),
+        "proxy": (lambda cur: (cur or "").startswith("Average personnel cost per employee (") and "k EUR" not in (cur or ""),
+                  "Average personnel cost per employee, k EUR (Personalaufwand ÷ headcount)")}),
     dict(id="leverage-definition", key="leverage_ratio", changes={
         "proxy": ("Debt/EBITDA or Debt/Equity ratio",
                   "Financial leverage as the source defines it. AIDA's 'Rapporto di indebitamento' is total assets ÷ equity "

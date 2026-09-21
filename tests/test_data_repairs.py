@@ -191,6 +191,32 @@ def test_margin_compression_now_drives_a_pain_point_and_is_no_longer_exempt():
     assert "gross_margin_change_pp" not in P.PROPOSED_INDICATORS
 
 
+@pytest.mark.parametrize("key,indicator,old,new", [
+    ("liquidity_squeeze", "cash_to_revenue", {"warn": 0.75, "severe": 0.15}, {"warn": 0.5, "severe": 0.05}),
+    ("leadership_transition", "management_turnover", {"warn": 2, "severe": 5}, {"warn": 4, "severe": 8}),
+    ("underinvestment", "capex_ratio", {"warn": 1.5, "severe": 0.3}, {"warn": 1.0, "severe": 0.2}),
+    ("input_cost_pressure", "materials_cost", {"warn": 40, "severe": 55}, {"warn": 50, "severe": 65}),
+])
+def test_recalibrated_pain_point_thresholds_migrate_only_untouched_rules(db, key, indicator, old, new):
+    row = db.query(PainPointDefinition).filter_by(key=key).one()
+    rules = [dict(r) for r in row.rules]
+    rule = next(r for r in rules if r["indicator"] == indicator)
+    rule.update(old)
+    rule["note"] = None                                                 # what the pre-fix seed shipped for most of these
+    row.rules = rules
+    db.commit()
+    P.apply_pain_point_migrations(db)
+    got = next(r for r in db.query(PainPointDefinition).filter_by(key=key).one().rules if r["indicator"] == indicator)
+    assert {k: got[k] for k in new} == new
+
+    tuned = dict(got, warn=old["warn"] + 0.123)                         # a human tuned it afterwards: never overwritten again
+    row = db.query(PainPointDefinition).filter_by(key=key).one()
+    row.rules = [tuned if r["indicator"] == indicator else dict(r) for r in row.rules]     # copies: JSON columns don't see in-place edits
+    db.commit()
+    P.apply_pain_point_migrations(db)
+    assert next(r for r in db.query(PainPointDefinition).filter_by(key=key).one().rules if r["indicator"] == indicator)["warn"] == old["warn"] + 0.123
+
+
 # ---- recomputing derived signals from the stored raw rows -------------------------------------------------
 
 def _company_with_aida_row(db, reg="IT1", **raw):

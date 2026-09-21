@@ -762,6 +762,17 @@ RATIO_INDICATOR_KEYS = {
     "leverage_ratio", "interest_coverage_ratio",
 }
 
+# Units for indicators whose name would otherwise be misread by the keyword heuristics in _format_indicator_value
+# (e.g. "ebit_margin" contains "ebit", so it used to render as a k EUR amount). Checked FIRST. Values: (suffix, decimals).
+INDICATOR_UNITS = {
+    "ebit_margin": ("%", 1), "net_margin": ("%", 1), "cash_to_revenue": (" months", 2), "intangibles_share": ("%", 1),
+    "employee_growth": ("%", 1), "labour_cost": ("%", 1), "materials_cost": ("%", 1), "capex_ratio": ("%", 2),
+    "family_ownership_share": ("%", 0), "foreign_ownership_share": ("%", 0), "margin_compression": (" pp", 2),
+    "average_salary": ("k", 1), "revenue_per_employee": ("k", 0), "cogs": ("k", 0), "material_capex": ("k", 0), "immaterial_capex": ("k", 0),
+    "group_size": ("", 0), "bvd_independence": ("", 0), "last_accounts_year": ("", 0), "distress_procedure": ("", 0),
+    "subsidiary_participations": ("", 0),
+}
+
 
 def _is_financial_field(name: str) -> bool:
     """Returns True if a raw column name or metric represents a monetary financial quantity (uploaded in thousands, k)."""
@@ -907,6 +918,9 @@ def _format_indicator_value(key: str, val, defn: dict = None) -> str:
     if not isinstance(val, (int, float)):
         return str(val)
     k = key.lower()
+    if k in INDICATOR_UNITS:
+        suffix, decimals = INDICATOR_UNITS[k]
+        return f"{val:.{decimals}f}{suffix}" if k == "last_accounts_year" else f"{val:,.{decimals}f}{suffix}"
     if k in MONETARY_INDICATOR_KEYS or _is_financial_field(k):
         return f"{val:,.2f}k"
     proxy_str = (defn.get("proxy") or "") if defn else ""
@@ -1540,7 +1554,7 @@ def _render_tab1_content(db: Session):
             st.subheader("🏷️ Context & Moderator Tags")
             st.caption("Informational tags — not part of weighted scoring sum.")
             rows = [_build_row(k, context_defs[k]) for k in sorted(context_defs.keys(), key=lambda k: context_defs[k]["label"])]
-            df_ctx = pd.DataFrame(rows)[["Signal Name", "Status", "Value", "Last Fetched"]]
+            df_ctx = pd.DataFrame(rows)[["Signal Name", "Status", "Value", "What was counted", "Last Fetched"]]
             st.dataframe(df_ctx, use_container_width=True, hide_index=True)
 
 
