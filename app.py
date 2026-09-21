@@ -13,6 +13,7 @@ from views.company_detail import render_company_detail_page
 from views.pipeline_health import render_pipeline_health_page
 from views.paid_shortlist_gate import render_paid_shortlist_gate_page
 from views.indicator_weights import render_indicator_weights_page
+from views.pain_points import render_pain_points_page
 from views.crawl_widget import sync_session, render_crawl_widget
 from views.crawler_setup import render_crawler_setup_page, render_sidebar_target
 
@@ -75,6 +76,7 @@ page_selection = st.sidebar.radio(
         "⚙️ Pipeline & Source Health",
         "🏢 Company Intelligence",
         "🎯 Scored Target Matrix",
+        "🩺 Pain Points",
         "💰 Shortlist Gate & Paid Pulls",
         "⚖️ Indicator Weights",
         "🖥️ Crawler Setup"
@@ -108,6 +110,8 @@ else:
 # Route Page Rendering
 if page_selection == "🎯 Scored Target Matrix":
     render_target_matrix_page(db)
+elif page_selection == "🩺 Pain Points":
+    render_pain_points_page(db)
 elif page_selection == "🏢 Company Intelligence":
     render_company_detail_page(db)
 elif page_selection == "⚙️ Pipeline & Source Health":

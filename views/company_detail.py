@@ -1126,6 +1126,13 @@ def _render_tab1_content(db: Session):
 
         st.markdown("---")
 
+        # Pain points: what the company is struggling with, read from the same signals as the scores
+        # (see painpoints.py) — a diagnosis alongside Need/Readiness, never part of either.
+        from views.pain_points import render_company_pain_points
+        render_company_pain_points(db, signals, indicator_defs)
+
+        st.markdown("---")
+
         # Identity & Registry
         with st.expander("📌 Identity & Registry", expanded=True):
             col_c1, col_c2, col_c3, col_c4 = st.columns(4)

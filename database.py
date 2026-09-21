@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from models import Base, SourceHealth, IndicatorDefinition
 from config import SQLALCHEMY_DATABASE_URI
 from indicators import seed_indicator_definitions
+from painpoints import seed_pain_point_definitions
 
 # Setup engine with multi-thread safety for Streamlit and robust pooling for cloud PostgreSQL / Supabase
 is_sqlite = SQLALCHEMY_DATABASE_URI.startswith("sqlite")
@@ -65,6 +66,8 @@ def init_db():
         # Indicator catalog first — SourceHealth rows below are derived from it.
         # Only inserts rows that don't exist yet, so edited weights are never clobbered.
         seed_indicator_definitions(db)
+        # Pain-point catalog: same insert-only rule, so threshold edits survive restarts.
+        seed_pain_point_definitions(db)
 
         existing_sources = {s.source_name for s in db.query(SourceHealth).all()}
 

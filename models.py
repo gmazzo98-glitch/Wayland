@@ -223,6 +223,43 @@ class IndicatorDefinition(Base):
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 
+class PainPointDefinition(Base):
+    """
+    A named problem a startup pilot could plausibly address (e.g. "Debt-service
+    strain"), defined ENTIRELY in terms of indicators — see painpoints.py for the
+    detection logic and the seed catalog. Like IndicatorDefinition this table is the
+    editable source of truth: thresholds and weights are tuned from the Pain Points
+    page, not in code, and the seed never overwrites an edited row.
+
+    rules: JSON list, one entry per driver —
+      {indicator, worse_when ('lower'|'higher'), warn, severe, weight, unit,
+       absent_means ('ignore'|'zero'|'pain'), valid_range ([lo, hi] | absent),
+       negative_is_severe (bool | absent), active (bool)}
+    `indicator` may name a key that isn't in the indicator catalog yet: that driver
+    then reports "no data source yet" instead of being silently dropped, which is how
+    a wanted-but-unbuilt indicator shows up as a gap (see PROPOSED_INDICATORS).
+
+    A pain point never feeds the Need/Readiness scores and is never blended into
+    either — it is a diagnosis layered on top of them. `caveat` is where a pain
+    point that also weakens READINESS (debt strain crowds out pilot budget) says so.
+    """
+    __tablename__ = "pain_point_definitions"
+
+    key = Column(String(60), primary_key=True)
+    label = Column(String(150), nullable=False)
+    category = Column(String(60), nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    pilot_angle = Column(Text, nullable=True)   # what kind of startup pilot this points to
+    caveat = Column(Text, nullable=True)
+    rules = Column(JSON, nullable=False)
+    sort_order = Column(Integer, default=100, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+
 class CompanyPerson(Base):
     """
     One person (director/manager, advisor, ...) associated with a company,

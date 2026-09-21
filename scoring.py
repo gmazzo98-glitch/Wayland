@@ -208,22 +208,16 @@ def _sig_attr(sig, name, default=None):
     return getattr(sig, name) if hasattr(sig, name) else (sig.get(name, default) if isinstance(sig, dict) else default)
 
 
-def calculate_company_scores(
-    company_signals: List[Any], indicator_defs: Dict[str, Dict[str, Any]], include_detail: bool = False,
-) -> Dict[str, Any]:
+def build_signal_map(company_signals: List[Any], indicator_defs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """
-    Computes weighted Need/Readiness scores and completeness for a company.
+    {signal_key: {status, raw_status, value, fetched_at, source, confidence,
+    is_simulated, summary, raw_payload_ref}} for one company — the shape both the
+    Need/Readiness scoring below and painpoints.py read. Kept as ONE function so a
+    pain point and a score can never disagree about what a signal's status or value
+    is (e.g. whether it has gone stale).
 
-    company_signals: SignalRecord objects or dicts for one company.
-    indicator_defs: {signal_key: definition_dict} — fetch once per page render
-        via indicators.fetch_indicator_defs(db), not per company, to avoid
-        re-querying the (small, ~75-row) catalog on every loop iteration.
-    include_detail: when True, adds "need_detail"/"readiness_detail" (per-signal
-        breakdown, see _evaluate_axis) and "need_meta"/"readiness_meta" (gate/
-        completeness bookkeeping) to the return dict — the traceable "why is this
-        score X" view on Company Intelligence. Off by default so the existing
-        bulk-scoring call sites (ranking every company on the Target Matrix) build
-        no detail they'd just discard.
+    company_signals: SignalRecord objects or plain dicts. A signal whose indicator
+    was deactivated/removed from the catalog is dropped.
     """
     signal_map = {}
     for sig in company_signals:
@@ -243,6 +237,27 @@ def calculate_company_scores(
             "summary": _sig_attr(sig, "text_value"),
             "raw_payload_ref": _sig_attr(sig, "raw_payload_ref"),
         }
+    return signal_map
+
+
+def calculate_company_scores(
+    company_signals: List[Any], indicator_defs: Dict[str, Dict[str, Any]], include_detail: bool = False,
+) -> Dict[str, Any]:
+    """
+    Computes weighted Need/Readiness scores and completeness for a company.
+
+    company_signals: SignalRecord objects or dicts for one company.
+    indicator_defs: {signal_key: definition_dict} — fetch once per page render
+        via indicators.fetch_indicator_defs(db), not per company, to avoid
+        re-querying the (small, ~75-row) catalog on every loop iteration.
+    include_detail: when True, adds "need_detail"/"readiness_detail" (per-signal
+        breakdown, see _evaluate_axis) and "need_meta"/"readiness_meta" (gate/
+        completeness bookkeeping) to the return dict — the traceable "why is this
+        score X" view on Company Intelligence. Off by default so the existing
+        bulk-scoring call sites (ranking every company on the Target Matrix) build
+        no detail they'd just discard.
+    """
+    signal_map = build_signal_map(company_signals, indicator_defs)
 
     need_score, need_wcomp, need_ccomp, need_checked, need_total, need_detail, need_meta = _evaluate_axis(
         signal_map, indicator_defs, "need")
