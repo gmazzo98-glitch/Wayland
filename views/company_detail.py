@@ -1252,6 +1252,11 @@ def _render_tab1_content(db: Session):
             fin_df = pd.DataFrame(_financial_profile_rows(sig_dict, indicator_defs))
             st.dataframe(fin_df, use_container_width=True, hide_index=True)
 
+        # Indicative valuation — a separate lens, never blended into Need/Readiness.
+        with st.expander("💶 Indicative valuation (multiples + DCF)", expanded=False):
+            from views.valuation import render_company_valuation
+            render_company_valuation(db, company.id, key="cd_val")
+
         # Data Trends — every multi-year column group from the raw injected
         # data, financial or not, charted regardless of whether it was ever
         # mapped to a scored indicator.

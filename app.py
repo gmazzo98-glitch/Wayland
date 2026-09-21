@@ -9,6 +9,7 @@ from database import init_db, get_db_session
 from models import Company
 from seed import seed_database
 from views.target_matrix import render_target_matrix_page
+from views.valuation import render_valuation_page
 from views.company_detail import render_company_detail_page
 from views.pipeline_health import render_pipeline_health_page
 from views.paid_shortlist_gate import render_paid_shortlist_gate_page
@@ -77,6 +78,7 @@ page_selection = st.sidebar.radio(
         "🏢 Company Intelligence",
         "🎯 Scored Target Matrix",
         "🩺 Pain Points",
+        "💶 Valuation",
         "💰 Shortlist Gate & Paid Pulls",
         "⚖️ Indicator Weights",
         "🖥️ Crawler Setup"
@@ -112,6 +114,8 @@ if page_selection == "🎯 Scored Target Matrix":
     render_target_matrix_page(db)
 elif page_selection == "🩺 Pain Points":
     render_pain_points_page(db)
+elif page_selection == "💶 Valuation":
+    render_valuation_page(db)
 elif page_selection == "🏢 Company Intelligence":
     render_company_detail_page(db)
 elif page_selection == "⚙️ Pipeline & Source Health":
