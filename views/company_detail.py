@@ -29,6 +29,14 @@ STATUS_BADGES = {
 
 MODE_BADGES = {True: "🧪 Simulated", False: "🟢 Live"}
 
+
+def mode_badge_for(sig) -> str:
+    """Live / Simulated badge for a SignalRecord. An unchecked row is an empty placeholder whose
+    is_simulated is just the column default, so it carries no data to call simulated."""
+    if sig is None or sig.status == "not_yet_checked":
+        return "⚪ Not collected"
+    return MODE_BADGES.get(sig.is_simulated, "—")
+
 SHORTLIST_STATUS_LABELS = {
     "candidate": "Candidate (Phase 1+2 only)",
     "shortlisted": "Shortlisted (Phase 3+ unlocked)",
@@ -884,7 +892,7 @@ def _render_signal_evidence(sig_dict: dict, indicator_defs: dict):
         value_str = _format_indicator_value(key, sig.numeric_value, defn)
         with st.expander(f"**{defn['label']}** — {value_str}  ·  {sig.text_value or ''}"):
             st.caption(f"Source: {sig.source} · fetched {sig.fetched_at:%Y-%m-%d %H:%M} · "
-                        f"{'🧪 simulated' if sig.is_simulated else '🟢 live'}")
+                        f"{mode_badge_for(sig)}")
             if ev.get("method"):
                 st.markdown(f"**How it was derived:** {ev['method']}")
 
@@ -977,7 +985,7 @@ def _financial_profile_rows(sig_dict: dict, indicator_defs: dict) -> list:
         if sig and sig.status != "not_yet_checked":
             value = sig.numeric_value
             status = get_signal_display_status(sig.status, defn.get("freshness_days"), sig.fetched_at)
-            mode = MODE_BADGES.get(sig.is_simulated, "—")
+            mode = mode_badge_for(sig)
             source = sig.source or "—"
             fetched = sig.fetched_at.strftime("%Y-%m-%d") if sig.fetched_at else "—"
         else:
@@ -1490,7 +1498,7 @@ def _render_tab1_content(db: Session):
                     val = None
                 fetched_str = sig_rec.fetched_at.strftime("%Y-%m-%d %H:%M") if sig_rec.fetched_at else "N/A"
                 raw_ref = sig_rec.text_value or ""
-                mode_badge = MODE_BADGES.get(sig_rec.is_simulated, "—")
+                mode_badge = mode_badge_for(sig_rec)
             else:
                 disp_status, val, fetched_str, raw_ref, mode_badge = "not_yet_checked", None, "Never", "", "—"
 
