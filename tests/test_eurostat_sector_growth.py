@@ -21,12 +21,17 @@ class _Co:
     ("B05.10", "B05"),
     ("D35.11", "D35"),
     ("E36.00", "E36"),
+    ("284900", "C28"),
+    ("282992", "C28"),
+    ("351100", "D35"),
+    ("051000", "B05"),
+    ("360000", "E36"),
 ])
 def test_sector_code_extracts_covered_sections(nace_code, expected):
     assert esg._sector_code(nace_code) == expected
 
 
-@pytest.mark.parametrize("nace_code", ["A01.11", "G45.11", "J62.01", "", None])
+@pytest.mark.parametrize("nace_code", ["A01.11", "G45.11", "J62.01", "011100", "451100", "341000", "", None])
 def test_sector_code_rejects_uncovered_sections(nace_code):
     assert esg._sector_code(nace_code) is None
 

@@ -44,10 +44,29 @@ def _sector_code(nace_code: str) -> str:
     """'C10.51' -> 'C10'. Returns None outside sts_inpr_m's covered sections."""
     if not nace_code:
         return None
-    m = re.match(r"([A-Za-z])(\d{2})", nace_code.strip())
-    if not m or m.group(1).upper() not in COVERED_SECTIONS:
+    code = str(nace_code).strip()
+    m = re.match(r"([A-Za-z])(\d{2})", code)
+    if m:
+        if m.group(1).upper() not in COVERED_SECTIONS:
+            return None
+        return f"{m.group(1).upper()}{m.group(2)}"
+    # Bare-digit NACE/ATECO codes (e.g. AIDA's '284900'): derive the section
+    # letter from the 2-digit division.
+    m = re.match(r"(\d{2})", code)
+    if not m:
         return None
-    return f"{m.group(1).upper()}{m.group(2)}"
+    division = int(m.group(1))
+    if 5 <= division <= 9:
+        section = "B"
+    elif 10 <= division <= 33:
+        section = "C"
+    elif division == 35:
+        section = "D"
+    elif 36 <= division <= 39:
+        section = "E"
+    else:
+        return None
+    return f"{section}{m.group(1)}"
 
 
 def _fetch_index_series(nace_r2: str, geo: str) -> list:
