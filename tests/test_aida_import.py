@@ -144,6 +144,8 @@ def test_financial_derivations_match_the_hand_calculation():
     assert v["margin_compression"] == pytest.approx(4.05, abs=0.01)
     assert v["cogs"] == 160969.607 and v["total_assets"] == 109549.88 and v["leverage_ratio"] == 4.2
     assert s["interest_coverage_ratio"]["status"] == "not_yet_checked"              # 'n.s.' is never turned into a number
+    assert v["cogs_ratio"] == pytest.approx(100 - 47.85, abs=0.01)                  # materials share = 100 - gross margin % of revenue
+    assert v["number_of_employees"] == 95
 
 
 def test_a_zero_or_missing_denominator_is_left_unchecked_not_divided():

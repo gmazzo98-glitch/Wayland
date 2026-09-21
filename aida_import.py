@@ -326,6 +326,12 @@ def derive_financial_signals(n: Dict[str, Optional[float]]) -> Dict[str, dict]:
     v = ratio(mat_l, rev_l)
     add("materials_cost", v, f"materials {_k(mat_l)} ÷ revenue {_k(rev_l)}" if v is not None else None,
         "'Materie prime e consumo' ÷ revenue, latest year (%)", materials=mat_l, revenue=rev_l)
+    v = None if pm_l is None or abs(pm_l) > 100 else 100.0 - pm_l
+    add("cogs_ratio", v, f"materials share of revenue {v:.1f}% (1 - gross margin {pm_l:.1f}%)" if v is not None else None,
+        "100 - ('Margine sui consumi' ÷ revenue), latest year (%): the share of revenue consumed as materials. A materials-based proxy: "
+        "the production-costs series is a different, larger ratio (see 'cogs')", gross_margin=gm_l, revenue=rev_l)
+    add("number_of_employees", emp_l if emp_l is not None and emp_l > 0 else None, f"{emp_l:,.0f} employees" if emp_l else None,
+        "AIDA 'Dipendenti', latest year (context: a segment filter, not scored)")
     v = None if pers_l is None or emp_l is None or emp_l <= 0 else pers_l / emp_l
     add("average_salary", v, f"personnel cost {_k(pers_l)} ÷ {emp_l:,.0f} employees" if v is not None else None,
         "'Totale costi del personale' ÷ employees, latest year (k EUR per employee)", personnel=pers_l, employees=emp_l)
