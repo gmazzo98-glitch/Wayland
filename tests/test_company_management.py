@@ -1124,14 +1124,16 @@ def test_detect_family_and_succession_flags_new_generation_with_quantified_hando
     company.incorporation_date = datetime(birth_year - 10, 1, 1)  # incorporated a decade before he was even born
     db.commit()
 
-    appointment_date = datetime(now.year - 5, 6, 1)
+    # Anchor the handover to `now` rather than a fixed month/day, so the expected
+    # ~5 years doesn't drift with the calendar.
+    appointment_date = now - timedelta(days=5 * 365)
     _add_person(db, company.id, "Luca Bianchi", age=young_age, cognome="Bianchi", appointment_date=appointment_date)
 
     result = detect_family_and_succession(db, company)
     ng = result["new_generation"]
     assert ng["detected"] is True
     assert ng["surname"] == "Bianchi"
-    assert ng["years_since_handover"] == pytest.approx(5.0, abs=0.3)
+    assert ng["years_since_handover"] == pytest.approx(5.0, abs=0.05)
 
     signal_result = sync_succession_signal(db, company)
     assert signal_result["signal_written"] is True
@@ -1139,7 +1141,7 @@ def test_detect_family_and_succession_flags_new_generation_with_quantified_hando
     assert sig is not None
     assert sig.status == "present"
     assert sig.is_simulated is False
-    assert sig.numeric_value == pytest.approx(5.0, abs=0.3)
+    assert sig.numeric_value == pytest.approx(5.0, abs=0.05)
 
 
 def test_detect_family_and_succession_no_flag_when_founder_could_have_founded_it(db):
@@ -1222,7 +1224,8 @@ def test_import_company_people_auto_triggers_succession_signal(db):
         "DM\nNome completo": "Luca Bianchi",
         "DM\nCognome": "Bianchi",
         "DM\nEtà": str(young_age),
-        "DM\nData nomina": f"{now.year - 5}-06-01",
+        # Relative to `now`, not a fixed month/day, so the expected ~5 years doesn't drift with the calendar.
+        "DM\nData nomina": (now - timedelta(days=5 * 365)).date().isoformat(),
     }])
     result = import_company_people(db, df, "Auto Succession Dataset", dry_run=False)
     assert result["people_created"] == 1
@@ -1230,7 +1233,7 @@ def test_import_company_people_auto_triggers_succession_signal(db):
     sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="new_generation_management").first()
     assert sig is not None
     assert sig.status == "present"
-    assert sig.numeric_value == pytest.approx(5.0, abs=0.3)
+    assert sig.numeric_value == pytest.approx(5.0, abs=0.05)
 
 
 # --- Management/board composition indicators aggregated from the roster ---
