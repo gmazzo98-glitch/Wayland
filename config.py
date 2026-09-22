@@ -173,6 +173,7 @@ SOURCE_CREDENTIAL_VARS = {
     "EU Funding Portal": [],
     # Eurostat's dissemination API is public/keyless, same posture as EU Funding Portal.
     "Eurostat Sector Growth": [],
+    "Eurostat Export Exposure": [],
     "Arbeitsagentur": [],
     "Wappalyzer": [],
     "Google News": ["GOOGLE_CSE_API_KEY", "GOOGLE_CSE_ID"],

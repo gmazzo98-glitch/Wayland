@@ -7,12 +7,14 @@ Feeds: digital_job_postings, skilled_labour_share, digital_lead_role_present
 (a title-keyword scan over the sample of open roles — the closest automatable
 proxy for "does a named digital/innovation lead role exist", matching that
 indicator's own proxy text: "Job title search ... on company website"), and
-(2026-09-22) job_posting_velocity — its catalog proxy is "number of active job
-listings across ALL roles", which is exactly the same junk-filtered total-roles
-count `_derive_signals` was already computing for digital_job_postings' own
-"X of Y" summary; it just wasn't written as its own signal. No new crawl or
-source needed, and no dependency on the German-only Arbeitsagentur API this
-indicator's catalog row still names — this cohort is Italian.
+(2026-09-22, non-Germany only) job_posting_velocity — its catalog proxy is
+"number of active job listings across ALL roles", which is exactly the same
+junk-filtered total-roles count `_derive_signals` was already computing for
+digital_job_postings' own "X of Y" summary; it just wasn't written as its own
+signal. No new crawl or source needed for Italy. Germany keeps
+arbeitsagentur.sync_job_velocity as this signal_key's producer (a
+purpose-built jobs API, company_service.py's Phase 1 plan) — this wrapper
+skips it there so the two never race each other for the same company.
 
 ERP systems age (T3 in the source spreadsheet) is deliberately NOT derived
 here: the crawler's roles_sample only carries a title, not a full description,
@@ -390,7 +392,7 @@ DIGITAL_LEAD_TITLE_RE = re.compile(
 )
 
 
-def _derive_signals(row: dict) -> dict:
+def _derive_signals(row: dict, country: str = None) -> dict:
     """
     Reads field_status BEFORE the value. The crawler still emits
     technical_digital_roles_count=0 when it never reached a single source
@@ -473,12 +475,14 @@ def _derive_signals(row: dict) -> dict:
 
     # job_posting_velocity's own proxy is "number of active job listings ACROSS ALL roles"
     # (indicators.py) — not a rate of change despite the "Velocity" name, and not restricted to
-    # digital/technical roles the way digital_job_postings is. Its catalog source_system
-    # (Arbeitsagentur) is Germany-only, which is why the gap report once planned a two-crawl
-    # trend trick for Italy; but `considered` here is already the same junk-filtered total-roles
-    # count digital_job_postings' own summary reports, so no second crawl or new source is
-    # needed — it was already being computed and simply never written as its own signal.
-    if roles_status == "value" and considered is not None:
+    # digital/technical roles the way digital_job_postings is. `considered` here is already the
+    # same junk-filtered total-roles count digital_job_postings' own summary reports, so no
+    # second crawl or new source is needed for Italy — it was already being computed and simply
+    # never written as its own signal. Skipped for Germany: arbeitsagentur.sync_job_velocity
+    # already owns this signal_key there via a purpose-built jobs API (company_service.py's
+    # Phase 1 plan), and this codebase keeps one producer per signal_key — writing it here too
+    # would silently race whichever adapter runs last for the same company.
+    if country != "Germany" and roles_status == "value" and considered is not None:
         signals["job_posting_velocity"] = {
             "value": float(considered), "status": "present",
             "summary": f"{considered} open role(s) currently listed on the careers page",
@@ -486,7 +490,7 @@ def _derive_signals(row: dict) -> dict:
                                     if recount else "count of open-role listings (crawler's own total)",
                           "considered": considered, "source_urls": source_urls},
         }
-    elif roles_status == "not_applicable":
+    elif country != "Germany" and roles_status == "not_applicable":
         signals["job_posting_velocity"] = {
             "value": 0.0, "status": "absent",
             "summary": "careers page crawled, advertises no open roles at all",
@@ -561,7 +565,7 @@ def sync_job_postings(company, db_session: Session) -> dict:
         if row.get("error"):
             raise CrawlerRunError(row["error"])
         return {
-            "signals": _derive_signals(row),
+            "signals": _derive_signals(row, country=c.country),
             "raw_payload": {"total_open_roles": row.get("total_open_roles"), "sources_used": row.get("sources_used"),
                              "careers_discovery": row["careers_discovery"]},
             "confidence": 0.7,

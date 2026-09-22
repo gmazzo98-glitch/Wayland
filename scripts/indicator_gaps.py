@@ -67,6 +67,10 @@ GAP_PLAN = {
     "trademark_count": ("RUN", "EUIPO (key configured)", "Phase 1"),
     "public_grant_count": ("RUN", "EU Funding & Tenders portal (public key)", "Phase 1"),
     "sector_growth_benchmark": ("RUN", "Eurostat (keyless)", "Phase 1"),
+    "sector_export_exposure": ("RUN", "Eurostat export exposure adapter (2026-09-22): ext_tec01 (trade by NACE) over sbs_ovw_act "
+                                      "(turnover by NACE), both keyless, EU-wide - replaced the Germany-only Destatis producer this "
+                                      "indicator's catalog row used to name; ISTAT's own Coeweb was checked and found retired "
+                                      "2025-09-30", "Phase 1"),
     "revenue_growth_vs_sector": ("RUN", "computed from revenue_trend + Eurostat sector growth - needs the Eurostat run first", "Phase 1"),
     "tech_stack_intensity": ("RUN", "Wappalyzer-style local fingerprinting of the homepage", "Phase 4"),
     "management_diversity": ("RUN", "own-site 'team' page scrape", "Phase 4"),
@@ -110,9 +114,6 @@ GAP_PLAN = {
     "mgmt_cultural_diversity": ("GATED", "same; overlaps nationality (which the roster already gives)", "policy / manual"),
 
     # ---- NOT_ITALY: built producers are German ---------------------------------------------------------
-    "sector_export_exposure": ("NOT_ITALY", "Destatis adapter is DE-only (and its table code is wrong). Italian equivalent: ISTAT Coeweb "
-                                            "(trade by ATECO) or Eurostat trade-by-NACE - both free; confirm the table codes live, do not guess",
-                               "new adapter"),
     "rd_expense_ratio": ("NOT_ITALY", "Bundesanzeiger (paid, DE). Italy: not in the six exports either (they hold 'Immobilizzazioni immateriali "
                                       "(Investimenti)', a coarse proxy). Options: an AIDA pull with 'costi di sviluppo', or the public Registro Imprese "
                                       "list of 'PMI innovative' (which must show R&D >= 3%) - verify the open-data file", "AIDA re-export"),

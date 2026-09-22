@@ -478,11 +478,13 @@ INDICATOR_SEED = [
     # Supplementary — pre-existing Vienna signals kept as their own entries because their
     # measured quantity doesn't cleanly match a spreadsheet row (see indicators.py docstring).
     dict(key="sector_export_exposure", automation_tier="T1", label="Sector Export Pressure (Macro)", category=CAT_DIGITAL, axis="need",
-         raw_min=0.3, raw_max=0.9, weight=2.0, phase=1, source_system="Destatis", freshness_days=180, cost_per_pull=0.0,
-         proxy="Sector-level (NACE code) export exposure ratio from Destatis GENESIS-Online",
+         raw_min=0.3, raw_max=0.9, weight=2.0, phase=1, source_system="Eurostat Export Exposure", freshness_days=180, cost_per_pull=0.0,
+         proxy="Sector-level (NACE code) export value / turnover, from Eurostat ext_tec01 (trade) and sbs_ovw_act (structural business statistics)",
          rationale="Macro, sector-wide export pressure — distinct from the company-level International Sales Volume row above.",
-         comment="From the original sourcing plan, not the new spreadsheet; kept as its own indicator since it measures something company-level data doesn't.",
-         source_description="Destatis GENESIS-Online", example_status="High"),
+         comment="From the original sourcing plan, not the new spreadsheet; kept as its own indicator since it measures something company-level data doesn't. "
+                  "Originally sourced from Destatis (Germany-only, and its GENESIS table was never a clean NACE match); Eurostat covers both countries keylessly.",
+         source_description="Eurostat ext_tec01 (international trade in goods by NACE) + sbs_ovw_act (structural business statistics, net turnover)",
+         example_status="High"),
     dict(key="tech_stack_intensity", automation_tier="T2", label="Digital Intensity Index (Tech Signatures)", category=CAT_DIGITAL, axis="need",
          raw_min=0, raw_max=10, weight=2.0, phase=4, source_system="Wappalyzer", freshness_days=60, cost_per_pull=0.0,
          proxy="Count of modern web technology signatures detected on the company's own site",
@@ -805,6 +807,15 @@ CATALOG_MIGRATIONS = [
     dict(id="ebitda-is-a-trend-now", key="ebitda_trend", changes={
         "proxy": (None, "EBITDA % change, latest fiscal year vs the earliest of the last three (same method as EBIT Trend)"),
         "comment": (lambda cur: (cur or "").startswith("Created from an uploaded dataset column"), EBITDA_TREND_COMMENT)}),
+    # Destatis (Germany-only, never a clean NACE match) -> Eurostat ext_tec01 + sbs_ovw_act (EU-wide, keyless,
+    # verified live 2026-09-22). See adapters/eurostat_export_exposure.py's docstring for why.
+    dict(id="export-exposure-source-2026-09-22", key="sector_export_exposure", changes={
+        "source_system": ("Destatis", "Eurostat Export Exposure"),
+        "proxy": ("Sector-level (NACE code) export exposure ratio from Destatis GENESIS-Online",
+                  "Sector-level (NACE code) export value / turnover, from Eurostat ext_tec01 (trade) and sbs_ovw_act (structural business statistics)"),
+        "source_description": ("Destatis GENESIS-Online",
+                                "Eurostat ext_tec01 (international trade in goods by NACE) + sbs_ovw_act (structural business statistics, net turnover)"),
+    }),
 ]
 
 

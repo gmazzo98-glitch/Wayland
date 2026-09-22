@@ -181,20 +181,21 @@ def test_duplicate_registration_rejection(db):
 
 
 def test_source_applicability():
-    # Germany: Destatis, Arbeitsagentur, EPO OPS, EUIPO, Wappalyzer all applicable
-    assert is_source_applicable("Destatis", "Germany") is True
+    # Germany: Arbeitsagentur, EPO OPS, EUIPO, Wappalyzer, Eurostat Export Exposure all applicable
     assert is_source_applicable("Arbeitsagentur", "Germany") is True
     assert is_source_applicable("EPO OPS", "Germany") is True
     assert is_source_applicable("EUIPO", "Germany") is True
     assert is_source_applicable("Wappalyzer", "Germany") is True
+    assert is_source_applicable("Eurostat Export Exposure", "Germany") is True
 
-    # Italy: Destatis, Arbeitsagentur NOT applicable; EU/Universal APIs ARE applicable
-    assert is_source_applicable("Destatis", "Italy") is False
+    # Italy: Arbeitsagentur NOT applicable; EU/Universal APIs (incl. Eurostat Export Exposure,
+    # which replaced the Germany-only Destatis adapter) ARE applicable
     assert is_source_applicable("Arbeitsagentur", "Italy") is False
     assert is_source_applicable("Handelsregister Free Snapshot", "Italy") is False
     assert is_source_applicable("Bundesanzeiger", "Italy") is False
     assert is_source_applicable("EPO OPS", "Italy") is True
     assert is_source_applicable("EUIPO", "Italy") is True
+    assert is_source_applicable("Eurostat Export Exposure", "Italy") is True
 
 
 def test_revenue_growth_vs_sector_needs_both_sides(db):

@@ -20,7 +20,7 @@ from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinit
 from indicators import fetch_indicator_defs, TREND_INDICATOR_KEYS, CAT_CONTEXT
 from utils import normalize_registration_nr
 from config import has_credentials
-from adapters import epo_ops, euipo, destatis, eu_funding, arbeitsagentur, google_news, google_news_rss, eurostat_sector_growth
+from adapters import epo_ops, euipo, eu_funding, arbeitsagentur, google_news, google_news_rss, eurostat_sector_growth, eurostat_export_exposure
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
 from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
@@ -31,8 +31,9 @@ from scrapers import (
 SUPPORTED_COUNTRIES = ["Germany", "Italy"]
 
 # Source applicability by country:
-# - Universal / EU: EPO OPS, EUIPO, EU Funding Portal, Wappalyzer, Google News, Own-Site Scrape
-# - Germany only: Destatis, Arbeitsagentur, Handelsregister Free Snapshot, Bundesanzeiger, Kununu Reseller
+# - Universal / EU: EPO OPS, EUIPO, EU Funding Portal, Eurostat Sector Growth, Eurostat Export
+#   Exposure, Wappalyzer, Google News, Own-Site Scrape
+# - Germany only: Arbeitsagentur, Handelsregister Free Snapshot, Bundesanzeiger, Kununu Reseller
 # - Italy only: Italian national registers / ISTAT (future integration hooks)
 # Phase 7 (Node-based crawlers, see scrapers/*_crawler.py) is universal too — none of
 # the 8 are Germany/Italy-specific by construction, so both country rows list all 8.
@@ -44,7 +45,7 @@ PHASE_7_SOURCES = [
 
 COUNTRY_SOURCE_MAP = {
     "Germany": {
-        "Phase 1": ["EPO OPS", "EUIPO", "Destatis", "EU Funding Portal", "Arbeitsagentur", "Eurostat Sector Growth"],
+        "Phase 1": ["EPO OPS", "EUIPO", "EU Funding Portal", "Arbeitsagentur", "Eurostat Sector Growth", "Eurostat Export Exposure"],
         "Phase 2": ["Handelsregister Free Snapshot"],
         "Phase 3": ["Bundesanzeiger"],
         "Phase 4": ["Wappalyzer", "Google News", "Own-Site Scrape"],
@@ -52,7 +53,7 @@ COUNTRY_SOURCE_MAP = {
         "Phase 7": PHASE_7_SOURCES,
     },
     "Italy": {
-        "Phase 1": ["EPO OPS", "EUIPO", "EU Funding Portal", "Eurostat Sector Growth"],
+        "Phase 1": ["EPO OPS", "EUIPO", "EU Funding Portal", "Eurostat Sector Growth", "Eurostat Export Exposure"],
         "Phase 2": [],  # German Handelsregister not applicable
         "Phase 3": [],  # Bundesanzeiger not applicable
         "Phase 4": ["Wappalyzer", "Google News", "Own-Site Scrape"],
@@ -62,7 +63,7 @@ COUNTRY_SOURCE_MAP = {
 }
 
 GERMAN_ONLY_SOURCES = {
-    "Destatis", "Arbeitsagentur", "Handelsregister Free Snapshot",
+    "Arbeitsagentur", "Handelsregister Free Snapshot",
     "Bundesanzeiger", "Kununu Reseller"
 }
 
@@ -119,11 +120,14 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
             SourceStep("EUIPO", euipo.sync_company_trademarks, 1),
             SourceStep("EU Funding Portal", eu_funding.sync_company_grants, 1),
             SourceStep("Eurostat Sector Growth", eurostat_sector_growth.sync_sector_growth_benchmark, 1),
+            # Eurostat's trade-by-NACE + turnover-by-NACE datasets are EU-wide and keyless, so
+            # unlike the Destatis adapter this replaced (Germany-only, and its GENESIS table was
+            # never a clean NACE match — see adapters/destatis.py), this runs for every country.
+            SourceStep("Eurostat Export Exposure", eurostat_export_exposure.sync_sector_export_exposure, 1),
         ]
         # Germany-specific Phase 1 APIs
         if country == "Germany":
             steps += [
-                SourceStep("Destatis", destatis.sync_sector_export_exposure, 1),
                 SourceStep("Arbeitsagentur", arbeitsagentur.sync_job_velocity, 1),
             ]
         # Revenue Growth vs. Sector is a pure computation over two already-

@@ -52,6 +52,7 @@ PRODUCER_FILE_HINTS = [
     ("EPO OPS", "adapters/epo_ops.py"),
     ("EUIPO", "adapters/euipo.py"),
     ("EU Funding", "adapters/eu_funding.py"),
+    ("Eurostat export exposure", "adapters/eurostat_export_exposure.py"),
     ("Eurostat", "adapters/eurostat_sector_growth.py"),
     ("Destatis", "adapters/destatis.py"),
     ("Arbeitsagentur", "adapters/arbeitsagentur.py"),

@@ -221,13 +221,19 @@ def test_phase_one_computation_runs_after_all_of_its_sources_have_finished(monke
     monkeypatch.setattr(company_service.euipo, "sync_company_trademarks", make("EUIPO", 0.01))
     monkeypatch.setattr(company_service.eu_funding, "sync_company_grants", make("EU Funding Portal", 0.01))
     monkeypatch.setattr(company_service.eurostat_sector_growth, "sync_sector_growth_benchmark", make("Eurostat", 0.15))
+    monkeypatch.setattr(company_service.eurostat_export_exposure, "sync_sector_export_exposure", make("Eurostat Export Exposure", 0.01))
     at_compute = []
     monkeypatch.setattr(company_service, "compute_revenue_growth_vs_sector",
                         lambda db, company: at_compute.append(list(finished)))
 
     _, _, results = company_service.run_company_phases("c0", [1], factory)
-    assert list(results) == ["EPO OPS", "EUIPO", "EU Funding Portal", "Eurostat Sector Growth"]  # Italy: no German sources
-    assert len(at_compute) == 1 and sorted(at_compute[0]) == ["EPO OPS", "EU Funding Portal", "EUIPO", "Eurostat"]
+    # Italy: no German-only sources, but Eurostat Export Exposure is universal (EU-wide, keyless).
+    # `results` is written to as each thread's own DB session finishes — completion order also
+    # depends on SQLite query contention across the 5 concurrent sessions, not just each stub's
+    # sleep(), so only membership is asserted here; at_compute (below) is the real ordering
+    # invariant this test exists for.
+    assert sorted(results) == ["EPO OPS", "EU Funding Portal", "EUIPO", "Eurostat Export Exposure", "Eurostat Sector Growth"]
+    assert len(at_compute) == 1 and sorted(at_compute[0]) == ["EPO OPS", "EU Funding Portal", "EUIPO", "Eurostat", "Eurostat Export Exposure"]
 
 
 def test_source_plan_is_country_aware():
@@ -236,6 +242,9 @@ def test_source_plan_is_country_aware():
     de_steps, _ = company_service.plan_source_steps(de, [1, 2, 4, 7])
     it_steps, _ = company_service.plan_source_steps(it, [1, 2, 4, 7])
     de_names, it_names = [s.name for s in de_steps], [s.name for s in it_steps]
-    assert {"Destatis", "Arbeitsagentur", "Handelsregister"} <= set(de_names)
-    assert not ({"Destatis", "Arbeitsagentur", "Handelsregister"} & set(it_names))
+    assert {"Arbeitsagentur", "Handelsregister"} <= set(de_names)
+    assert not ({"Arbeitsagentur", "Handelsregister"} & set(it_names))
+    # Eurostat Export Exposure is EU-wide and keyless — unlike the Destatis adapter it replaced
+    # (Germany-only), it runs for both countries.
+    assert "Eurostat Export Exposure" in de_names and "Eurostat Export Exposure" in it_names
     assert len([s for s in it_steps if s.phase == 7]) == 8

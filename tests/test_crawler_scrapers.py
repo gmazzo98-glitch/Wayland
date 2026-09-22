@@ -336,6 +336,27 @@ def test_job_postings_velocity_counts_all_roles_not_just_digital():
     assert_signal(signals["job_posting_velocity"], 3.0, "present")
 
 
+def test_job_postings_velocity_skipped_for_germany_to_avoid_racing_arbeitsagentur():
+    """arbeitsagentur.sync_job_velocity already owns job_posting_velocity for Germany
+    (company_service.py's Phase 1 plan) — this crawler must never also write it there,
+    or the two producers would silently overwrite each other depending on run order."""
+    row = {
+        "technical_digital_roles_count": 1, "total_open_roles": 3,
+        "roles_sample": [{"title": "Innovation Manager", "url": "https://example.com/jobs/1"},
+                          {"title": "Warehouse Assistant", "url": "https://example.com/jobs/2"},
+                          {"title": "Accountant", "url": "https://example.com/jobs/3"}],
+        "sources_used": [{"id": "careers", "kind": "careers_page", "url": "https://example.com/careers"}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    }
+    signals = job_postings_crawler._derive_signals(row, country="Germany")
+    assert "job_posting_velocity" not in signals
+    assert "digital_job_postings" in signals  # unaffected — only job_posting_velocity is Arbeitsagentur's
+
+    zero_row = {**row, "technical_digital_roles_count": 0, "total_open_roles": 0, "roles_sample": [],
+                "field_status": {"technical_digital_roles_count": "not_applicable"}}
+    assert "job_posting_velocity" not in job_postings_crawler._derive_signals(zero_row, country="Germany")
+
+
 def test_job_postings_velocity_zero_roles_is_absent():
     row = {
         "technical_digital_roles_count": 0, "total_open_roles": 0, "roles_sample": [],

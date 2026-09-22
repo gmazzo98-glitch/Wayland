@@ -13,7 +13,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 from models import SourceHealth, Company
-from adapters import epo_ops, euipo, destatis, eu_funding, arbeitsagentur, google_news
+from adapters import epo_ops, euipo, eu_funding, arbeitsagentur, google_news
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
 from config import PHASE_CONFIG, SOURCE_CREDENTIAL_VARS, SOURCE_PAID_ENABLE_FLAGS, has_credentials
 
