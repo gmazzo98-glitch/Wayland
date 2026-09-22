@@ -35,6 +35,7 @@ from adapters.base import run_adapter
 from config import (
     CRAWLER_LLM_API_KEY, CRAWLER_LLM_BASE_URL, CRAWLER_LLM_MODEL,
     CRAWLER_LLM_FALLBACK_API_KEY, CRAWLER_LLM_FALLBACK_BASE_URL, CRAWLER_LLM_FALLBACK_MODEL,
+    CRAWLER_LLM_EXTRA_FALLBACKS,
 )
 from models import RawImportRecord
 from scrapers.node_crawler_base import (
@@ -217,6 +218,14 @@ def sync_company_website(company, db_session: Session) -> dict:
                 env["LLM_FALLBACK_BASE_URL"] = CRAWLER_LLM_FALLBACK_BASE_URL
             if CRAWLER_LLM_FALLBACK_MODEL:
                 env["LLM_FALLBACK_MODEL"] = CRAWLER_LLM_FALLBACK_MODEL
+            # A third, fourth, ... provider (CRAWLER_LLM_FALLBACK2_API_KEY, ...) — see config.py.
+            # llm.ts's loadProviders() reads the same LLM_FALLBACK<N>_* numbering.
+            for extra in CRAWLER_LLM_EXTRA_FALLBACKS:
+                env[f"LLM_FALLBACK{extra['suffix']}_API_KEY"] = extra["api_key"]
+                if extra["base_url"]:
+                    env[f"LLM_FALLBACK{extra['suffix']}_BASE_URL"] = extra["base_url"]
+                if extra["model"]:
+                    env[f"LLM_FALLBACK{extra['suffix']}_MODEL"] = extra["model"]
         # The crawl is bound by the free tier's token bucket (8k + 133 tokens/s, ~19k tokens for a
         # 14-page company = ~80-110s measured), so it needs real headroom: 170s, of which the
         # crawler itself stops at 140s (node_crawler_base.SOFT_DEADLINE_MARGIN) and writes the pages

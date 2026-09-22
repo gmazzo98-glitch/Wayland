@@ -52,6 +52,18 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+# CRAWLER_LLM_FALLBACK_API_KEY, CRAWLER_LLM_FALLBACK2_API_KEY, ... — see config.py's
+# CRAWLER_LLM_EXTRA_FALLBACKS. Read directly from the environment (not via `import config`) to
+# keep this module free of any Streamlit/database import, per its own docstring.
+_LLM_FALLBACK_SUFFIXES = ("", "2", "3", "4", "5")
+
+
+def _configured_llm_provider_count() -> int:
+    """1 (primary) + however many CRAWLER_LLM_FALLBACK<N>_API_KEY vars are set — each is a
+    genuinely separate token-per-minute bucket company-website-crawler can fall through to."""
+    return 1 + sum(1 for s in _LLM_FALLBACK_SUFFIXES if os.getenv(f"CRAWLER_LLM_FALLBACK{s}_API_KEY"))
+
+
 def default_capacities(cpu_count: Optional[int] = None) -> Dict[str, int]:
     """Capacities for THIS machine. Every value is overridable from the environment."""
     cpus = cpu_count or os.cpu_count() or 4
@@ -60,9 +72,10 @@ def default_capacities(cpu_count: Optional[int] = None) -> Dict[str, int]:
         "process": _env_int("CRAWL_MAX_PROCESSES", min(6, max(3, cpus - 2))),
         # Headless Chromium instances. Each is 300-500 MB.
         "browser": _env_int("CRAWL_BROWSER_SLOTS", min(4, max(2, cpus // 2))),
-        # One extraction run at a time: the token budget is the limit, not concurrency. Raise it
-        # only with a second provider configured (CRAWLER_LLM_FALLBACK_API_KEY).
-        "llm": _env_int("CRAWL_LLM_SLOTS", 2 if os.getenv("CRAWLER_LLM_FALLBACK_API_KEY") else 1),
+        # One extraction run per configured LLM provider: the token budget is each provider's own
+        # limit, not concurrency, so this only rises with another real account (CRAWLER_LLM_FALLBACK_
+        # API_KEY, CRAWLER_LLM_FALLBACK2_API_KEY, ...), never just by raising this number.
+        "llm": _env_int("CRAWL_LLM_SLOTS", _configured_llm_provider_count()),
         # archive.org rate-limits per IP.
         "wayback": _env_int("CRAWL_WAYBACK_SLOTS", 2),
     }

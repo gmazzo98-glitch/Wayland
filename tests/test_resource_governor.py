@@ -163,7 +163,8 @@ def test_every_shipped_crawler_is_known_to_the_governor():
 
 
 def test_default_capacities_follow_the_machine_and_the_environment(monkeypatch):
-    for name in ("CRAWL_MAX_PROCESSES", "CRAWL_BROWSER_SLOTS", "CRAWL_LLM_SLOTS", "CRAWL_WAYBACK_SLOTS", "CRAWLER_LLM_FALLBACK_API_KEY"):
+    for name in ("CRAWL_MAX_PROCESSES", "CRAWL_BROWSER_SLOTS", "CRAWL_LLM_SLOTS", "CRAWL_WAYBACK_SLOTS",
+                 "CRAWLER_LLM_FALLBACK_API_KEY", "CRAWLER_LLM_FALLBACK2_API_KEY", "CRAWLER_LLM_FALLBACK3_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     assert rg.default_capacities(8) == {"process": 6, "browser": 4, "llm": 1, "wayback": 2}
     assert rg.default_capacities(2)["browser"] == 2 and rg.default_capacities(2)["process"] == 3
@@ -175,6 +176,20 @@ def test_default_capacities_follow_the_machine_and_the_environment(monkeypatch):
     assert caps["browser"] == 1 and caps["llm"] == 3
     monkeypatch.setenv("CRAWL_BROWSER_SLOTS", "not-a-number")
     assert rg.default_capacities(8)["browser"] == 4, "a bad value falls back to the default"
+
+
+def test_a_third_and_fourth_llm_provider_each_add_a_slot(monkeypatch):
+    for name in ("CRAWL_LLM_SLOTS", "CRAWLER_LLM_FALLBACK_API_KEY", "CRAWLER_LLM_FALLBACK2_API_KEY", "CRAWLER_LLM_FALLBACK3_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    assert rg.default_capacities(8)["llm"] == 1
+    monkeypatch.setenv("CRAWLER_LLM_FALLBACK_API_KEY", "k1")
+    monkeypatch.setenv("CRAWLER_LLM_FALLBACK2_API_KEY", "k2")
+    assert rg.default_capacities(8)["llm"] == 3
+    monkeypatch.setenv("CRAWLER_LLM_FALLBACK3_API_KEY", "k3")
+    assert rg.default_capacities(8)["llm"] == 4
+    # CRAWL_LLM_SLOTS still overrides, whatever is configured.
+    monkeypatch.setenv("CRAWL_LLM_SLOTS", "1")
+    assert rg.default_capacities(8)["llm"] == 1
 
 
 def test_each_target_has_its_own_governor_and_a_worker_sizes_its_own():

@@ -121,6 +121,29 @@ CRAWLER_LLM_FALLBACK_API_KEY = os.getenv("CRAWLER_LLM_FALLBACK_API_KEY")
 CRAWLER_LLM_FALLBACK_BASE_URL = os.getenv("CRAWLER_LLM_FALLBACK_BASE_URL")
 CRAWLER_LLM_FALLBACK_MODEL = os.getenv("CRAWLER_LLM_FALLBACK_MODEL")
 
+# THIRD+ providers, numbered (CRAWLER_LLM_FALLBACK2_*, CRAWLER_LLM_FALLBACK3_*, ...) — each one
+# configured is another genuinely separate token-per-minute bucket the crawler can fall through to
+# (llm.ts's loadProviders() reads the same numbering). Not a hard cap at 5; add another suffix
+# here and to FALLBACK_SUFFIXES in llm.ts if that's ever not enough.
+CRAWLER_LLM_EXTRA_FALLBACK_SUFFIXES = ("2", "3", "4", "5")
+
+
+def _numbered_llm_fallbacks(getenv=os.getenv) -> list:
+    """Pulled out as a function of `getenv` (defaults to os.getenv) purely so a test can pass a
+    fake env dict's .get instead of monkeypatching the real environment for a module-level constant."""
+    fallbacks = []
+    for s in CRAWLER_LLM_EXTRA_FALLBACK_SUFFIXES:
+        key = getenv(f"CRAWLER_LLM_FALLBACK{s}_API_KEY")
+        if not key:
+            continue
+        fallbacks.append({"suffix": s, "api_key": key,
+                            "base_url": getenv(f"CRAWLER_LLM_FALLBACK{s}_BASE_URL"),
+                            "model": getenv(f"CRAWLER_LLM_FALLBACK{s}_MODEL")})
+    return fallbacks
+
+
+CRAWLER_LLM_EXTRA_FALLBACKS = _numbered_llm_fallbacks()
+
 # news-signals-crawler / innovation-participation-crawler: without a real key
 # these default to SEARCH_PROVIDER=mock, which returns FIXED FAKE Wikipedia
 # search results — that is never acceptable to present as a live pull, so the
