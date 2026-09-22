@@ -37,7 +37,12 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 DEFAULT_WORKERS = 3
-MAX_WORKERS = 8
+# Raised from 8: this bounds how many companies interleave across ALL targets combined, not just
+# one computer's own resource governor — spreading a batch across several ready computers
+# (worker_hub.usable_targets / distribute_companies) needs enough local orchestrator threads for
+# them to actually run at once, not queue behind each other. Each thread mostly blocks on a
+# subprocess or on run_remote's DB poll, so this is cheap to raise.
+MAX_WORKERS = 16
 # Wall-clock for ONE company's Phase 7 pass with its crawlers running together: about as long as
 # the slowest one (see company_service.run_company_phases). Measured 2026-09-21: 148s for a real
 # company. Used only for the "about how long will this take" hint shown before a run starts -
@@ -75,6 +80,7 @@ class InFlight:
     step_total: int = 0
     step_name: str = ""          # the source that started most recently
     running: Tuple[str, ...] = ()  # every source running for this company right now (they overlap)
+    target_label: str = ""       # which computer this company's crawlers are running on ("" = this server)
 
 
 @dataclass(frozen=True)
@@ -131,6 +137,7 @@ class _Job:
     started_at: float
     names: Dict[str, str] = field(default_factory=dict)
     targets: Dict[str, Optional[str]] = field(default_factory=dict)  # company id -> worker id (None = local)
+    target_labels: Dict[str, str] = field(default_factory=dict)  # company id -> display name for its target
     phases: Dict[str, Tuple[int, ...]] = field(default_factory=dict)  # company id -> phases to run
     pending: deque = field(default_factory=deque)
     in_flight: Dict[str, InFlight] = field(default_factory=dict)
@@ -188,12 +195,17 @@ class CrawlJobManager:
     # ---- control ---------------------------------------------------------------
 
     def submit(self, companies: Dict[str, str], workers: int = DEFAULT_WORKERS,
-               target: Optional[str] = None, phases=DEFAULT_PHASES) -> SubmitResult:
+               target: Optional[str] = None, targets: Optional[Dict[str, Optional[str]]] = None,
+               target_labels: Optional[Dict[str, str]] = None, phases=DEFAULT_PHASES) -> SubmitResult:
         """
         Queues `companies` ({company_id: display name}). Starts a new job when none is
         running; otherwise appends to the running one. Never blocks on the crawl.
         `target` is the Crawler Worker id to run them on, or None for this machine (it only
-        matters for phase 7, the Node crawlers). `phases` is which pipeline phases to run.
+        matters for phase 7, the Node crawlers) — applied to every company unless `targets`
+        gives a per-company override, which is how one batch spreads across several computers
+        at once (views.crawler_setup.resolve_batch_targets). `target_labels` is company id ->
+        a short display name for its target, shown in the widget while it runs.
+        `phases` is which pipeline phases to run.
         """
         phases = tuple(sorted({int(p) for p in phases})) or DEFAULT_PHASES
         workers = max(1, min(int(workers), MAX_WORKERS))
@@ -213,7 +225,8 @@ class CrawlJobManager:
                 job = _Job(id=uuid.uuid4().hex[:8], workers=workers, started_at=time.time())
                 self._job = job
             job.names.update(fresh)
-            job.targets.update({cid: target for cid in fresh})
+            job.targets.update({cid: (targets or {}).get(cid, target) for cid in fresh})
+            job.target_labels.update({cid: (target_labels or {}).get(cid, "") for cid in fresh})
             job.phases.update({cid: phases for cid in fresh})
             job.pending.extend(fresh)
             job.total += len(fresh)
@@ -253,7 +266,7 @@ class CrawlJobManager:
                         return
                     cid = job.pending.popleft()
                     name = job.names.get(cid, cid)
-                    job.in_flight[cid] = InFlight(name)
+                    job.in_flight[cid] = InFlight(name, target_label=job.target_labels.get(cid, ""))
                 self._execute(job, cid, name)
         finally:
             if not retired:  # only reachable if the loop body itself died
@@ -272,7 +285,8 @@ class CrawlJobManager:
                 if event != "done":
                     running.append(step_name)
                 job.in_flight[cid] = InFlight(name, index, total,
-                                              current.step_name if event == "done" else step_name, tuple(running))
+                                              current.step_name if event == "done" else step_name, tuple(running),
+                                              current.target_label)
 
         started = time.time()
         try:

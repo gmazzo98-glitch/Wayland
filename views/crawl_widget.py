@@ -63,14 +63,18 @@ def flash(message: str, icon: str) -> None:
     st.session_state[_FLASH] = (message, icon)
 
 
-def queue_crawl(companies: dict, workers: int = DEFAULT_WORKERS, target=None, phases=DEFAULT_PHASES) -> SubmitResult:
+def queue_crawl(companies: dict, workers: int = DEFAULT_WORKERS, target=None, targets=None,
+                target_labels=None, phases=DEFAULT_PHASES) -> SubmitResult:
     """Queues companies ({id: name}) for a background run and leaves a message for the next
     run to toast. Callers st.rerun() afterwards so the widget appears.
-    `target` is the Crawler Worker id to run on (None = this server); callers get it
-    from views.crawler_setup.resolve_crawl_target. `phases` is which pipeline phases to run:
+    `target` is the Crawler Worker id to run everything on (None = this server); `targets` is a
+    per-company override ({id: worker_id|None}) for spreading one batch across several
+    computers at once — both come from views.crawler_setup.resolve_crawl_target /
+    resolve_batch_targets, never picked by hand here. `phases` is which pipeline phases to run:
     the default (7) is the deep crawl; (1,) / (4,) are the API and web/news layers, which
     used to block the page for the whole list."""
-    result = get_manager().submit(companies, workers, target=target, phases=phases)
+    result = get_manager().submit(companies, workers, target=target, targets=targets,
+                                  target_labels=target_labels, phases=phases)
     n = len(companies)
     what = _job_label(phases).lower()
     if result.stopping:
@@ -132,6 +136,13 @@ def _render_running(snap: JobSnapshot, manager) -> None:
     eta = f" · about {_duration(snap.eta_seconds)} left" if snap.eta_seconds is not None else ""
     st.progress(snap.fraction, text=f"{snap.done} of {snap.total} companies{eta}")
 
+    # Split across more than one computer: show where, at a glance, before the per-company list.
+    spread = sorted({item.target_label or "this server" for item in snap.in_flight})
+    if len(spread) > 1:
+        from collections import Counter
+        counts = Counter(item.target_label or "this server" for item in snap.in_flight)
+        st.caption("Running on: " + " · ".join(f"{name} ({n})" for name, n in counts.items()))
+
     lines = []
     if snap.cancel_requested:
         lines.append(f"Waiting for {_companies(len(snap.in_flight))} already in progress to finish; "
@@ -143,7 +154,8 @@ def _render_running(snap: JobSnapshot, manager) -> None:
             step = f" · {item.step_index}/{item.step_total} done"
             if item.running:
                 step += " · " + _sources(item.running)
-        lines.append(f"⏳ **{_clip(item.name)}**{step}")
+        where = f" · {item.target_label}" if item.target_label and len(spread) > 1 else ""
+        lines.append(f"⏳ **{_clip(item.name)}**{where}{step}")
     if len(snap.in_flight) > MAX_LISTED_IN_FLIGHT:
         lines.append(f"…and {len(snap.in_flight) - MAX_LISTED_IN_FLIGHT} more in progress")
     if snap.pending and not snap.cancel_requested:

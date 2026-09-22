@@ -5,13 +5,24 @@ run them.
 The crawlers are Node/Playwright programs; a browser tab can't start programs on the viewer's
 computer, and a hosted app has no Scraper folder of its own. So a helper installs the small
 "Vienna Crawler Worker" once (one download, one double-click — see worker_installer.py), and
-from then on it picks up crawls this app queues for it (worker_hub.py). This page is where that
-download lives, and where the app shows whether each computer really has the right thing installed:
-every worker reports its version, build id and self-test results on a heartbeat, and
-worker_hub.worker_status turns that into ready / update recommended / broken / offline.
+from then on it picks up crawls this app queues for it (worker_hub.py) whenever it's running —
+in the background, from login onward, whether or not anyone has this page open at that moment.
+This page is where that download lives, and where the app shows whether each computer really
+has the right thing installed: every worker reports its version, build id and self-test results
+on a heartbeat, and worker_hub.worker_status turns that into ready / update recommended /
+broken / offline.
+
+Two ways a crawl picks where to run, both built on worker_hub.usable_targets (every computer
+that's online and free right now):
+  - resolve_crawl_target: ONE target, for a single company (Company Intelligence's "Run Deep
+    Crawlers") or when someone has deliberately pinned the whole queue to one computer here.
+  - resolve_batch_targets: a whole batch, spread across every usable computer at once,
+    proportional to how many each can run in parallel (worker_hub.distribute_companies) — the
+    more people have the worker running, the bigger a batch can go without queuing behind a
+    single machine. This is the default; picking one computer in the sidebar overrides it.
 """
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import streamlit as st
 
@@ -24,6 +35,7 @@ from worker_hub import (BROKEN, INCOMPATIBLE, OFFLINE, OUTDATED, READY, REVOKED,
 TARGET_KEY = "crawl_target_choice"
 SETUP_FILE_KEY = "crawler_setup_file"
 LOCAL = "local"
+AUTO = "auto"  # sidebar default: spread a batch across every usable computer (see resolve_batch_targets)
 
 _BADGE = {READY: "🟢", OUTDATED: "🟡", BROKEN: "🔴", OFFLINE: "⚪", WAITING: "🕓", REVOKED: "⚫", INCOMPATIBLE: "🔴"}
 
@@ -84,22 +96,74 @@ def resolve_crawl_target(db=None) -> Dict:
     return {"target": choice, "label": name, "ok": True, "problem": ""}
 
 
+def resolve_batch_targets(db, company_ids: List[str]) -> Dict:
+    """
+    Where a BATCH of companies should run, as {"targets": {cid: worker_id|None},
+    "target_labels": {cid: name}, "computers": [name, ...], "ok", "problem",
+    "recommended_workers"}. Pass targets/target_labels straight to crawl_widget.queue_crawl.
+
+    In Automatic (the sidebar default), every company is assigned to one of the computers that
+    are online and free RIGHT NOW, proportional to how many each can run at once
+    (worker_hub.usable_targets + distribute_companies) — the more helpers currently have the
+    worker running, the more of the batch runs at once instead of queuing behind one machine.
+    Picking one specific computer in the sidebar instead sends the whole batch there, same as
+    resolve_crawl_target.
+    """
+    if st.session_state.get(TARGET_KEY, AUTO) != AUTO:
+        single = resolve_crawl_target(db)
+        return {"targets": {cid: single["target"] for cid in company_ids},
+                "target_labels": {cid: single["label"] for cid in company_ids},
+                "computers": [single["label"]] if single["ok"] else [],
+                "ok": single["ok"], "problem": single["problem"], "recommended_workers": None}
+
+    usable = worker_hub.usable_targets(db, worker_installer.bundle_info())
+    if not usable:
+        return {"targets": {}, "target_labels": {}, "computers": [], "ok": False,
+                "recommended_workers": None,
+                "problem": "No computer is set up to run the crawlers yet. Open 🖥️ Crawler Setup to install "
+                           "the worker on one."}
+
+    assignment = worker_hub.distribute_companies(company_ids, usable)
+    name_by_target = {t["target"]: t["name"] for t in usable}
+    from crawl_jobs import MAX_WORKERS
+    return {
+        "targets": assignment,
+        "target_labels": {cid: name_by_target[t] for cid, t in assignment.items()},
+        "computers": [t["name"] for t in usable],
+        "ok": True, "problem": "",
+        "recommended_workers": min(sum(t["capacity"] for t in usable), MAX_WORKERS),
+    }
+
+
 def render_sidebar_target(db) -> None:
-    """Sidebar block: which computer crawls run on, and whether it is actually ready."""
+    """Sidebar block: where crawls run, and whether anything is actually available right now.
+
+    Automatic is the default and covers what most people want: queue a batch from anywhere
+    (including a phone) and it lands on whichever registered computers are online and free at
+    that moment, split between them. Picking one specific computer here instead pins the WHOLE
+    next batch to it — still useful if you deliberately want to keep a run off a particular
+    machine, or send everything to one you know is fast."""
     options = _options(db)
     st.sidebar.markdown("**🖥️ Crawls run on**")
     if not options:
         st.sidebar.caption("No computer set up yet — open **🖥️ Crawler Setup**.")
         return
-    values = [v for v, _, _ in options]
-    labels = {v: (f"{_BADGE.get(s['state'], '')} {l}" if s else f"🟢 {l}") for v, l, s in options}
+    usable = [v for v, _, s in options if s is None or s["usable"]]
+    values = [AUTO] + [v for v, _, _ in options]
+    labels = {AUTO: (f"🔀 Automatic — spreads across {len(usable)} available now" if usable
+                     else "🔀 Automatic (nothing available yet)")}
+    labels.update({v: (f"{_BADGE.get(s['state'], '')} {l}" if s else f"🟢 {l}") for v, l, s in options})
     if st.session_state.get(TARGET_KEY) not in values:
-        st.session_state[TARGET_KEY] = resolve_crawl_target(db)["target"] or values[0]
+        st.session_state[TARGET_KEY] = AUTO
     st.sidebar.selectbox("Crawls run on", values, key=TARGET_KEY, format_func=lambda v: labels[v],
                          label_visibility="collapsed")
-    resolved = resolve_crawl_target(db)
-    if not resolved["ok"]:
-        st.sidebar.caption(f"⚠️ {resolved['problem']}")
+    if st.session_state[TARGET_KEY] == AUTO:
+        if not usable:
+            st.sidebar.caption("⚠️ No computer is set up yet. Open **🖥️ Crawler Setup** to install the worker on one.")
+    else:
+        resolved = resolve_crawl_target(db)
+        if not resolved["ok"]:
+            st.sidebar.caption(f"⚠️ {resolved['problem']}")
 
 
 # ---- the page ----------------------------------------------------------------------------------------------
@@ -123,6 +187,16 @@ def render_crawler_setup_page(db) -> None:
 
 @st.fragment(run_every=4)
 def _render_computers(db, expected) -> None:
+    usable = worker_hub.usable_targets(db, expected)
+    if usable:
+        total_capacity = sum(t["capacity"] for t in usable)
+        st.info(f"🔀 **{len(usable)} computer(s) available right now** ({', '.join(t['name'] for t in usable)}) — "
+               f"up to {total_capacity} companies' crawlers can run at once between them. A batch queued from "
+               f"anywhere (including a phone) automatically splits across all of them.", icon="🔀")
+    else:
+        st.warning("No computer is currently available to run crawls. Install the worker below, or check that "
+                  "an installed one is running.", icon="⚠️")
+
     st.subheader("Computers")
     if local_crawlers_available():
         st.markdown("🟢 **This server** — has its own crawlers and Node; crawls can run right here.")

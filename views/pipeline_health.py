@@ -132,16 +132,17 @@ def render_pipeline_health_page(db: Session):
     with col_p7a:
         p7_limit = st.number_input("Max companies this run", min_value=1, max_value=50, value=10, key="p7_limit")
     with col_p7b:
-        p7_workers = st.number_input("Companies in parallel", min_value=1, max_value=6, value=3, key="p7_workers")
+        p7_workers = st.number_input("Companies in parallel", min_value=1, max_value=MAX_WORKERS, value=3, key="p7_workers")
     with col_p7c:
         st.markdown("&nbsp;")
         if st.button("🕸️ Run Phase 7 Crawler Enrichment", use_container_width=True):
             from views.crawl_widget import queue_crawl
-            from views.crawler_setup import resolve_crawl_target
-            where = resolve_crawl_target(db)
+            from views.crawler_setup import resolve_batch_targets
+            batch = target_companies[:int(p7_limit)]
+            where = resolve_batch_targets(db, [c.id for c in batch])
             if where["ok"]:
-                batch = target_companies[:int(p7_limit)]
-                queue_crawl({c.id: c.legal_name for c in batch}, workers=int(p7_workers), target=where["target"])
+                queue_crawl({c.id: c.legal_name for c in batch}, workers=int(p7_workers),
+                            targets=where["targets"], target_labels=where["target_labels"])
                 st.rerun()
             else:
                 st.error(where["problem"])

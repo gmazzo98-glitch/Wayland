@@ -26,7 +26,7 @@ from scoring import calculate_company_scores, rank_companies, is_prime_target, P
 from indicators import fetch_indicator_defs
 from crawl_jobs import get_manager, estimate_seconds, DEFAULT_WORKERS, MAX_WORKERS
 from views.crawl_widget import queue_crawl, flash
-from views.crawler_setup import resolve_crawl_target
+from views.crawler_setup import resolve_batch_targets
 
 SEGMENT_COLORS = {"Midcap": "#38BDF8", "SME": "#F59E0B"}
 SEGMENT_ORDER = ["Midcap", "SME"]
@@ -262,7 +262,7 @@ def _short_duration(seconds: int) -> str:
     return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d} min"
 
 
-def _render_crawl_bar(bar, df: pd.DataFrame, frames: dict):
+def _render_crawl_bar(db: Session, bar, df: pd.DataFrame, frames: dict):
     """The sticky 'N selected → crawl them' strip, filled after the tables (it needs
     their selection) but placed above them. `frames` = the ranked frame of each shown segment."""
     visible_ids = {cid for frame in frames.values() for cid in frame["id"]}
@@ -301,6 +301,11 @@ def _render_crawl_bar(bar, df: pd.DataFrame, frames: dict):
         with col_clear:
             st.button("Clear", width="stretch", disabled=not chosen,
                       on_click=lambda: st.session_state.__setitem__(SELECTION_KEY, set()))
+        # Where the batch will run — Automatic spreads it across every computer that's ready
+        # right now (see views.crawler_setup); only needed once anything is actually selected.
+        where = resolve_batch_targets(db, chosen) if chosen else {
+            "ok": True, "problem": "", "computers": [], "recommended_workers": None}
+
         with col_workers:
             if running:
                 workers = snap.workers
@@ -309,8 +314,9 @@ def _render_crawl_bar(bar, df: pd.DataFrame, frames: dict):
                 workers = int(st.number_input(
                     "In parallel", min_value=1, max_value=MAX_WORKERS, value=DEFAULT_WORKERS,
                     key="matrix_crawl_workers", label_visibility="collapsed",
-                    help="Companies crawled at the same time. 3 is the sweet spot on a 16 GB machine "
-                         "(one headless Chromium each) before rate limits start biting."))
+                    help="Companies crawled at the same time, across every computer in use. 3 per computer is "
+                         "the sweet spot on a 16 GB machine (one headless Chromium each) before rate limits "
+                         "start biting."))
 
         with info:
             if not chosen:
@@ -324,13 +330,19 @@ def _render_crawl_bar(bar, df: pd.DataFrame, frames: dict):
                 names = [by_id.at[cid, "legal_name"] for cid in chosen]
                 listed = ", ".join(names[:3]) + (f" +{n - 3} more" if n > 3 else "")
                 notes = [listed, f"about {_short_duration(estimate_seconds(n, workers))} at {workers} in parallel"]
+                computers = where["computers"]
+                if len(computers) > 1:
+                    notes.append(f"spreads across {len(computers)} computers: {', '.join(computers)}"
+                                 + (f" (try {where['recommended_workers']} in parallel to use them all at once)"
+                                    if where["recommended_workers"] and where["recommended_workers"] > workers else ""))
+                elif computers:
+                    notes.append(f"runs on {computers[0]}")
                 no_site = int(by_id.loc[chosen, "website_url"].fillna("").astype(str).str.strip().eq("").sum())
                 if no_site:
                     notes.append(f"⚠️ {no_site} with no website on record (most crawlers need one)")
                 st.caption(" · ".join(notes))
 
-        where = resolve_crawl_target()  # this server, or a helper's computer with the worker installed
-        if not where["ok"]:
+        if chosen and not where["ok"]:
             st.warning(where["problem"])
 
         confirmed = True
@@ -349,7 +361,7 @@ def _render_crawl_bar(bar, df: pd.DataFrame, frames: dict):
                          help="The crawl runs in the background — keep browsing, and follow it in the widget "
                               "at the bottom right of any page."):
                 queue_crawl({cid: by_id.at[cid, "legal_name"] for cid in chosen}, workers=workers,
-                            target=where["target"])
+                            targets=where["targets"], target_labels=where["target_labels"])
                 st.session_state[SELECTION_KEY] = set()
                 st.rerun()
 
@@ -594,4 +606,4 @@ def render_target_matrix_page(db: Session):
         _segment_section(seg_name, ranked_seg_df)
         st.markdown("---")
 
-    _render_crawl_bar(crawl_bar, df, frames)
+    _render_crawl_bar(db, crawl_bar, df, frames)

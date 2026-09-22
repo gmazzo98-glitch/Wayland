@@ -111,6 +111,53 @@ def local_crawlers_available() -> bool:
     return Path(SCRAPER_CRAWLERS_DIR).is_dir() and shutil.which("node") is not None
 
 
+# ---- spreading a batch across every computer that's ready right now -----------------------------
+
+def usable_targets(db, expected: Optional[Dict[str, Any]] = None, include_local: bool = True) -> List[Dict[str, Any]]:
+    """Every target that can take a crawl RIGHT NOW: 'this server' (target=None) when it has its
+    own crawlers, plus every registered Crawler Worker whose status is usable (ready or
+    outdated) — deliberately never one that's offline, broken, incompatible, waiting for its
+    first heartbeat, or removed. Each entry is {"target", "name", "capacity"}: capacity is how
+    many companies' crawlers that computer can run at once (its own reported max_parallel, or
+    this machine's process slots), which is what a big batch gets spread over — the whole point
+    being that more people with the worker open right now means more capacity, automatically."""
+    targets: List[Dict[str, Any]] = []
+    if include_local and local_crawlers_available():
+        from resource_governor import default_capacities
+        targets.append({"target": None, "name": "this server", "capacity": default_capacities()["process"]})
+    for w in list_workers(db):
+        status = worker_status(w, expected)
+        if not status["usable"]:
+            continue
+        capacity = int((w.info or {}).get("max_parallel") or 1)
+        targets.append({"target": w.id, "name": w.name, "capacity": max(1, capacity)})
+    return targets
+
+
+def distribute_companies(company_ids: List[str], targets: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """Splits `company_ids` across `targets`, proportionally to each one's capacity — a computer
+    that can run twice as many crawlers at once ends up with roughly twice the companies.
+    Greedy: each company in turn goes to whichever target currently has the smallest
+    assigned-so-far/capacity ratio. That needs no advance knowledge of the batch size (so it
+    works the same whether called once or fed incrementally) and is stable: the same company
+    list and targets always produce the same assignment.
+
+    Every id gets a target as long as `targets` is non-empty; an empty `targets` list means
+    nothing is available, and every company maps to None (the caller must check that case —
+    see resolve_batch_targets — since None here is not "this server", it's "nowhere")."""
+    if not targets:
+        return {cid: None for cid in company_ids}
+    counts = {t["target"]: 0 for t in targets}
+    assignment: Dict[str, Optional[str]] = {}
+    for cid in company_ids:
+        # `t["target"] or ""` breaks ties on a second, always-comparable key: None (local) and a
+        # worker id string can't otherwise be compared against each other.
+        pick = min(targets, key=lambda t: (counts[t["target"]] / t["capacity"], t["target"] or ""))
+        assignment[cid] = pick["target"]
+        counts[pick["target"]] += 1
+    return assignment
+
+
 # ---- schema / RPC bootstrap -----------------------------------------------------------------
 
 def _rpc_marker() -> str:

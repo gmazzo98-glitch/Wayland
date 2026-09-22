@@ -353,3 +353,87 @@ def test_the_rpc_bootstrap_is_skipped_on_sqlite_and_keyed_to_the_sql_file(tmp_pa
     sql.write_text("-- changed", encoding="utf-8")
     monkeypatch.setattr(worker_hub, "RPC_SQL_PATH", sql)
     assert worker_hub._rpc_marker() != first  # editing the SQL is what triggers a re-apply
+
+
+# ---- spreading a batch across every computer that's ready right now -----------------------------------
+
+def test_usable_targets_lists_local_then_only_ready_workers(db, monkeypatch):
+    monkeypatch.setattr(worker_hub, "local_crawlers_available", lambda: True)
+    ready, _ = _live_worker(db, "ready", max_parallel=4)
+    outdated, _ = _live_worker(db, "outdated", build="old", max_parallel=2)
+    broken, _ = _live_worker(db, "broken", checks={"browser": {"ok": False, "detail": "x"}})
+    offline, _ = _live_worker(db, "offline")
+    offline.last_seen_at = datetime.utcnow() - timedelta(seconds=worker_hub.ONLINE_SECONDS + 10)
+    db.commit()
+
+    targets = worker_hub.usable_targets(db, EXPECTED)
+    names = [t["name"] for t in targets]
+    assert names == ["this server", "ready", "outdated"]  # broken/offline excluded, local first
+    by_name = {t["name"]: t for t in targets}
+    assert by_name["ready"]["capacity"] == 4 and by_name["outdated"]["capacity"] == 2
+    assert by_name["ready"]["target"] == ready.id
+
+
+def test_usable_targets_excludes_local_when_it_has_no_crawlers(db, monkeypatch):
+    monkeypatch.setattr(worker_hub, "local_crawlers_available", lambda: False)
+    _live_worker(db, "only-one")
+    targets = worker_hub.usable_targets(db, EXPECTED)
+    assert [t["name"] for t in targets] == ["only-one"]
+
+
+def test_usable_targets_defaults_a_missing_or_zero_capacity_to_one(db, monkeypatch):
+    monkeypatch.setattr(worker_hub, "local_crawlers_available", lambda: False)
+    _live_worker(db, "no-report")  # no max_parallel in info at all
+    _live_worker(db, "zero-report", max_parallel=0)
+    targets = worker_hub.usable_targets(db, EXPECTED)
+    assert {t["capacity"] for t in targets} == {1}
+
+
+def test_distribute_companies_splits_proportionally_to_capacity():
+    targets = [{"target": "big", "name": "big", "capacity": 3}, {"target": "small", "name": "small", "capacity": 1}]
+    assignment = worker_hub.distribute_companies([f"c{i}" for i in range(8)], targets)
+    from collections import Counter
+    counts = Counter(assignment.values())
+    # 3:1 capacity over 8 companies -> 6:2, exactly (a clean multiple, so no rounding slack).
+    assert counts == {"big": 6, "small": 2}
+    # Every company placed once, and interleaved rather than clumped (big doesn't take the first 6 in a row).
+    assert len(assignment) == 8
+    order = [assignment[f"c{i}"] for i in range(8)]
+    assert order[0] == "big" and order[1] == "small"  # smallest ratio (0/3 vs 0/1... tie -> "" sorts before "small")
+
+
+def test_distribute_companies_is_deterministic_and_handles_no_targets():
+    targets = [{"target": None, "name": "local", "capacity": 2}, {"target": "w1", "name": "w1", "capacity": 2}]
+    ids = [f"c{i}" for i in range(5)]
+    assert worker_hub.distribute_companies(ids, targets) == worker_hub.distribute_companies(ids, targets)
+    assert worker_hub.distribute_companies(ids, []) == {cid: None for cid in ids}
+
+
+def test_distribute_companies_gives_every_company_a_target_even_one_short_of_a_full_round():
+    targets = [{"target": "a", "name": "a", "capacity": 5}, {"target": "b", "name": "b", "capacity": 5}]
+    assignment = worker_hub.distribute_companies(["only"], targets)
+    assert assignment == {"only": "a"}  # ties broken consistently (target "a" sorts first)
+
+
+# ---- the job manager labels each company with where it is running --------------------------------------
+
+def test_the_job_manager_carries_a_per_company_target_label():
+    from crawl_jobs import CrawlJobManager, DEFAULT_WORKERS
+
+    def slow(cid, session_factory=None, on_step=None, phases=None):
+        gate.wait(3)
+        return cid, cid, {}
+
+    gate = threading.Event()
+    m = CrawlJobManager(run_company=slow)
+    m.submit({"a": "A", "b": "B"}, workers=2,
+             targets={"a": "w1", "b": None}, target_labels={"a": "Anna's laptop", "b": ""})
+    for _ in range(200):
+        snap = m.snapshot()
+        if snap and len(snap.in_flight) == 2:
+            break
+        time.sleep(0.01)
+    labels = {item.name: item.target_label for item in snap.in_flight}
+    assert labels == {"A": "Anna's laptop", "B": ""}
+    gate.set()
+    assert m.wait(3)
