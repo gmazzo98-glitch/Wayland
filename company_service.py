@@ -44,12 +44,20 @@ PHASE_7_SOURCES = [
     "Digital Maturity Crawler", "LinkedIn Profile Crawler",
 ]
 
+
+# "Google News" (paid CSE) and "Google News RSS" (keyless default) are two different
+# SignalRecord.source values for the SAME Phase 4 slot — plan_source_steps picks whichever
+# has_credentials("Google News") selects at run time, and that can change over time as keys
+# are added/removed. Both must be listed here so companies_not_yet_crawled recognizes a real
+# signal from either as "done", regardless of which one produced it.
+_NEWS_SOURCES = ["Google News", "Google News RSS"]
+
 COUNTRY_SOURCE_MAP = {
     "Germany": {
         "Phase 1": ["EPO OPS", "EUIPO", "EU Funding Portal", "Arbeitsagentur", "Eurostat Sector Growth", "Eurostat Export Exposure"],
         "Phase 2": ["Handelsregister Free Snapshot"],
         "Phase 3": ["Bundesanzeiger"],
-        "Phase 4": ["Wappalyzer", "Google News", "Own-Site Scrape"],
+        "Phase 4": ["Wappalyzer", "Own-Site Scrape"] + _NEWS_SOURCES,
         "Phase 5": ["Kununu Reseller"],
         "Phase 7": PHASE_7_SOURCES,
     },
@@ -57,7 +65,7 @@ COUNTRY_SOURCE_MAP = {
         "Phase 1": ["EPO OPS", "EUIPO", "EU Funding Portal", "Eurostat Sector Growth", "Eurostat Export Exposure"],
         "Phase 2": [],  # German Handelsregister not applicable
         "Phase 3": [],  # Bundesanzeiger not applicable
-        "Phase 4": ["Wappalyzer", "Google News", "Own-Site Scrape"],
+        "Phase 4": ["Wappalyzer", "Own-Site Scrape"] + _NEWS_SOURCES,
         "Phase 5": [],  # Kununu (DACH focus) not applicable
         "Phase 7": PHASE_7_SOURCES,
     }
