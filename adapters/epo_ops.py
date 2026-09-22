@@ -7,6 +7,8 @@ registration at https://www.epo.org/en/searching-for-patents/data/web-services/o
 falls back to a clearly-tagged simulated value when absent. See adapters/base.py.
 """
 
+import threading
+import time
 import requests
 import xml.etree.ElementTree as ET
 from sqlalchemy.orm import Session
@@ -18,17 +20,46 @@ PHASE = 1
 TOKEN_URL = "https://ops.epo.org/3.2/auth/accesstoken"
 SEARCH_URL = "https://ops.epo.org/3.2/rest-services/published-data/search/biblio"
 
+# EPO OPS access tokens are valid ~20 minutes; this adapter used to request a brand new one on
+# EVERY company's search call. That's harmless sequentially, but a bulk run fires this from
+# several threads at once (company_service.run_company_phases's concurrent Phase 1 steps, times
+# `workers` companies in flight) — verified live 2026-09-22: a 953-company batch at 7-10 workers
+# made EPO OPS's token endpoint start answering 403 Forbidden for the rest of the run (634 of 811
+# calls), which OPS's own docs attribute to hitting its throttle on repeated token issuance, a
+# separate limit from the search endpoint's own quota. Caching the token process-wide (guarded by
+# a lock so concurrent threads share one refresh instead of each fetching their own) removes that
+# self-inflicted load entirely.
+_token_lock = threading.Lock()
+_cached_token = None
+_token_expires_at = 0.0
+
 
 def _get_access_token() -> str:
-    resp = requests.post(
-        TOKEN_URL,
-        data={"grant_type": "client_credentials"},
-        auth=(EPO_OPS_CONSUMER_KEY, EPO_OPS_CONSUMER_SECRET),
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()["access_token"]
+    global _cached_token, _token_expires_at
+    with _token_lock:
+        if _cached_token and time.time() < _token_expires_at:
+            return _cached_token
+        resp = requests.post(
+            TOKEN_URL,
+            data={"grant_type": "client_credentials"},
+            auth=(EPO_OPS_CONSUMER_KEY, EPO_OPS_CONSUMER_SECRET),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # expires_in is seconds, per OPS's docs (typically 1200 = 20 minutes); refresh a minute
+        # early so a token doesn't expire mid-flight under a slow concurrent call.
+        expires_in = int(data.get("expires_in", 1200))
+        _cached_token = data["access_token"]
+        _token_expires_at = time.time() + max(60, expires_in - 60)
+        return _cached_token
+
+
+def _reset_token_cache_for_tests() -> None:
+    """Test seam: forget the cached token so a test can control what the next call returns."""
+    global _cached_token, _token_expires_at
+    _cached_token, _token_expires_at = None, 0.0
 
 
 def _fetch_live(company) -> dict:
