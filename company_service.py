@@ -12,6 +12,7 @@ import unicodedata
 import itertools
 from collections import Counter
 from datetime import datetime, timedelta
+from typing import Dict, List
 import pandas as pd
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -83,6 +84,48 @@ def get_applicable_sources_for_company(company: Company) -> list:
     for sources in country_phases.values():
         applicable.extend(sources)
     return applicable
+
+
+def phase_source_names(country: str, phase: int) -> list:
+    """The source names COUNTRY_SOURCE_MAP lists for one phase/country — the same names
+    every producer's run_adapter() writes onto SignalRecord.source, so this doubles as the
+    key for "did this phase ever produce anything real for this company" (see
+    companies_not_yet_crawled)."""
+    return COUNTRY_SOURCE_MAP.get(country, COUNTRY_SOURCE_MAP["Germany"]).get(f"Phase {phase}", [])
+
+
+def companies_not_yet_crawled(db: Session, companies: list, phase: int) -> list:
+    """
+    Filters `companies` down to the ones with no REAL (non-simulated) SignalRecord yet from
+    ANY of this phase's producers — company-by-company, since which producers apply depends
+    on country (COUNTRY_SOURCE_MAP). A company whose only attempt so far came back simulated
+    (missing credentials, a crawler that found nothing, a transient failure) is treated as
+    NOT yet crawled — worth trying again rather than skipped forever, since scoring.py already
+    ignores is_simulated and a stray placeholder should never look as good as a real miss.
+
+    This is the default filter behind the bulk pipeline triggers on Pipeline Health, so
+    re-clicking "Run Phase N" advances through the list instead of re-spending the same
+    API/LLM budget on companies already covered; the page's own toggle bypasses it to force
+    a full re-run.
+    """
+    by_country: Dict[str, List[Company]] = {}
+    for c in companies:
+        by_country.setdefault(c.country or "Germany", []).append(c)
+
+    todo: List[Company] = []
+    for country, comps in by_country.items():
+        sources = phase_source_names(country, phase)
+        if not sources:
+            continue  # this phase runs nothing at all for this country (e.g. Phase 2 for Italy)
+        ids = [c.id for c in comps]
+        done_ids = {
+            row[0] for row in db.query(SignalRecord.company_id)
+            .filter(SignalRecord.company_id.in_(ids), SignalRecord.source.in_(sources),
+                    SignalRecord.is_simulated.is_(False))
+            .distinct()
+        }
+        todo.extend(c for c in comps if c.id not in done_ids)
+    return todo
 
 
 class SourceStep:

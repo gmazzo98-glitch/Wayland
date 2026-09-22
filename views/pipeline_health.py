@@ -68,10 +68,20 @@ def render_pipeline_health_page(db: Session):
     st.markdown("---")
 
     st.subheader("⚡ Pipeline Trigger Controls")
-    
-    col_filter, _ = st.columns([2, 2])
+
+    from company_service import companies_not_yet_crawled
+
+    col_filter, col_repeat = st.columns([2, 2])
     with col_filter:
         country_sync_scope = st.radio("Sync Scope 🌐", ["All Countries", "Germany 🇩🇪 Only", "Italy 🇮🇹 Only"], horizontal=True, key="pipeline_sync_country")
+    with col_repeat:
+        st.markdown("&nbsp;")
+        repeat_all = st.checkbox(
+            "🔁 Re-run companies already crawled", value=False, key="pipeline_repeat_all",
+            help="Off (default): each trigger below only queues companies that don't yet have a real "
+                 "(non-simulated) signal from that phase, so re-clicking a button advances through the "
+                 "list instead of re-spending the same API/LLM budget on the same companies every time. "
+                 "On: queue every target company again regardless of what it already has.")
 
     target_companies = companies
     if country_sync_scope == "Germany 🇩🇪 Only":
@@ -79,9 +89,19 @@ def render_pipeline_health_page(db: Session):
     elif country_sync_scope == "Italy 🇮🇹 Only":
         target_companies = [c for c in companies if c.country == "Italy"]
 
-    st.caption(f"Triggers below will execute for **{len(target_companies)}** target companies, running only APIs applicable to each company's country.")
+    def _scope(phase: int) -> list:
+        """target_companies, or just the ones missing a real signal from this phase."""
+        return target_companies if repeat_all else companies_not_yet_crawled(db, target_companies, phase)
 
-    from crawl_jobs import MAX_WORKERS
+    phase1_todo, phase4_todo = _scope(1), _scope(4)
+    st.caption(
+        f"Triggers below will execute for up to **{len(target_companies)}** target companies, running only "
+        f"APIs applicable to each company's country. Right now: **{len(phase1_todo)}** still need Phase 1, "
+        f"**{len(phase4_todo)}** still need Phase 4."
+        + ("" if repeat_all else " (companies already covered by a real signal are skipped — toggle above to include them anyway.)")
+    )
+
+    from crawl_jobs import MAX_WORKERS, estimate_seconds
     from views.crawl_widget import queue_crawl
 
     api_workers = st.number_input(
@@ -94,11 +114,11 @@ def render_pipeline_health_page(db: Session):
     from company_service import sync_company_applicable_sources
 
     with col_t1:
-        if st.button("🚀 Run Phase 1 Free APIs Sync", use_container_width=True):
+        if st.button(f"🚀 Run Phase 1 Free APIs Sync ({len(phase1_todo)})", use_container_width=True, disabled=not phase1_todo):
             # In the background, several companies at once. It used to loop over every company on this
             # page's own thread, one at a time, blocking the whole app behind a spinner — for a full list
             # that is hours, which is why these sources had never been run over the imported companies.
-            queue_crawl({c.id: c.legal_name for c in target_companies}, workers=int(api_workers), phases=(1,))
+            queue_crawl({c.id: c.legal_name for c in phase1_todo}, workers=int(api_workers), phases=(1,))
             st.rerun()
 
     with col_t2:
@@ -111,8 +131,8 @@ def render_pipeline_health_page(db: Session):
                 st.rerun()
 
     with col_t3:
-        if st.button("🌐 Run Phase 4 Website & Social Layer", use_container_width=True):
-            queue_crawl({c.id: c.legal_name for c in target_companies}, workers=int(api_workers), phases=(4,))
+        if st.button(f"🌐 Run Phase 4 Website & Social Layer ({len(phase4_todo)})", use_container_width=True, disabled=not phase4_todo):
+            queue_crawl({c.id: c.legal_name for c in phase4_todo}, workers=int(api_workers), phases=(4,))
             st.rerun()
 
     st.markdown("&nbsp;")
@@ -128,17 +148,25 @@ def render_pipeline_health_page(db: Session):
         "Cap the batch size below; to hand-pick companies instead, tick them on **🎯 Scored Target Matrix**. "
         "Crawls run in the background: keep working, and follow progress in the widget at the bottom right of any page."
     )
+    phase7_todo = _scope(7)
+    st.caption(f"**{len(phase7_todo)}** of {len(target_companies)} target companies still need Phase 7"
+               + ("" if repeat_all else " (toggle 🔁 above to re-run everyone instead)."))
     col_p7a, col_p7b, col_p7c = st.columns([1, 1, 2])
     with col_p7a:
-        p7_limit = st.number_input("Max companies this run", min_value=1, max_value=50, value=10, key="p7_limit")
+        p7_limit = st.number_input("Max companies this run", min_value=1, max_value=max(1, len(phase7_todo)),
+                                    value=min(10, max(1, len(phase7_todo))), key="p7_limit")
     with col_p7b:
         p7_workers = st.number_input("Companies in parallel", min_value=1, max_value=MAX_WORKERS, value=3, key="p7_workers")
     with col_p7c:
         st.markdown("&nbsp;")
-        if st.button("🕸️ Run Phase 7 Crawler Enrichment", use_container_width=True):
+        eta = estimate_seconds(int(p7_limit), int(p7_workers), phases=(7,))
+        st.caption(f"⏱️ Rough estimate for {int(p7_limit)} companies at {int(p7_workers)} in parallel: "
+                   f"~{eta // 3600}h {(eta % 3600) // 60}m (floored by the shared LLM token budget — a second "
+                   f"CRAWLER_LLM_FALLBACK_API_KEY speeds this up).")
+        if st.button("🕸️ Run Phase 7 Crawler Enrichment", use_container_width=True, disabled=not phase7_todo):
             from views.crawl_widget import queue_crawl
             from views.crawler_setup import resolve_batch_targets
-            batch = target_companies[:int(p7_limit)]
+            batch = phase7_todo[:int(p7_limit)]
             where = resolve_batch_targets(db, [c.id for c in batch])
             if where["ok"]:
                 queue_crawl({c.id: c.legal_name for c in batch}, workers=int(p7_workers),
