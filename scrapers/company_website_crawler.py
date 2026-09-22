@@ -6,16 +6,28 @@ founding year, and first-sustainability-report year.
 
 Feeds: product_portfolio_diversity, esg_reporting_recency, store_geo_distribution,
 physical_stores_trend (only once a second run gives an actual two-point trend —
-see _stores_trend below; a single crawl is a snapshot, not a trend).
+see _stores_trend below; a single crawl is a snapshot, not a trend), plus four
+more (2026-09-22) that were already extracted or extractable in the same LLM
+pass and simply weren't wired up: product_age, product_innovativeness,
+years_international_activity, international_sales_volume.
 
-Deliberately does NOT feed product_age. The extracted `founding_or_product_launch_year` is
-"founding year, else first-product-launch year" (merge.ts) and in practice it is the founding
-year (live values: 93, 61, 52 years). product_age means "years since the CORE PRODUCT LINE
-launched", so an old company is not an old product — writing it there scored every
-long-established firm as maximum product-obsolescence need. The year is still kept, in the
-crawler blob, as evidence.
+product_age is NOT fed from `founding_or_product_launch_year` (merge.ts) — that field
+prefers founding year and in practice it almost always IS the founding year (live values:
+93, 61, 52 years). product_age means "years since the CORE PRODUCT LINE launched", so an
+old company is not an old product; writing it from founding year scored every
+long-established firm as maximum product-obsolescence need. Instead it's fed from the
+crawler's separate `product_launch_year` field, which merge.ts only ever populates when a
+page states a launch year DISTINCT from the founding year — genuinely rare, but honest.
+
+years_international_activity/international_sales_volume are fed from two new extraction
+fields (export_since_year, export_share_pct) — only ever set when a page states an explicit
+year or percentage ("esportiamo dal 1998", "il 70% della produzione"), never inferred.
+product_innovativeness is fed from `last_product_update_signal`, which was already being
+extracted (most recent dated product/press mention across all crawled pages) but never
+turned into a signal.
 """
 
+import re
 from datetime import datetime
 from sqlalchemy.orm import Session
 
@@ -126,7 +138,67 @@ def _derive_signals(db: Session, company, row: dict) -> dict:
                                          f"(at least {MIN_DAYS_BETWEEN_TREND_POINTS} days apart)"},
             }
 
+    launch_year = row.get("product_launch_year")
+    if field_status.get("product_launch_year") == "value" and launch_year:
+        age = datetime.utcnow().year - int(launch_year)
+        if age >= 0:
+            signals["product_age"] = {
+                "value": float(age), "status": "present",
+                "summary": f"core product line launched {int(launch_year)} "
+                           "(a page stated a launch year distinct from the company's founding year)",
+                "evidence": {**base_evidence, "product_launch_year": launch_year},
+            }
+
+    update_signal = row.get("last_product_update_signal") or {}
+    if field_status.get("last_product_update_signal") == "value" and update_signal.get("date"):
+        years = _years_since(update_signal["date"])
+        if years is not None:
+            signals["product_innovativeness"] = {
+                "value": round(years, 1), "status": "present",
+                "summary": f"most recent dated product/press update found on the site: {update_signal['date']}"
+                           + (f" ({update_signal.get('source_url')})" if update_signal.get("source_url") else ""),
+                "evidence": {**base_evidence, "last_update_date": update_signal["date"],
+                              "last_update_source_url": update_signal.get("source_url")},
+            }
+
+    export_since = row.get("export_since_year")
+    if field_status.get("export_since_year") == "value" and export_since:
+        years_intl = datetime.utcnow().year - int(export_since)
+        if years_intl >= 0:
+            signals["years_international_activity"] = {
+                "value": float(years_intl), "status": "present",
+                "summary": f"site states exporting/operating internationally since {int(export_since)}",
+                "evidence": {**base_evidence, "export_since_year": export_since},
+            }
+
+    export_pct = row.get("export_share_pct")
+    if field_status.get("export_share_pct") == "value" and export_pct is not None:
+        signals["international_sales_volume"] = {
+            "value": float(export_pct), "status": "present",
+            "summary": f"site states {export_pct:.0f}% of revenue/sales/production is exported or international",
+            "evidence": {**base_evidence, "export_share_pct": export_pct},
+        }
+
     return signals
+
+
+_DATE_RE = re.compile(r"^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$")
+
+
+def _years_since(date_str: str):
+    """Parses the crawler's YYYY / YYYY-MM / YYYY-MM-DD date string and returns years
+    elapsed to now, or None if it doesn't parse or lies in the future (a bad extraction,
+    not a real signal)."""
+    m = _DATE_RE.match(date_str or "")
+    if not m:
+        return None
+    year, month, day = int(m.group(1)), int(m.group(2) or 1), int(m.group(3) or 1)
+    try:
+        dt = datetime(year, month, day)
+    except ValueError:
+        return None
+    days = (datetime.utcnow() - dt).days
+    return days / 365.25 if days >= 0 else None
 
 
 def sync_company_website(company, db_session: Session) -> dict:

@@ -1120,9 +1120,9 @@
       "raw_min": 0,
       "raw_max": 15,
       "status": "BUILD",
-      "status_note": "website LLM on the home/product pages (claims, certifications, patents cited)",
-      "status_effort": "website LLM",
-      "producer_file": "scrapers/company_website_crawler.py"
+      "status_note": "the catalog's own proxy is 'number of comparable competing products at similar price points' - not something a company's own website can honestly state. Counting differentiation claims (certifications, 'only manufacturer of...') would invert the definition (a company that doesn't self-promote reads as MORE commoditized) - deliberately not built as a website-LLM field for that reason, same posture as the declined regulatory_compliance_exposure inference",
+      "status_effort": "needs a real competitor-landscape source",
+      "producer_file": null
     },
     {
       "key": "product_portfolio_diversity",
@@ -1219,10 +1219,10 @@
       "freshness_days": 365,
       "raw_min": 0,
       "raw_max": 10,
-      "status": "BUILD",
-      "status_note": "press launch mentions + website 'novita' pages; overlaps press_launch_mentions",
-      "status_effort": "RSS/website",
-      "producer_file": null
+      "status": "RUN",
+      "status_note": "company-website crawler's last_product_update_signal (2026-09-22): most recent dated product/press update across all crawled pages, was already extracted, wasn't wired up",
+      "status_effort": "Phase 7",
+      "producer_file": "scrapers/company_website_crawler.py"
     },
     {
       "key": "product_quality_trend",
@@ -1269,9 +1269,9 @@
       "freshness_days": 730,
       "raw_min": 0,
       "raw_max": 40,
-      "status": "BUILD",
-      "status_note": "was fed by the website crawler's founding year - removed today (a founding year is not a product's age). Needs launch-date mentions in product pages/press",
-      "status_effort": "website LLM / RSS",
+      "status": "RUN",
+      "status_note": "company-website crawler's product_launch_year field (2026-09-22): only set when a page states a launch year distinct from the founding year, so real coverage will be low but honest",
+      "status_effort": "Phase 7",
       "producer_file": "scrapers/company_website_crawler.py"
     },
     {
@@ -1394,9 +1394,9 @@
       "freshness_days": 365,
       "raw_min": 0,
       "raw_max": 50,
-      "status": "BUILD",
-      "status_note": "no export revenue in the AIDA exports on disk; website LLM ('esportiamo il 70%') or a new AIDA pull - weight 3",
-      "status_effort": "website LLM / AIDA",
+      "status": "RUN",
+      "status_note": "company-website crawler's export_share_pct field (2026-09-22): only set when a page states an explicit percentage ('esportiamo il 70%')",
+      "status_effort": "Phase 7",
       "producer_file": "scrapers/company_website_crawler.py"
     },
     {
@@ -1419,9 +1419,9 @@
       "freshness_days": 730,
       "raw_min": 0,
       "raw_max": 15,
-      "status": "BUILD",
-      "status_note": "company-website LLM pass on the about/history page ('esportiamo dal ...')",
-      "status_effort": "website LLM",
+      "status": "RUN",
+      "status_note": "company-website crawler's export_since_year field (2026-09-22): only set when a page states an explicit year ('esportiamo dal 1998')",
+      "status_effort": "Phase 7",
       "producer_file": "scrapers/company_website_crawler.py"
     },
     {
@@ -1719,10 +1719,10 @@
       "freshness_days": 14,
       "raw_min": 0,
       "raw_max": 20,
-      "status": "NOT_ITALY",
-      "status_note": "Arbeitsagentur is DE-only. Italy has no equivalent open API: derive it from two careers-page crawls (the same two-point trick as physical_stores_trend)",
-      "status_effort": "small build",
-      "producer_file": "adapters/arbeitsagentur.py"
+      "status": "RUN",
+      "status_note": "job-postings crawler's own junk-filtered total-roles count (2026-09-22) - already computed for digital_job_postings' summary, just never written as its own signal. No Germany dependency, works for Italy",
+      "status_effort": "Phase 7",
+      "producer_file": "scrapers/job_postings_crawler.py"
     },
     {
       "key": "kununu_rating",
@@ -1845,7 +1845,7 @@
       "raw_min": null,
       "raw_max": null,
       "status": "BUILD",
-      "status_note": "website LLM classification of the home page (context, not scored)",
+      "status_note": "website LLM classification of the home page (context, not scored - lowest priority)",
       "status_effort": "website LLM",
       "producer_file": "scrapers/company_website_crawler.py"
     },

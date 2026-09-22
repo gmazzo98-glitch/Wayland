@@ -257,6 +257,40 @@ def test_company_website_crawled_sustainability_page_with_no_report_is_absent():
     assert_signal(signals["esg_reporting_recency"], None, "absent")
 
 
+def test_company_website_derive_signals_new_website_llm_fields():
+    this_year = datetime.utcnow().year
+    two_years_ago = (datetime.utcnow() - timedelta(days=730)).strftime("%Y-%m-%d")
+    row = {
+        "product_launch_year": this_year - 8,
+        "last_product_update_signal": {"date": two_years_ago, "source_url": "https://example.com/news/x"},
+        "export_since_year": this_year - 15,
+        "export_share_pct": 70,
+        "field_status": {
+            "product_launch_year": "value", "last_product_update_signal": "value",
+            "export_since_year": "value", "export_share_pct": "value",
+        },
+    }
+    signals = company_website_crawler._derive_signals(None, None, row)
+    assert_signal(signals["product_age"], 8.0, "present")
+    assert_signal(signals["product_innovativeness"], pytest.approx(2.0, abs=0.05), "present")
+    assert_signal(signals["years_international_activity"], 15.0, "present")
+    assert_signal(signals["international_sales_volume"], 70.0, "present")
+    for key in ("product_age", "product_innovativeness", "years_international_activity", "international_sales_volume"):
+        assert signals[key]["summary"], f"{key} must carry a human-readable summary"
+
+
+def test_company_website_new_fields_write_nothing_when_not_found():
+    row = {
+        "product_launch_year": None, "last_product_update_signal": None,
+        "export_since_year": None, "export_share_pct": None,
+        "field_status": {
+            "product_launch_year": "not_found", "last_product_update_signal": "not_found",
+            "export_since_year": "not_found", "export_share_pct": "not_found",
+        },
+    }
+    assert company_website_crawler._derive_signals(None, None, row) == {}
+
+
 def test_company_website_stores_trend_needs_prior_snapshot(memory_session, company):
     old_ts = datetime.utcnow() - timedelta(days=60)
     save_crawler_blob(memory_session, company, "crawler_company_website", {"store_count": 10})
@@ -283,6 +317,33 @@ def test_job_postings_derive_signals_digital_lead_keyword_match():
     assert_signal(signals["digital_job_postings"], 4.0, "present")
     assert_signal(signals["skilled_labour_share"], 60.0, "present")
     assert_signal(signals["digital_lead_role_present"], 1.0, "present")
+
+
+def test_job_postings_velocity_counts_all_roles_not_just_digital():
+    """job_posting_velocity's proxy is ALL open roles, unlike digital_job_postings which is a
+    subset — the same junk-filtered total (`considered`) backs both, just reported differently."""
+    row = {
+        "technical_digital_roles_count": 1,
+        "total_open_roles": 3,
+        "roles_sample": [{"title": "Innovation Manager", "url": "https://example.com/jobs/1"},
+                          {"title": "Warehouse Assistant", "url": "https://example.com/jobs/2"},
+                          {"title": "Accountant", "url": "https://example.com/jobs/3"}],
+        "sources_used": [{"id": "careers", "kind": "careers_page", "url": "https://example.com/careers"}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    }
+    signals = job_postings_crawler._derive_signals(row)
+    assert_signal(signals["digital_job_postings"], 1.0, "present")
+    assert_signal(signals["job_posting_velocity"], 3.0, "present")
+
+
+def test_job_postings_velocity_zero_roles_is_absent():
+    row = {
+        "technical_digital_roles_count": 0, "total_open_roles": 0, "roles_sample": [],
+        "sources_used": [{"id": "careers", "kind": "careers_page", "url": "https://example.com/careers"}],
+        "field_status": {"technical_digital_roles_count": "not_applicable"},
+    }
+    signals = job_postings_crawler._derive_signals(row)
+    assert_signal(signals["job_posting_velocity"], 0.0, "absent")
 
 
 def test_job_postings_no_digital_lead_when_no_match():

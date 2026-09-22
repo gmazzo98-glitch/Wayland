@@ -83,10 +83,21 @@ GAP_PLAN = {
     "skilled_labour_share": ("RUN", "job-postings crawler", "Phase 7"),
     "digital_lead_role_present": ("RUN", "job-postings crawler - a GATE (x0.7 on readiness), so its honesty matters most", "Phase 7"),
     "trade_fair_participation": ("RUN", "directory-listing crawler (MECSPE only today; more directories = more plugins)", "Phase 7"),
+    "job_posting_velocity": ("RUN", "job-postings crawler's own junk-filtered total-roles count (2026-09-22) - already computed for "
+                                    "digital_job_postings' summary, just never written as its own signal. No Germany dependency, works for Italy",
+                             "Phase 7"),
     "esg_reporting_recency": ("RUN", "company-website crawler (LLM, token-bound)", "Phase 7"),
     "product_portfolio_diversity": ("RUN", "company-website crawler (noisy: counts vary run to run)", "Phase 7"),
     "store_geo_distribution": ("RUN", "company-website crawler (most B2B machinery makers have no stores: honest not_applicable)", "Phase 7"),
     "physical_stores_trend": ("RUN", "company-website crawler - needs a SECOND crawl 30+ days later (a trend, not a snapshot)", "Phase 7, twice"),
+    "product_age": ("RUN", "company-website crawler's product_launch_year field (2026-09-22): only set when a page states a "
+                           "launch year distinct from the founding year, so real coverage will be low but honest", "Phase 7"),
+    "product_innovativeness": ("RUN", "company-website crawler's last_product_update_signal (2026-09-22): most recent dated "
+                                      "product/press update across all crawled pages, was already extracted, wasn't wired up", "Phase 7"),
+    "years_international_activity": ("RUN", "company-website crawler's export_since_year field (2026-09-22): only set when a page "
+                                             "states an explicit year ('esportiamo dal 1998')", "Phase 7"),
+    "international_sales_volume": ("RUN", "company-website crawler's export_share_pct field (2026-09-22): only set when a page "
+                                          "states an explicit percentage ('esportiamo il 70%')", "Phase 7"),
 
     # ---- GATED: built, blocked ------------------------------------------------------------------------
     "sector_pilot_precedent": ("GATED", "news-signals-crawler needs NEWSAPI_KEY (paid). Free route: extend the RSS adapter", "key or small build"),
@@ -102,8 +113,6 @@ GAP_PLAN = {
     "sector_export_exposure": ("NOT_ITALY", "Destatis adapter is DE-only (and its table code is wrong). Italian equivalent: ISTAT Coeweb "
                                             "(trade by ATECO) or Eurostat trade-by-NACE - both free; confirm the table codes live, do not guess",
                                "new adapter"),
-    "job_posting_velocity": ("NOT_ITALY", "Arbeitsagentur is DE-only. Italy has no equivalent open API: derive it from two careers-page "
-                                          "crawls (the same two-point trick as physical_stores_trend)", "small build"),
     "rd_expense_ratio": ("NOT_ITALY", "Bundesanzeiger (paid, DE). Italy: not in the six exports either (they hold 'Immobilizzazioni immateriali "
                                       "(Investimenti)', a coarse proxy). Options: an AIDA pull with 'costi di sviluppo', or the public Registro Imprese "
                                       "list of 'PMI innovative' (which must show R&D >= 3%) - verify the open-data file", "AIDA re-export"),
@@ -125,14 +134,13 @@ GAP_PLAN = {
     "private_funding": ("IMPORT", "WAYLAND_SHAREHOLDERS_CONTROL export, 'Azionisti Tipo' (shareholder type, to detect PE / VC / financial holders) "
                                   "+ '% Diretta/Totale' (100%); news mentions of funding rounds as a complement", "map + classify"),
     "family_ownership_share": ("IMPORT", "same shareholder rows: shareholders sharing the officers' surname, by '% Totale' (context, not scored)", "map + surname match"),
-    "years_international_activity": ("BUILD", "company-website LLM pass on the about/history page ('esportiamo dal ...')", "website LLM"),
-    "international_sales_volume": ("BUILD", "no export revenue in the AIDA exports on disk; website LLM ('esportiamo il 70%') or a new AIDA pull - weight 3", "website LLM / AIDA"),
     "online_sales_volume": ("BUILD", "presence of a shop is known (digital-maturity); the VOLUME is not published - first-contact", "manual"),
-    "product_differentiation": ("BUILD", "website LLM on the home/product pages (claims, certifications, patents cited)", "website LLM"),
-    "product_innovativeness": ("BUILD", "press launch mentions + website 'novita' pages; overlaps press_launch_mentions", "RSS/website"),
-    "product_age": ("BUILD", "was fed by the website crawler's founding year - removed today (a founding year is not a product's age). "
-                             "Needs launch-date mentions in product pages/press", "website LLM / RSS"),
-    "product_type_tag": ("BUILD", "website LLM classification of the home page (context, not scored)", "website LLM"),
+    "product_differentiation": ("BUILD", "the catalog's own proxy is 'number of comparable competing products at similar price points' - not "
+                                         "something a company's own website can honestly state. Counting differentiation claims (certifications, "
+                                         "'only manufacturer of...') would invert the definition (a company that doesn't self-promote reads as MORE "
+                                         "commoditized) - deliberately not built as a website-LLM field for that reason, same posture as the "
+                                         "declined regulatory_compliance_exposure inference", "needs a real competitor-landscape source"),
+    "product_type_tag": ("BUILD", "website LLM classification of the home page (context, not scored - lowest priority)", "website LLM"),
     "competitor_digital_gap": ("BUILD", "computed: a company's digital maturity vs its sector peers - needs website_digital_maturity filled first", "small compute, after RUN"),
     "erp_systems_age": ("BUILD", "keyword scan of job-ad TEXT for ERP vendors (SAP, Navision, AS/400, Zucchetti, TeamSystem...) - the "
                                  "crawler only keeps titles today", "extend job crawler"),

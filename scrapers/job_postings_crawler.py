@@ -6,7 +6,14 @@ technical/digital roles and qualification share.
 Feeds: digital_job_postings, skilled_labour_share, digital_lead_role_present
 (a title-keyword scan over the sample of open roles — the closest automatable
 proxy for "does a named digital/innovation lead role exist", matching that
-indicator's own proxy text: "Job title search ... on company website").
+indicator's own proxy text: "Job title search ... on company website"), and
+(2026-09-22) job_posting_velocity — its catalog proxy is "number of active job
+listings across ALL roles", which is exactly the same junk-filtered total-roles
+count `_derive_signals` was already computing for digital_job_postings' own
+"X of Y" summary; it just wasn't written as its own signal. No new crawl or
+source needed, and no dependency on the German-only Arbeitsagentur API this
+indicator's catalog row still names — this cohort is Italian.
+
 ERP systems age (T3 in the source spreadsheet) is deliberately NOT derived
 here: the crawler's roles_sample only carries a title, not a full description,
 which isn't enough text to detect an ERP vendor mention without guessing.
@@ -462,6 +469,28 @@ def _derive_signals(row: dict) -> dict:
             "summary": "careers page crawled, advertises no open roles at all",
             "evidence": {"method": "careers page crawled, zero listings found",
                           "counted": 0, "considered": 0, "source_urls": source_urls},
+        }
+
+    # job_posting_velocity's own proxy is "number of active job listings ACROSS ALL roles"
+    # (indicators.py) — not a rate of change despite the "Velocity" name, and not restricted to
+    # digital/technical roles the way digital_job_postings is. Its catalog source_system
+    # (Arbeitsagentur) is Germany-only, which is why the gap report once planned a two-crawl
+    # trend trick for Italy; but `considered` here is already the same junk-filtered total-roles
+    # count digital_job_postings' own summary reports, so no second crawl or new source is
+    # needed — it was already being computed and simply never written as its own signal.
+    if roles_status == "value" and considered is not None:
+        signals["job_posting_velocity"] = {
+            "value": float(considered), "status": "present",
+            "summary": f"{considered} open role(s) currently listed on the careers page",
+            "evidence": {"method": "count of open-role listings that survived junk-filtering (all roles, not just digital)"
+                                    if recount else "count of open-role listings (crawler's own total)",
+                          "considered": considered, "source_urls": source_urls},
+        }
+    elif roles_status == "not_applicable":
+        signals["job_posting_velocity"] = {
+            "value": 0.0, "status": "absent",
+            "summary": "careers page crawled, advertises no open roles at all",
+            "evidence": {"method": "careers page crawled, zero listings found", "considered": 0, "source_urls": source_urls},
         }
 
     qual_share = row.get("technical_qualification_share")
