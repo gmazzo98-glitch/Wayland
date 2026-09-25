@@ -86,10 +86,9 @@ SCRAPER_CRAWLERS_DIR = os.getenv("SCRAPER_CRAWLERS_DIR") or str(
 
 # Crawler Worker (worker_hub.py): lets a helper's own computer run the crawlers when this
 # app is hosted somewhere that has no Scraper/crawlers folder (Streamlit Cloud). The installer
-# the Crawler Setup page hands out carries these two PUBLIC values (Supabase project URL +
-# publishable/anon key) and nothing secret — the worker's own token is what authorises it.
-SUPABASE_URL = get_config_var("SUPABASE_URL")
-SUPABASE_ANON_KEY = get_config_var("SUPABASE_ANON_KEY")
+# the Crawler Setup page hands out carries this PUBLIC value (the worker_shim/ service's URL)
+# and nothing secret — the worker's own per-install token is what authorises it.
+WORKER_SHIM_URL = get_config_var("WORKER_SHIM_URL")
 
 # news-signals-crawler / innovation-participation-crawler still call the Anthropic API
 # directly for classification (unconverted — they're gated primarily on NEWSAPI_KEY

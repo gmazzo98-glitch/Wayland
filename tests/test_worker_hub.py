@@ -305,7 +305,7 @@ def test_a_worker_that_has_reported_nothing_keeps_the_default_capacity(tmp_path)
 
 @pytest.mark.skipif(not worker_installer.bundle_available(), reason="run scripts/build_worker_bundle.py first")
 def test_the_setup_file_is_self_contained_and_personal_to_one_computer():
-    config = worker_installer.make_config("Anna's laptop", "tok-123", "https://x.supabase.co", "sb_publishable_x")
+    config = worker_installer.make_config("Anna's laptop", "tok-123", "https://shim.example.com")
     bat = worker_installer.build_setup_bat(config)
     text = bat.decode("ascii")  # must be pure ASCII: it is a batch file read under any code page
     assert text.startswith("@echo off\r\n") and "\n##PS1\r\n" in text and "\n##ZIP\r\n" in text
@@ -333,7 +333,7 @@ def test_the_setup_file_is_self_contained_and_personal_to_one_computer():
 
 @pytest.mark.skipif(not worker_installer.bundle_available(), reason="run scripts/build_worker_bundle.py first")
 def test_the_zip_fallback_wraps_the_same_setup_file():
-    config = worker_installer.make_config("x", "t", "https://x", "k")
+    config = worker_installer.make_config("x", "t", "https://x")
     with zipfile.ZipFile(io.BytesIO(worker_installer.build_setup_zip(config))) as z:
         assert z.namelist() == [worker_installer.SETUP_BAT_NAME]
         assert z.read(worker_installer.SETUP_BAT_NAME).startswith(b"@echo off")

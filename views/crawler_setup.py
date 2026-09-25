@@ -28,7 +28,7 @@ import streamlit as st
 
 import worker_hub
 import worker_installer
-from config import SUPABASE_ANON_KEY, SUPABASE_URL
+from config import WORKER_SHIM_URL
 from worker_hub import (BROKEN, INCOMPATIBLE, OFFLINE, OUTDATED, READY, REVOKED, WAITING,
                         list_workers, local_crawlers_available, revoke_worker, worker_status)
 
@@ -240,9 +240,9 @@ def _render_add_computer(db) -> None:
     if not worker_installer.bundle_available():
         problems.append("The crawler bundle hasn't been built (`python scripts/build_worker_bundle.py`, then commit "
                         "`worker_dist/`).")
-    if not (SUPABASE_URL and SUPABASE_ANON_KEY):
-        problems.append("`SUPABASE_URL` and `SUPABASE_ANON_KEY` aren't configured for this app (environment or "
-                        "Streamlit secrets). They're the project's public URL and publishable key.")
+    if not WORKER_SHIM_URL:
+        problems.append("`WORKER_SHIM_URL` isn't configured for this app (environment or Streamlit secrets). "
+                        "It's the public URL of the worker_shim/ service.")
     if db.get_bind().dialect.name != "postgresql":
         problems.append("Helper computers need the Postgres/Supabase database; this app is running on SQLite.")
     if problems:
@@ -264,7 +264,7 @@ def _render_add_computer(db) -> None:
     if st.button("Prepare setup file", type="primary", disabled=not name.strip()):
         try:
             worker, token = worker_hub.create_worker(db, name)
-            config = worker_installer.make_config(worker.name, token, SUPABASE_URL, SUPABASE_ANON_KEY)
+            config = worker_installer.make_config(worker.name, token, WORKER_SHIM_URL)
             st.session_state[SETUP_FILE_KEY] = {
                 "worker_id": worker.id, "name": worker.name,
                 "bat": worker_installer.build_setup_bat(config),

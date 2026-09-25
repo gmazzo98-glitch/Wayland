@@ -2,7 +2,7 @@
 Builds the file a helper downloads from the Crawler Setup page: ONE self-contained Windows
 setup file (.bat) that they double-click. Nothing from the Vienna app is in it — only the
 crawler bundle (scripts/build_worker_bundle.py), the installer script, and this one
-computer's connection details (the public Supabase URL + key, and its own random token).
+computer's connection details (the public worker_shim/ URL and its own random token).
 
 Why a single .bat and not a zip to unpack first: a zip opened straight from the browser or
 Explorer runs its files from a temporary folder with their neighbours missing, which is
@@ -103,6 +103,5 @@ def build_setup_zip(config: Dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
-def make_config(worker_name: str, token: str, supabase_url: str, anon_key: str, max_parallel: int = 4) -> Dict[str, Any]:
-    return {"name": worker_name, "token": token, "supabaseUrl": supabase_url, "anonKey": anon_key,
-            "maxParallel": max_parallel}
+def make_config(worker_name: str, token: str, shim_url: str, max_parallel: int = 4) -> Dict[str, Any]:
+    return {"name": worker_name, "token": token, "shimUrl": shim_url, "maxParallel": max_parallel}

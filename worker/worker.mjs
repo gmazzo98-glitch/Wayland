@@ -1,7 +1,8 @@
 // Vienna Crawler Worker — runs the Vienna crawlers on this computer when the Vienna app asks.
 //
-// It holds no database password. It only knows the project's public API key and its own token,
-// and talks to three token-checked functions (worker/supabase_rpc.sql on the server):
+// It holds no database password. It only knows the worker_shim/ service's URL and its own
+// token, and talks to three token-checked functions (worker/supabase_rpc.sql on the server)
+// through that shim:
 //   heartbeat  every ~15s: "I'm here" + version + self-test results (this is how the app
 //              knows the install is present, current and healthy)
 //   claim      every ~2s while it has a free slot: "give me my next queued crawl"
@@ -80,12 +81,10 @@ function writeStatus(patch) {
 
 // ---- talking to the server -----------------------------------------------------------------
 
-const KEY = CONFIG.anonKey;
 async function rpc(fn, args) {
-  const headers = { apikey: KEY, 'Content-Type': 'application/json' };
-  if (KEY.startsWith('eyJ')) headers.Authorization = `Bearer ${KEY}`; // legacy JWT keys want it; sb_publishable_ keys don't
-  const res = await fetch(`${CONFIG.supabaseUrl.replace(/\/$/, '')}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers, body: JSON.stringify(args), signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+  const res = await fetch(`${CONFIG.shimUrl.replace(/\/$/, '')}/rpc/${fn}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args), signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
   });
   const body = await res.text();
   if (!res.ok) throw new Error(`${fn} -> HTTP ${res.status} ${body.slice(0, 300)}`);
