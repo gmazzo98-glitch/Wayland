@@ -418,33 +418,35 @@ def _score_all_companies(_db: Session, _companies, _indicator_defs: dict, signal
     return scores_by_id
 
 
-def _render_completeness_banner(db: Session, companies, indicator_defs, scores_by_id):
-    # Mirror how scoring.py counts signals_total: a 'need'/'readiness' indicator
-    # counts once, a 'both'-axis one counts once per axis (twice), 'context' never.
-    scored_count = sum(2 if d["axis"] == "both" else 1 for d in indicator_defs.values() if d["axis"] != "context")
-    total_possible = len(companies) * scored_count
-    total_checked = sum(scores_by_id[comp.id]["signals_checked"] for comp in companies)
-    pct_run = (total_checked / total_possible * 100.0) if total_possible else 0.0
+@st.fragment(run_every=5)
+def _render_coverage_indicator():
+    """Poll committed pipeline data independently of the cached matrix scores."""
+    from database import SessionFactory
 
-    sources = db.query(SourceHealth).all()
-    live_count = sum(1 for s in sources if s.mode == "live")
-    never_run = sum(1 for s in sources if s.last_status in (None, "idle"))
+    with SessionFactory() as live_db:
+        defs = fetch_indicator_defs(live_db)
+        company_count = live_db.query(func.count(Company.id)).scalar() or 0
+        scored = {key: (2 if d["axis"] == "both" else 1)
+                  for key, d in defs.items() if d["axis"] != "context"}
+        total_possible = company_count * sum(scored.values())
+        checked_by_key = live_db.query(SignalRecord.signal_key, func.count(SignalRecord.id)).filter(
+            SignalRecord.signal_key.in_(list(scored)),
+            SignalRecord.status.in_(("present", "stale", "absent")),
+        ).group_by(SignalRecord.signal_key).all() if scored else []
+        total_checked = sum(count * scored[key] for key, count in checked_by_key)
+        sources = live_db.query(SourceHealth.mode, SourceHealth.last_status).all()
 
-    if pct_run >= 90 and live_count == len(sources) and sources:
-        st.success(
-            f"Pipeline coverage: **{pct_run:.0f}%** of all possible signal checks are populated across "
-            f"{len(companies)} companies — {live_count}/{len(sources)} sources running live.",
-            icon="✅",
-        )
-    else:
-        st.warning(
-            f"Pipeline coverage: only **{pct_run:.0f}%** of possible signal checks are populated across "
-            f"{len(companies)} companies. **{live_count}/{len(sources) or 0} sources are running live** "
-            f"({never_run} never run) — the rest are simulated or not yet checked. "
-            f"Scores below are computed only from what's actually present; check **⚙️ Pipeline & Source Health** "
-            f"before treating any ranking here as final.",
-            icon="⚠️",
-        )
+    pct_run = total_checked / total_possible * 100 if total_possible else 0.0
+    live_count = sum(1 for mode, _ in sources if mode == "live")
+    never_run = sum(1 for _, status in sources if status in (None, "idle"))
+
+    st.subheader("Pipeline coverage")
+    st.progress(min(1.0, pct_run / 100), text=f"{pct_run:.0f}% · {total_checked:,} / {total_possible:,} signal checks")
+    a, b, c = st.columns(3)
+    a.metric("Companies", company_count)
+    b.metric("Live sources", f"{live_count}/{len(sources)}")
+    c.metric("Sources never run", never_run)
+    st.caption("Updates every 5 seconds · Scores below update when the page refreshes.")
 
 
 def _segment_section(seg_name: str, seg_df: pd.DataFrame):
@@ -539,7 +541,7 @@ def render_target_matrix_page(db: Session):
     # The score cache's write-back commit expires every loaded Company; re-query once
     # (one round trip) so reading their attributes below doesn't lazy-refresh row by row.
     companies = db.query(Company).all()
-    _render_completeness_banner(db, companies, indicator_defs, scores_by_id)
+    _render_coverage_indicator()
     st.markdown("---")
 
     matrix_data = []
