@@ -20,11 +20,13 @@ class _Co:
 
 
 class _Resp:
-    def __init__(self, status_code=200, json_data=None, content=b""):
+    def __init__(self, status_code=200, json_data=None, content=b"", headers=None, reason=""):
         self.status_code = status_code
         self._json = json_data or {}
         self.content = content
         self.text = content.decode() if isinstance(content, bytes) else content
+        self.headers = headers or {}
+        self.reason = reason
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -35,8 +37,10 @@ class _Resp:
 
 
 @pytest.fixture(autouse=True)
-def reset_cache():
+def reset_cache(monkeypatch):
     epo_ops._reset_token_cache_for_tests()
+    # These tests exercise response policy rather than real wall-clock pacing.
+    monkeypatch.setattr(epo_ops, "_wait_for_search_slot", lambda: None)
     yield
     epo_ops._reset_token_cache_for_tests()
 
@@ -113,3 +117,50 @@ def test_fetch_live_sends_the_cached_token(monkeypatch):
     result = epo_ops._fetch_live(_Co())
     assert captured["headers"]["Authorization"] == "Bearer tok-xyz"
     assert result["signals"]["patent_count"] == {"value": 0.0, "status": "absent"}
+
+
+def test_401_refreshes_token_once(monkeypatch):
+    tokens = iter(("expired", "fresh"))
+    monkeypatch.setattr(epo_ops, "_get_access_token", lambda: next(tokens))
+    monkeypatch.setattr(epo_ops, "_invalidate_token", lambda: None)
+    seen = []
+
+    def fake_get(url, **kwargs):
+        seen.append(kwargs["headers"]["Authorization"])
+        return _Resp(401) if len(seen) == 1 else _Resp(404)
+
+    monkeypatch.setattr(epo_ops.requests, "get", fake_get)
+    epo_ops._fetch_live(_Co())
+    assert seen == ["Bearer expired", "Bearer fresh"]
+
+
+def test_weekly_quota_opens_circuit_without_retries(monkeypatch):
+    monkeypatch.setattr(epo_ops, "_get_access_token", lambda: "tok")
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return _Resp(403, headers={"X-Rejection-Reason": "RegisteredQuotaPerWeek"})
+
+    monkeypatch.setattr(epo_ops.requests, "get", fake_get)
+    with pytest.raises(epo_ops.EpoOpsUnavailable, match="RegisteredQuotaPerWeek"):
+        epo_ops._fetch_live(_Co())
+    with pytest.raises(epo_ops.EpoOpsUnavailable, match="paused"):
+        epo_ops._fetch_live(_Co("Another SRL"))
+    assert len(calls) == 1
+
+
+def test_temporary_failure_retries_then_recovers(monkeypatch):
+    monkeypatch.setattr(epo_ops, "_get_access_token", lambda: "tok")
+    monkeypatch.setattr(epo_ops.time, "sleep", lambda _: None)
+    responses = iter((_Resp(503), _Resp(429), _Resp(404)))
+    monkeypatch.setattr(epo_ops.requests, "get", lambda *a, **kw: next(responses))
+    result = epo_ops._fetch_live(_Co())
+    assert result["signals"]["patent_count"]["value"] == 0.0
+
+
+def test_throttling_header_slows_and_green_restores_scheduler():
+    epo_ops._apply_throttling_hint(_Resp(headers={"X-Throttling-Control": "search=red:30"}))
+    assert epo_ops._search_interval == 15.0
+    epo_ops._apply_throttling_hint(_Resp(headers={"X-Throttling-Control": "search=green:200"}))
+    assert epo_ops._search_interval == epo_ops.SEARCH_INTERVAL_SECONDS

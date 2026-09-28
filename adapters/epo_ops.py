@@ -9,6 +9,7 @@ falls back to a clearly-tagged simulated value when absent. See adapters/base.py
 
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 import requests
 import xml.etree.ElementTree as ET
 from sqlalchemy.orm import Session
@@ -32,6 +33,107 @@ SEARCH_URL = "https://ops.epo.org/3.2/rest-services/published-data/search/biblio
 _token_lock = threading.Lock()
 _cached_token = None
 _token_expires_at = 0.0
+
+# OPS's published fair-use guidance says search traffic normally tolerates about ten searches
+# per minute per IP (and may tighten that dynamically). Company crawls run concurrently, so this
+# scheduler is process-wide. 6.5s leaves a little margin below ten/minute.
+SEARCH_INTERVAL_SECONDS = 6.5
+MAX_SEARCH_ATTEMPTS = 3
+_search_lock = threading.Lock()
+_next_search_at = 0.0
+_search_interval = SEARCH_INTERVAL_SECONDS
+
+# Stop a bulk run from turning one quota rejection into hundreds of doomed requests.
+_circuit_lock = threading.Lock()
+_circuit_open_until = 0.0
+_circuit_reason = None
+_consecutive_rejections = 0
+
+
+class EpoOpsUnavailable(RuntimeError):
+    """An actionable OPS failure suitable for Pipeline Health's Last Error field."""
+
+
+def _invalidate_token() -> None:
+    global _cached_token, _token_expires_at
+    with _token_lock:
+        _cached_token, _token_expires_at = None, 0.0
+
+
+def _wait_for_search_slot() -> None:
+    """Reserve one globally spaced search slot without sleeping while holding the lock."""
+    global _next_search_at
+    with _search_lock:
+        now = time.monotonic()
+        slot = max(now, _next_search_at)
+        _next_search_at = slot + _search_interval
+    delay = slot - now
+    if delay > 0:
+        time.sleep(delay)
+
+
+def _apply_throttling_hint(response) -> None:
+    """Slow future calls when OPS's self-throttling header marks search yellow/red."""
+    global _search_interval
+    hint = (response.headers.get("X-Throttling-Control", "") if response.headers else "").lower()
+    with _search_lock:
+        if "search=red" in hint:
+            _search_interval = max(_search_interval, 15.0)
+        elif "search=yellow" in hint:
+            _search_interval = max(_search_interval, 9.0)
+        elif "search=green" in hint or hint.startswith("idle"):
+            _search_interval = SEARCH_INTERVAL_SECONDS
+
+
+def _weekly_reset_delay() -> float:
+    now = datetime.now(timezone.utc)
+    next_monday = (now + timedelta(days=(7 - now.weekday()))).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return max(60.0, (next_monday - now).total_seconds())
+
+
+def _check_circuit() -> None:
+    with _circuit_lock:
+        if time.time() < _circuit_open_until:
+            remaining = max(1, int(_circuit_open_until - time.time()))
+            raise EpoOpsUnavailable(
+                f"EPO OPS requests paused for another {remaining}s: {_circuit_reason}"
+            )
+
+
+def _record_search_success() -> None:
+    global _consecutive_rejections
+    with _circuit_lock:
+        _consecutive_rejections = 0
+
+
+def _record_rejection(reason: str) -> None:
+    global _consecutive_rejections, _circuit_open_until, _circuit_reason
+    normalised = (reason or "OPS rejected the request").strip()
+    with _circuit_lock:
+        _consecutive_rejections += 1
+        lower = normalised.lower()
+        if "week" in lower:
+            delay = _weekly_reset_delay()
+        elif "hour" in lower:
+            delay = 3600.0
+        elif _consecutive_rejections >= 3:
+            delay = 900.0
+        else:
+            return
+        _circuit_open_until = time.time() + delay
+        _circuit_reason = normalised
+
+
+def _failure_detail(response) -> str:
+    rejection = response.headers.get("X-Rejection-Reason") if response.headers else None
+    quota = []
+    for name in ("X-IndividualQuotaPerHour-Used", "X-RegisteredQuotaPerWeek-Used"):
+        if response.headers and response.headers.get(name):
+            quota.append(f"{name}={response.headers[name]}")
+    detail = rejection or (response.text or "").strip()[:200] or response.reason or "no detail"
+    return f"HTTP {response.status_code}: {detail}" + (f" ({', '.join(quota)})" if quota else "")
 
 
 def _get_access_token() -> str:
@@ -57,22 +159,54 @@ def _get_access_token() -> str:
 
 
 def _reset_token_cache_for_tests() -> None:
-    """Test seam: forget the cached token so a test can control what the next call returns."""
-    global _cached_token, _token_expires_at
-    _cached_token, _token_expires_at = None, 0.0
+    """Test seam: reset all process-wide OPS state."""
+    global _cached_token, _token_expires_at, _next_search_at, _search_interval
+    global _circuit_open_until, _circuit_reason, _consecutive_rejections
+    with _token_lock:
+        _cached_token, _token_expires_at = None, 0.0
+    with _search_lock:
+        _next_search_at, _search_interval = 0.0, SEARCH_INTERVAL_SECONDS
+    with _circuit_lock:
+        _circuit_open_until, _circuit_reason, _consecutive_rejections = 0.0, None, 0
 
 
 def _fetch_live(company) -> dict:
-    token = _get_access_token()
     query = f'pa="{company.legal_name}"'
-    resp = requests.get(
-        SEARCH_URL,
-        params={"q": query, "Range": "1-25"},
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=20,
-    )
+    resp = None
+    for attempt in range(MAX_SEARCH_ATTEMPTS):
+        _check_circuit()
+        _wait_for_search_slot()
+        token = _get_access_token()
+        resp = requests.get(
+            SEARCH_URL,
+            params={"q": query, "Range": "1-25"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=20,
+        )
+        _apply_throttling_hint(resp)
+
+        if resp.status_code == 401 and attempt == 0:
+            _invalidate_token()
+            continue
+        if resp.status_code in (429, 500, 502, 503, 504):
+            if attempt + 1 < MAX_SEARCH_ATTEMPTS:
+                retry_after = resp.headers.get("Retry-After") if resp.headers else None
+                delay = float(retry_after) if retry_after and retry_after.isdigit() else 5.0 * (2 ** attempt)
+                time.sleep(min(delay, 60.0))
+                continue
+        if resp.status_code == 403:
+            detail = _failure_detail(resp)
+            _record_rejection(detail)
+            rejection = (resp.headers.get("X-Rejection-Reason", "") if resp.headers else "").lower()
+            if "week" not in rejection and attempt + 1 < MAX_SEARCH_ATTEMPTS:
+                time.sleep(10.0 * (2 ** attempt))
+                continue
+            raise EpoOpsUnavailable(f"EPO OPS search rejected — {detail}")
+        break
+
     if resp.status_code == 404:
         # OPS returns 404 (not an empty 200) when a search yields zero hits.
+        _record_search_success()
         return {
             "signals": {
                 "patent_count": {"value": 0.0, "status": "absent"},
@@ -81,7 +215,9 @@ def _fetch_live(company) -> dict:
             "raw_payload": {"source": SOURCE_NAME, "query": query, "http_status": 404},
             "confidence": 0.95,
         }
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        raise EpoOpsUnavailable(f"EPO OPS search failed — {_failure_detail(resp)}")
+    _record_search_success()
 
     root = ET.fromstring(resp.content)
     biblio_search = root.find(".//{*}biblio-search")
@@ -136,4 +272,6 @@ def sync_company_patents(company, db_session: Session) -> dict:
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=has_credentials(SOURCE_NAME),
         fetch_live=_fetch_live, simulate=_simulate,
+        # Concurrent companies may legitimately wait behind the shared OPS request queue.
+        timeout=180,
     )
