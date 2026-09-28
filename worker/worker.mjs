@@ -267,6 +267,7 @@ async function main() {
 
   let lastBeat = 0;
   let connected = false;
+  let lastConnectionError = '';
   const beat = async () => {
     const r = await rpc('vienna_worker_heartbeat', { p_token: CONFIG.token, p_info: info() });
     lastBeat = Date.now();
@@ -275,7 +276,7 @@ async function main() {
       writeStatus({ state: 'revoked' });
       process.exit(0);
     }
-    if (!connected) { connected = true; log('connected to Vienna'); }
+    if (!connected) { connected = true; lastConnectionError = ''; log('connected to Vienna'); }
     writeStatus({ state: 'connected', lastHeartbeat: new Date().toISOString(), selftest: selfTestReport });
   };
 
@@ -311,7 +312,15 @@ async function main() {
         void execute(r.task);
       }
     } catch (e) {
-      if (connected) log(`connection problem (will keep retrying): ${String(e.message).slice(0, 200)}`);
+      const message = String(e.message).slice(0, 300);
+      // Log the first failure as well as any change in the failure. Previously initial
+      // failures were completely invisible, which made a bad or stale configuration look
+      // like an ordinary offline computer forever.
+      if (connected || message !== lastConnectionError) {
+        log(`connection problem (will keep retrying): ${message}`);
+        lastConnectionError = message;
+      }
+      writeStatus({ state: 'retrying', lastError: message, lastAttempt: new Date().toISOString() });
       connected = false;
     }
     await new Promise((r) => setTimeout(r, CLAIM_MS));

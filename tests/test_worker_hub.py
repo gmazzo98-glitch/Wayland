@@ -339,6 +339,19 @@ def test_the_zip_fallback_wraps_the_same_setup_file():
         assert z.read(worker_installer.SETUP_BAT_NAME).startswith(b"@echo off")
 
 
+def test_committed_bundle_contains_the_current_worker_source():
+    """A stale bundle can install a worker whose connection contract no longer matches.
+
+    The setup generator embeds worker_dist verbatim, so changing worker.mjs without rebuilding
+    the distributable otherwise produces an installer that succeeds but can never connect.
+    """
+    with zipfile.ZipFile(worker_installer.BUNDLE_PATH) as z:
+        bundled = z.read("worker/worker.mjs")
+    assert bundled == (worker_installer.ROOT / "worker" / "worker.mjs").read_bytes(), (
+        "worker_dist is stale; run python scripts/build_worker_bundle.py"
+    )
+
+
 def test_the_installer_script_is_plain_ascii():
     # It is embedded in a .bat; a stray typographic dash would corrupt under some code pages.
     worker_installer.INSTALL_PS1.read_text(encoding="ascii")
