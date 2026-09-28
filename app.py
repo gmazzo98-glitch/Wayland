@@ -5,9 +5,23 @@ Main Streamlit Application Entrance & Navigation
 
 from collections import Counter
 import streamlit as st
+from access_control import require_app_access
+
+# Page Configuration
+st.set_page_config(
+    page_title="Project Vienna — GG Signal Sourcing & Scoring Dashboard",
+    page_icon="🌾",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Authenticate before opening the database or importing any operational page.
+# The public repository contains this gate, but the password exists only in
+# Streamlit Secrets / the local environment.
+require_app_access()
+
 from database import init_db, get_db_session
 from models import Company
-from seed import seed_database
 from views.target_matrix import render_target_matrix_page
 from views.valuation import render_valuation_page
 from views.company_detail import render_company_detail_page
@@ -17,14 +31,6 @@ from views.indicator_weights import render_indicator_weights_page
 from views.pain_points import render_pain_points_page
 from views.crawl_widget import sync_session, render_crawl_widget
 from views.crawler_setup import render_crawler_setup_page, render_sidebar_target
-
-# Page Configuration
-st.set_page_config(
-    page_title="Project Vienna — GG Signal Sourcing & Scoring Dashboard",
-    page_icon="🌾",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Initialize Database & Engine
 try:
