@@ -7,6 +7,7 @@ by the live end-to-end check, not here).
 """
 
 import base64
+import hashlib
 import io
 import json
 import threading
@@ -87,6 +88,17 @@ def test_status_walks_through_every_state(db):
     old, _ = _live_worker(db, "old", build="oldbuild")
     s = worker_hub.worker_status(old, EXPECTED)
     assert (s["state"], s["usable"]) == (worker_hub.OUTDATED, True)  # works, but flagged
+    assert "final re-install" in s["label"]
+
+    auto, _ = _live_worker(db, "auto", build="oldbuild", auto_update=True)
+    s = worker_hub.worker_status(auto, EXPECTED)
+    assert (s["state"], s["usable"]) == (worker_hub.OUTDATED, True)
+    assert "Automatic update" in s["label"]
+
+    updating, _ = _live_worker(db, "updating", build="oldbuild", auto_update=True,
+                               update_state="updating", target_build=EXPECTED["build"])
+    s = worker_hub.worker_status(updating, EXPECTED)
+    assert (s["state"], s["usable"]) == (worker_hub.UPDATING, False)
 
     broken, _ = _live_worker(db, "broken", checks={"browser": {"ok": False, "detail": "the headless browser is not installed"}})
     s = worker_hub.worker_status(broken, EXPECTED)
@@ -320,11 +332,13 @@ def test_the_setup_file_is_self_contained_and_personal_to_one_computer():
     payload = base64.b64decode("".join(text[text.index("\n##ZIP") + 6:].split()))
     with zipfile.ZipFile(io.BytesIO(payload)) as z:
         names = set(z.namelist())
-        assert {"VERSION.json", "worker.config.json", "worker/worker.mjs", "crawlers/package-lock.json"} <= names
+        assert {"VERSION.json", "worker.config.json", "worker/worker.mjs", "worker/update.ps1",
+                "crawlers/package-lock.json"} <= names
         cfg = json.loads(z.read("worker.config.json"))
         info = json.loads(z.read("VERSION.json"))
     assert cfg["token"] == "tok-123" and cfg["name"] == "Anna's laptop"
-    assert len(info["crawlers"]) == 8 and info["build"] == worker_installer.bundle_info()["build"]
+    expected_info = worker_installer.bundle_info()
+    assert info["crawlers"] == expected_info["crawlers"] and info["build"] == expected_info["build"]
 
     # Nothing from the Vienna app itself ships — only the crawlers and the worker.
     assert not any(n.startswith(("views/", "scrapers/", "adapters/")) or n.endswith((".py", ".db", ".env")) for n in names)
@@ -346,10 +360,18 @@ def test_committed_bundle_contains_the_current_worker_source():
     the distributable otherwise produces an installer that succeeds but can never connect.
     """
     with zipfile.ZipFile(worker_installer.BUNDLE_PATH) as z:
-        bundled = z.read("worker/worker.mjs")
-    assert bundled == (worker_installer.ROOT / "worker" / "worker.mjs").read_bytes(), (
-        "worker_dist is stale; run python scripts/build_worker_bundle.py"
-    )
+        for name in ("worker.mjs", "update.ps1"):
+            bundled = z.read(f"worker/{name}")
+            expected = (worker_installer.ROOT / "worker" / name).read_bytes()
+            if name.endswith(".ps1"):
+                expected = expected.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            assert bundled == expected, "worker_dist is stale; run python scripts/build_worker_bundle.py"
+
+
+def test_update_manifest_identifies_the_exact_committed_bundle():
+    manifest = json.loads((worker_installer.ROOT / "worker_shim" / "app" / "update_manifest.json").read_text())
+    assert manifest["build"] == worker_installer.bundle_info()["build"]
+    assert manifest["sha256"] == hashlib.sha256(worker_installer.BUNDLE_PATH.read_bytes()).hexdigest()
 
 
 def test_the_installer_script_is_plain_ascii():

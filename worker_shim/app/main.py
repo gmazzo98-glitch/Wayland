@@ -16,6 +16,8 @@ cold start.
 """
 
 import os
+import json
+from pathlib import Path
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Request
@@ -39,6 +41,12 @@ FUNCTIONS = {
 pool = SimpleConnectionPool(1, 10, DATABASE_URL)
 
 app = FastAPI()
+
+UPDATE_MANIFEST = json.loads((Path(__file__).with_name("update_manifest.json")).read_text(encoding="utf-8"))
+DEFAULT_BUNDLE_URL = (
+    "https://raw.githubusercontent.com/gmazzo98-glitch/Wayland/master/"
+    "worker_dist/vienna-crawler-bundle.zip"
+)
 
 
 @app.post("/rpc/{fn}")
@@ -81,3 +89,17 @@ async def rpc(fn: str, req: Request):
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+@app.get("/update/latest")
+async def latest_update():
+    """Public metadata for a public, secret-free bundle; workers verify its SHA-256.
+
+    The build query prevents intermediary caches from handing a worker the previous ZIP
+    immediately after a deployment.
+    """
+    manifest = dict(UPDATE_MANIFEST)
+    base_url = os.getenv("WORKER_BUNDLE_URL", DEFAULT_BUNDLE_URL)
+    separator = "&" if "?" in base_url else "?"
+    manifest["download_url"] = f"{base_url}{separator}build={manifest['build']}"
+    return manifest

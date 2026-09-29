@@ -50,7 +50,7 @@ NODE_MAJOR = "v22"
 
 # Copied into the bundle from worker/ (supabase_rpc.sql and install.ps1 are deliberately not:
 # the first is server-side, the second travels inside the Setup file itself).
-WORKER_FILES = ["worker.mjs", "start-worker.vbs"]
+WORKER_FILES = ["worker.mjs", "update.ps1", "start-worker.vbs"]
 ROOT_FILES = {
     "stop-worker.bat": "Stop Vienna Crawler Worker.bat",
     "start-worker.bat": "Start Vienna Crawler Worker.bat",
@@ -181,6 +181,16 @@ def main() -> None:
                     # Windows scripts want CRLF, whatever the checkout's line endings were.
                     data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
                 z.writestr(arcname, data)
+
+        # The public relay serves this tiny manifest. Workers download the bundle directly
+        # from the repository, verify this hash, and only then hand it to the atomic updater.
+        manifest = {
+            "version": info["version"],
+            "build": build,
+            "sha256": hashlib.sha256(OUT_ZIP.read_bytes()).hexdigest(),
+        }
+        manifest_path = ROOT / "worker_shim" / "app" / "update_manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     size_mb = OUT_ZIP.stat().st_size / 1_048_576
     print(f"\nWrote {OUT_ZIP.relative_to(ROOT)}  ({size_mb:.2f} MB)  version {info['version']}  build {build}")

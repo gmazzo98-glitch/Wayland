@@ -50,8 +50,8 @@ RESULT_GRACE_SECONDS = 45
 TASK_RETENTION = timedelta(days=2)
 
 # States, in the order the UI reports them.
-READY, OUTDATED, BROKEN, OFFLINE, WAITING, REVOKED, INCOMPATIBLE = (
-    "ready", "outdated", "broken", "offline", "waiting", "revoked", "incompatible")
+READY, OUTDATED, BROKEN, OFFLINE, WAITING, REVOKED, INCOMPATIBLE, UPDATING = (
+    "ready", "outdated", "broken", "offline", "waiting", "revoked", "incompatible", "updating")
 USABLE_STATES = (READY, OUTDATED)
 
 
@@ -276,6 +276,10 @@ def worker_status(worker: CrawlerWorker, expected: Optional[Dict[str, Any]] = No
     if seen is None:
         return result(WAITING, "Waiting for the installer",
                       "Nothing has connected yet. Run the downloaded setup file on that computer.")
+    if info.get("update_state") == "updating" and seen_ago <= 20 * 60:
+        return result(UPDATING, "Updating automatically",
+                      "The new crawler set is being installed and checked. The previous installation will be "
+                      "removed after the replacement connects successfully.")
     if seen_ago > ONLINE_SECONDS:
         return result(OFFLINE, "Offline",
                       "The worker isn't running (computer off, asleep, or the worker closed). "
@@ -288,9 +292,13 @@ def worker_status(worker: CrawlerWorker, expected: Optional[Dict[str, Any]] = No
     if problems:
         return result(BROKEN, "Connected, but not working", "The installation's self-test failed.", problems)
     if expected and expected.get("build") and info.get("build") != expected["build"]:
-        return result(OUTDATED, "Update recommended",
-                      "The crawlers installed there are an older set than this app ships. "
-                      "It still works; download and run a fresh setup file to update.")
+        if info.get("auto_update"):
+            return result(OUTDATED, "Automatic update pending",
+                          "A newer crawler set is available. This computer will replace its installation "
+                          "automatically as soon as it is not running a crawl.")
+        return result(OUTDATED, "Needs one final re-install",
+                      "This older worker predates automatic updates. Download and run a fresh setup file once; "
+                      "future crawler updates will install themselves.")
     return result(READY, "Ready", "Installed, up to date and self-test passed.")
 
 

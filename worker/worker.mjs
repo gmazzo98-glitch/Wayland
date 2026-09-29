@@ -14,6 +14,7 @@
 //   node worker.mjs --selftest   check the installation and print a report (used by the installer)
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -32,6 +33,7 @@ const HEARTBEAT_MS = 15_000;
 const CLAIM_MS = 2_000;
 const SELFTEST_EVERY_MS = 30 * 60_000;
 const RPC_TIMEOUT_MS = 25_000;
+const UPDATE_CHECK_MS = 5 * 60_000;
 const PROTOCOL = 1;
 
 // Crawler subprocesses may only receive these settings from the app. The task queue is
@@ -73,6 +75,19 @@ function trimLog() {
   } catch { /* no log yet */ }
 }
 
+function removeRetiredInstallations() {
+  const parent = path.dirname(ROOT);
+  const prefix = `${path.basename(ROOT)}-retired-`;
+  try {
+    for (const name of fs.readdirSync(parent)) {
+      if (name.startsWith(prefix)) {
+        try { fs.rmSync(path.join(parent, name), { recursive: true, force: true }); }
+        catch (e) { log(`could not yet remove retired installation '${name}': ${e.message}`); }
+      }
+    }
+  } catch { /* cleanup is best effort and must never stop the worker */ }
+}
+
 function writeStatus(patch) {
   let cur = {};
   try { cur = readJson(STATUS_FILE); } catch { /* first write */ }
@@ -89,6 +104,42 @@ async function rpc(fn, args) {
   const body = await res.text();
   if (!res.ok) throw new Error(`${fn} -> HTTP ${res.status} ${body.slice(0, 300)}`);
   return body ? JSON.parse(body) : null;
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(RPC_TIMEOUT_MS) });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${body.slice(0, 300)}`);
+  return JSON.parse(body);
+}
+
+async function startUpdate(manifest, workerInfo) {
+  const download = await fetch(manifest.download_url, { signal: AbortSignal.timeout(120_000) });
+  if (!download.ok) throw new Error(`update download -> HTTP ${download.status}`);
+  const bytes = Buffer.from(await download.arrayBuffer());
+  if (bytes.length > 100 * 1024 * 1024) throw new Error('update bundle is unexpectedly large');
+  const actual = crypto.createHash('sha256').update(bytes).digest('hex');
+  if (actual !== manifest.sha256) throw new Error('update bundle failed checksum verification');
+
+  const nonce = crypto.randomUUID();
+  const zipPath = path.join(os.tmpdir(), `vienna-update-${nonce}.zip`);
+  const updaterPath = path.join(os.tmpdir(), `vienna-update-${nonce}.ps1`);
+  fs.writeFileSync(zipPath, bytes);
+  fs.copyFileSync(path.join(HERE, 'update.ps1'), updaterPath);
+  writeStatus({ state: 'updating', fromBuild: VERSION_INFO.build, toBuild: manifest.build,
+    startedAt: new Date().toISOString() });
+  await rpc('vienna_worker_heartbeat', { p_token: CONFIG.token, p_info: {
+    ...workerInfo, update_state: 'updating', target_build: manifest.build,
+  } });
+  log(`update ${VERSION_INFO.build} -> ${manifest.build} downloaded and verified; handing over to updater`);
+
+  const child = spawn('powershell.exe', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updaterPath,
+    '-Dir', ROOT, '-ZipPath', zipPath, '-ExpectedBuild', manifest.build,
+    '-ParentPid', String(process.pid),
+  ], { detached: true, windowsHide: true, stdio: 'ignore' });
+  child.unref();
+  process.exit(0);
 }
 
 // ---- self-test ---------------------------------------------------------------------------------
@@ -263,9 +314,12 @@ async function main() {
     protocol: PROTOCOL, version: VERSION_INFO.version, build: VERSION_INFO.build,
     node: process.versions.node, os: `${os.platform()} ${os.release()}`, host: os.hostname(),
     busy: running, max_parallel: maxParallel, checks: selfTestReport.checks, selftest_at: selfTestReport.at,
+    auto_update: true,
   });
 
   let lastBeat = 0;
+  let lastUpdateCheck = 0;
+  let lastUpdateError = '';
   let connected = false;
   let lastConnectionError = '';
   const beat = async () => {
@@ -276,7 +330,12 @@ async function main() {
       writeStatus({ state: 'revoked' });
       process.exit(0);
     }
-    if (!connected) { connected = true; lastConnectionError = ''; log('connected to Vienna'); }
+    if (!connected) {
+      connected = true;
+      lastConnectionError = '';
+      log('connected to Vienna');
+      removeRetiredInstallations();
+    }
     writeStatus({ state: 'connected', lastHeartbeat: new Date().toISOString(), selftest: selfTestReport });
   };
 
@@ -304,6 +363,19 @@ async function main() {
         selfTestReport = await selfTest();
         selfTestAt = Date.now();
         lastBeat = 0; // report the fresh result straight away
+      }
+      if (running === 0 && Date.now() - lastUpdateCheck >= UPDATE_CHECK_MS) {
+        lastUpdateCheck = Date.now();
+        try {
+          const base = CONFIG.shimUrl.replace(/\/$/, '');
+          const manifest = await fetchJson(`${base}/update/latest`);
+          lastUpdateError = '';
+          if (manifest.build && manifest.build !== VERSION_INFO.build) await startUpdate(manifest, info());
+        } catch (e) {
+          const message = String(e.message).slice(0, 300);
+          if (message !== lastUpdateError) log(`update check failed (normal work continues): ${message}`);
+          lastUpdateError = message;
+        }
       }
       while (running < maxParallel) {
         const r = await rpc('vienna_worker_claim', { p_token: CONFIG.token });

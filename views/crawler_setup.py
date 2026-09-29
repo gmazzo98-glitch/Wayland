@@ -29,7 +29,7 @@ import streamlit as st
 import worker_hub
 import worker_installer
 from config import WORKER_SHIM_URL
-from worker_hub import (BROKEN, INCOMPATIBLE, OFFLINE, OUTDATED, READY, REVOKED, WAITING,
+from worker_hub import (BROKEN, INCOMPATIBLE, OFFLINE, OUTDATED, READY, REVOKED, UPDATING, WAITING,
                         list_workers, local_crawlers_available, revoke_worker, worker_status)
 
 TARGET_KEY = "crawl_target_choice"
@@ -37,7 +37,8 @@ SETUP_FILE_KEY = "crawler_setup_file"
 LOCAL = "local"
 AUTO = "auto"  # sidebar default: spread a batch across every usable computer (see resolve_batch_targets)
 
-_BADGE = {READY: "🟢", OUTDATED: "🟡", BROKEN: "🔴", OFFLINE: "⚪", WAITING: "🕓", REVOKED: "⚫", INCOMPATIBLE: "🔴"}
+_BADGE = {READY: "🟢", OUTDATED: "🟡", UPDATING: "🔵", BROKEN: "🔴", OFFLINE: "⚪",
+          WAITING: "🕓", REVOKED: "⚫", INCOMPATIBLE: "🔴"}
 
 
 def _ago(seconds: Optional[float]) -> str:
