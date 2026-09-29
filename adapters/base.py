@@ -81,13 +81,22 @@ def get_or_create_source_health(db: Session, source_name: str, phase: int) -> So
 
 def _upsert_signal(db: Session, company_id: str, signal_key: str, source: str,
                     value, status: str, confidence: float, raw_payload: dict,
-                    is_simulated: bool, summary: str = None, evidence: dict = None):
+                    is_simulated: bool, summary: str = None, evidence: dict = None,
+                    fallback_reason: str = None):
     """
     summary/evidence are the per-signal provenance: what exactly produced this
     number, so a human can check it without trusting the counter. A bare
     "digital_job_postings = 1" is unverifiable; "1 of 12 open roles matched"
     plus the matched role title and its URL is. Both are optional, so the
     adapters that predate them are unaffected.
+
+    fallback_reason is the TRUE reason a simulated value was used — set by
+    run_adapter, which actually knows whether this was "credentials not
+    configured" or "the live call raised", rather than trusting whatever an
+    individual adapter's own simulate() hardcodes into its raw_payload (that
+    text is written unconditionally by the adapter regardless of which of
+    those two run_adapter took, so on its own it can't be trusted — see
+    Company Intelligence audit dialog, which prefers this field over it).
     """
     sig = db.query(SignalRecord).filter_by(company_id=company_id, signal_key=signal_key).first()
     if not sig:
@@ -102,6 +111,8 @@ def _upsert_signal(db: Session, company_id: str, signal_key: str, source: str,
     sig.text_value = summary
     payload = dict(raw_payload or {})
     payload["simulated"] = is_simulated
+    if fallback_reason:
+        payload["fallback_reason"] = fallback_reason
     if evidence:
         payload["evidence"] = evidence
     sig.raw_payload_ref = json.dumps(payload, default=str)
@@ -161,6 +172,7 @@ def run_adapter(
                 result.get("confidence", 0.9 if used_live else 0.5),
                 result.get("raw_payload", {}), is_simulated=not used_live,
                 summary=sig_data.get("summary"), evidence=sig_data.get("evidence"),
+                fallback_reason=None if used_live else "credentials not configured",
             )
 
         source_health.mode = "live" if used_live else "simulated"
@@ -188,7 +200,8 @@ def run_adapter(
                 _upsert_signal(
                     db, company.id, signal_key, source_name,
                     sig_data.get("value"), sig_data.get("status", "present"),
-                    0.5, fallback.get("raw_payload", {}), is_simulated=True
+                    0.5, fallback.get("raw_payload", {}), is_simulated=True,
+                    fallback_reason=f"live fetch failed: {str(e)[:300]}",
                 )
             source_health.mode = "simulated"
             db.commit()

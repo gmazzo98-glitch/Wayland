@@ -859,6 +859,214 @@ def _render_score_breakdown(axis_label: str, axis_score: float, detail: list, me
                 ]), use_container_width=True, hide_index=True)
 
 
+# Fixed-name Phase 7 crawlers write SignalRecord.source as their own
+# SOURCE_NAME constant (e.g. "Job Postings Crawler") but persist their raw
+# capture under a differently-named RawImportRecord.dataset_name (e.g.
+# "crawler_job_postings") — see scrapers/*_crawler.py and
+# scrapers/node_crawler_base.save_crawler_blob. File-import sources (AIDA,
+# any flexible-import dataset) don't need this map at all: their
+# SignalRecord.source already equals the RawImportRecord.dataset_name
+# directly (see company_service.apply_data_import / aida_import.py).
+_CRAWLER_SOURCE_TO_DATASET = {
+    "Digital Maturity Crawler": "crawler_digital_maturity",
+    "Company Website Crawler": "crawler_company_website",
+    "Job Postings Crawler": "crawler_job_postings",
+    "Innovation Participation Crawler": "crawler_innovation_participation",
+    "News Signals Crawler": "crawler_news_signals",
+    "Google News RSS": "crawler_news_rss",
+}
+# Directory Listing / Review crawlers fan out one RawImportRecord per
+# sub-source they check (e.g. "crawler_directory_mecspe") rather than one
+# fixed dataset — matched by prefix instead of an exact name.
+_CRAWLER_SOURCE_PREFIXES = {
+    "Directory Listing Crawler": "crawler_directory_",
+    "Review Crawler": "crawler_reviews_",
+}
+
+
+def _raw_records_for_source(db: Session, company: Company, source: str) -> list:
+    """Best-effort resolve which RawImportRecord row(s) actually back a given
+    SignalRecord.source, for the Audit dialog and the Raw Data tab's deep link.
+    Not every source has a raw blob (e.g. a plain API adapter with no
+    separate capture step) — callers must handle an empty result."""
+    if not source:
+        return []
+    q = db.query(RawImportRecord).filter_by(company_id=company.id)
+    direct = q.filter_by(dataset_name=source).all()
+    if direct:
+        return direct
+    mapped = _CRAWLER_SOURCE_TO_DATASET.get(source)
+    if mapped:
+        matched = q.filter_by(dataset_name=mapped).all()
+        if matched:
+            return matched
+    prefix = _CRAWLER_SOURCE_PREFIXES.get(source)
+    if prefix:
+        return q.filter(RawImportRecord.dataset_name.like(f"{prefix}%")).all()
+    return []
+
+
+def _render_evidence_block(payload: dict):
+    """
+    Renders whatever per-signal provenance a payload carries, regardless of
+    which of the two shapes its producer used: a nested {"evidence": {...}}
+    block (crawlers, AIDA's financial derivations), or a flat dict at the
+    payload's own top level (Board Roster Analysis's {"basis", "n",
+    "person_ids", "person_names"}, sync_succession_signal's {"surname",
+    "young_manager", ...}). Shared by the page-level Evidence section and the
+    per-signal Audit dialog so both read every producer's shape the same way.
+    """
+    if not payload:
+        st.caption("No further detail recorded for this value.")
+        return
+    ev = payload.get("evidence") if isinstance(payload.get("evidence"), dict) else payload
+
+    method = ev.get("method") or ev.get("basis")
+    if method:
+        st.markdown(f"**How it was derived:** {method}")
+
+    inputs = ev.get("inputs")
+    if inputs:
+        st.markdown("**Inputs used:**")
+        for k, v in inputs.items():
+            st.markdown(f"- {k}: {v}")
+
+    names = ev.get("person_names") or payload.get("person_names")
+    if names:
+        st.markdown(f"**People counted ({len(names)}):**")
+        for name in names:
+            st.markdown(f"- {name}")
+
+    cols = payload.get("source_columns") or ev.get("source_columns")
+    if cols:
+        st.markdown(f"**Source column(s):** {', '.join(cols)}")
+
+    items = ev.get("found") or ev.get("open_roles_sample") or []
+    if items:
+        label_hdr = "Items counted" if ev.get("found") else "Open roles found (sample)"
+        st.markdown(f"**{label_hdr}:**")
+        for it in items:
+            lbl = it.get("label") or "—"
+            st.markdown(f"- [{lbl}]({it['url']})" if it.get("url") else f"- {lbl}")
+
+    for social in (ev.get("social_profiles") or []):
+        st.markdown(f"- {social.get('label')}: {social.get('url')}")
+
+    for url in (ev.get("source_urls") or []):
+        st.markdown(f"**Check against:** {url}")
+
+    reason = payload.get("fallback_reason")
+    if reason:
+        st.warning(f"⚠️ Simulated because: {reason}")
+
+    note = ev.get("note")
+    if note:
+        st.info(note)
+
+    rest_keys = {"method", "basis", "inputs", "person_ids", "person_names", "found",
+                 "open_roles_sample", "source_urls", "note", "social_profiles",
+                 "source_columns", "evidence", "simulated", "fallback_reason",
+                 "dataset", "signal_key", "n"}
+    rest = {k: v for k, v in payload.items() if k not in rest_keys}
+    if isinstance(payload.get("evidence"), dict):
+        rest.update({k: v for k, v in payload["evidence"].items() if k not in rest_keys})
+    if rest:
+        st.json(rest, expanded=False)
+
+
+@st.dialog("🔍 Signal Audit", width="large")
+def _audit_dialog(defn: dict, sig, company: Company, db: Session):
+    """Full traceability for one signal value: real source, fetch time,
+    live/simulated status (with the TRUE reason when simulated), whatever
+    evidence its producer recorded, and the matching raw record if one
+    exists — the "double-click any datapoint" drill-down."""
+    from config import has_credentials, SOURCE_CREDENTIAL_VARS, SOURCE_PAID_ENABLE_FLAGS
+
+    st.markdown(f"#### {defn['label']}")
+    if defn.get("proxy"):
+        st.caption(defn["proxy"])
+
+    if sig is None or sig.status == "not_yet_checked":
+        st.info("⚪ Not yet checked — no data has been collected for this signal yet.")
+        return
+
+    value_str = _format_indicator_value(defn["key"], sig.numeric_value, defn) \
+        if sig.numeric_value is not None else (sig.text_value or "—")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Value", value_str)
+    col2.metric("Mode", mode_badge_for(sig))
+    col3.metric("Confidence", f"{sig.confidence:.0%}" if sig.confidence is not None else "—")
+
+    st.markdown(f"**Real source:** {sig.source or '—'}")
+    st.markdown(f"**Fetched:** {sig.fetched_at.strftime('%Y-%m-%d %H:%M') if sig.fetched_at else '—'}")
+
+    if sig.source in SOURCE_CREDENTIAL_VARS or sig.source in SOURCE_PAID_ENABLE_FLAGS:
+        configured = has_credentials(sig.source)
+        st.markdown(f"**Credentials configured for {sig.source}:** {'✅ Yes' if configured else '❌ No'}")
+        if sig.is_simulated and configured:
+            st.caption(
+                "⚠️ Credentials ARE configured in this process, but the value is still simulated — "
+                "the live call itself failed (see the reason below), not a missing-credentials case."
+            )
+
+    payload = {}
+    if sig.raw_payload_ref:
+        try:
+            payload = json.loads(sig.raw_payload_ref)
+        except (ValueError, TypeError):
+            payload = {}
+
+    st.markdown("---")
+    st.markdown("##### How it was derived")
+    _render_evidence_block(payload)
+
+    st.markdown("---")
+    st.markdown("##### Matching raw data")
+    raw_recs = _raw_records_for_source(db, company, sig.source)
+    if not raw_recs:
+        st.caption(
+            "No raw record is linked to this source — likely a direct API call with no separate "
+            "capture step. Check the 🗂️ Raw Data & Mapping tab for everything actually collected "
+            "for this company."
+        )
+    else:
+        for rec in raw_recs:
+            st.markdown(
+                f"**{rec.dataset_name}** — {rec.source_filename or 'filename not recorded'} · "
+                f"updated {rec.updated_at.strftime('%Y-%m-%d %H:%M') if rec.updated_at else '—'}"
+            )
+            st.json(rec.raw_row, expanded=False)
+
+
+def _render_signal_rows_with_audit(keys: list, defs: dict, sig_dict: dict, db: Session,
+                                    company: Company, build_row_fn, key_prefix: str = "rows"):
+    """
+    One row per signal with a trailing 🔍 Audit button that opens
+    _audit_dialog. st.dataframe can't host a real button per cell, and this
+    app has already been burned by st.dataframe row-selection state getting
+    wiped across a sort (see the crawl-queue/matrix selection work) — so this
+    uses a plain per-row st.columns layout instead of a selection-based
+    table. Less dense than a dataframe by design: the columns dropped here
+    (Redundancy Group, Modifier, Caveat, Freshness Window) are shown in the
+    dialog instead, where there's room to present them properly.
+    """
+    widths = [2.4, 1.0, 1.3, 1.8, 1.2, 0.5]
+    header_cols = st.columns(widths)
+    for h, label in zip(header_cols, ["Signal", "Value", "Status", "Mode · Source", "Last Fetched", ""]):
+        h.markdown(f"**{label}**")
+    for key in keys:
+        defn = defs[key]
+        row = build_row_fn(key, defn)
+        c1, c2, c3, c4, c5, c6 = st.columns(widths)
+        c1.write(row["Signal Name"])
+        c2.write(row["Value"])
+        c3.write(row["Status"])
+        c4.write(f"{row['Mode']} · {row['Source']}")
+        c5.write(row["Last Fetched"])
+        if c6.button("🔍", key=f"audit_btn_{key_prefix}_{key}", help="Audit this signal — full traceability"):
+            _audit_dialog(defn, sig_dict.get(key), company, db)
+
+
 def _render_signal_evidence(sig_dict: dict, indicator_defs: dict):
     """
     Item-by-item provenance for every signal that carries it: the specific roles,
@@ -876,7 +1084,7 @@ def _render_signal_evidence(sig_dict: dict, indicator_defs: dict):
         except (ValueError, TypeError):
             continue
         if isinstance(payload, dict) and payload.get("evidence"):
-            with_evidence.append((key, defn, sig, payload["evidence"]))
+            with_evidence.append((key, defn, sig, payload))
 
     if not with_evidence:
         return
@@ -885,38 +1093,16 @@ def _render_signal_evidence(sig_dict: dict, indicator_defs: dict):
     st.subheader("🔍 Evidence — what exactly was counted")
     st.caption(
         f"{len(with_evidence)} signal(s) carry item-level provenance. Everything below was retrieved from the "
-        "named source; follow the links to verify any number yourself."
+        "named source; follow the links to verify any number yourself. Use the 🔍 Audit button next to any "
+        "signal above for the full traceability view, including the matching raw record."
     )
 
-    for key, defn, sig, ev in sorted(with_evidence, key=lambda x: x[1]["label"]):
+    for key, defn, sig, payload in sorted(with_evidence, key=lambda x: x[1]["label"]):
         value_str = _format_indicator_value(key, sig.numeric_value, defn)
         with st.expander(f"**{defn['label']}** — {value_str}  ·  {sig.text_value or ''}"):
             st.caption(f"Source: {sig.source} · fetched {sig.fetched_at:%Y-%m-%d %H:%M} · "
                         f"{mode_badge_for(sig)}")
-            if ev.get("method"):
-                st.markdown(f"**How it was derived:** {ev['method']}")
-
-            items = ev.get("found") or ev.get("open_roles_sample") or []
-            if items:
-                label_hdr = "Items counted" if ev.get("found") else "Open roles found (sample)"
-                st.markdown(f"**{label_hdr}:**")
-                for it in items:
-                    lbl = it.get("label") or "—"
-                    st.markdown(f"- [{lbl}]({it['url']})" if it.get("url") else f"- {lbl}")
-
-            for social in (ev.get("social_profiles") or []):
-                st.markdown(f"- {social.get('label')}: {social.get('url')}")
-
-            for url in (ev.get("source_urls") or []):
-                st.markdown(f"**Check against:** {url}")
-
-            if ev.get("note"):
-                st.info(ev["note"])
-
-            rest = {k: v for k, v in ev.items()
-                    if k not in ("method", "found", "open_roles_sample", "source_urls", "note", "social_profiles")}
-            if rest:
-                st.json(rest, expanded=False)
+            _render_evidence_block(payload)
 
 
 def _format_indicator_value(key: str, val, defn: dict = None) -> str:
@@ -971,33 +1157,6 @@ def _trend_headline(indicator_key: str, sig, raw_records: list) -> dict:
         pct = sig.numeric_value if abs(sig.numeric_value) <= 999 else None
         return {"has_raw": False, "pct": pct, "raw_pct": sig.numeric_value, "dataset": sig.source}
     return {"has_raw": False, "pct": None, "raw_pct": None, "dataset": None}
-
-
-def _financial_profile_rows(sig_dict: dict, indicator_defs: dict) -> list:
-    """Every Financial Health & Cost Structure indicator for this company,
-    live or not — the explicit 'all the financials must be viewable' ask."""
-    from indicators import CAT_FINANCIAL, CAT_COST
-    keys = [k for k, d in indicator_defs.items() if d["category"] in (CAT_FINANCIAL, CAT_COST)]
-    rows = []
-    for k in sorted(keys, key=lambda k: (indicator_defs[k]["category"], indicator_defs[k]["label"])):
-        defn = indicator_defs[k]
-        sig = sig_dict.get(k)
-        if sig and sig.status != "not_yet_checked":
-            value = sig.numeric_value
-            status = get_signal_display_status(sig.status, defn.get("freshness_days"), sig.fetched_at)
-            mode = mode_badge_for(sig)
-            source = sig.source or "—"
-            fetched = sig.fetched_at.strftime("%Y-%m-%d") if sig.fetched_at else "—"
-        else:
-            value, status, mode, source, fetched = None, "not_yet_checked", "—", "—", "—"
-        rows.append({
-            "Category": defn["category"], "Indicator": defn["label"],
-            "What this measures": defn.get("proxy") or "—",
-            "Value": _format_indicator_value(k, value, defn),
-            "Status": STATUS_BADGES.get(status, status), "Mode": mode,
-            "Source": source, "Last Updated": fetched,
-        })
-    return rows
 
 
 def _category_breakdown_rows(sig_dict: dict, indicator_defs: dict) -> list:
@@ -1126,6 +1285,73 @@ def _render_tab1_content(db: Session):
         sig_dict = {s.signal_key: s for s in signals}
         indicator_defs = fetch_indicator_defs(db)
         scores = calculate_company_scores(signals, indicator_defs, include_detail=True)
+
+        from company_service import is_source_applicable
+
+        def _build_row(sig_key, defn):
+            sig_rec = sig_dict.get(sig_key)
+            source_sys = defn.get("source_system") or "—"
+            is_app = is_source_applicable(source_sys, company.country or "Germany")
+            # A signal can carry real, observed data (e.g. from the flexible
+            # data feeder) even when the catalog's own automated-pipeline
+            # source_system isn't applicable for this country — that's the
+            # normal case for an Italian company fed via a file upload rather
+            # than the German-only Bundesanzeiger adapter. Only fall back to
+            # the country-scope "N/A" placeholder when nothing real exists.
+            has_real_data = sig_rec is not None and sig_rec.status != "not_yet_checked"
+
+            if not is_app and not has_real_data:
+                disp_status = f"⚪ N/A ({company.country})"
+                val = "—"
+                fetched_str = "N/A (Country scope)"
+                raw_ref = f"Source {source_sys} not applicable for {company.country}"
+                mode_badge = "—"
+            elif sig_rec:
+                disp_status = get_signal_display_status(sig_rec.status, defn.get("freshness_days"), sig_rec.fetched_at)
+                # text_value now doubles as the provenance summary written by the
+                # Phase 7 crawlers, so prefer a real number when there is one — only
+                # fall back to text for the context rows that are genuinely textual
+                # (manual entries like product_type_tag, which carry no number).
+                if sig_rec.numeric_value is not None:
+                    val = sig_rec.numeric_value
+                elif defn["axis"] == "context" and sig_rec.text_value:
+                    val = sig_rec.text_value
+                else:
+                    val = None
+                fetched_str = sig_rec.fetched_at.strftime("%Y-%m-%d %H:%M") if sig_rec.fetched_at else "N/A"
+                raw_ref = sig_rec.text_value or ""
+                mode_badge = mode_badge_for(sig_rec)
+            else:
+                disp_status, val, fetched_str, raw_ref, mode_badge = "not_yet_checked", None, "Never", "", "—"
+
+            fresh_window = defn.get("freshness_days") or 90
+            modifier = defn.get("axis_modifier") or ""
+            caveat_note = f"⚠️ {defn.get('comment')}" if modifier == "CAVEAT" and defn.get("comment") else "—"
+            # The REAL source of this datapoint, not the catalog's generic
+            # pipeline tag — sig_rec.source is what actually produced the
+            # value (e.g. "AIDA Raw Exports", "Board Roster Analysis"); many
+            # indicators still carry a source_system tag written when this
+            # catalog was designed around German data (Handelsregister/
+            # Bundesanzeiger), which is only ever a fallback label for a
+            # not-yet-checked/country-N/A row, never a claim about where a
+            # real value came from.
+            real_source = sig_rec.source if (sig_rec and has_real_data) else source_sys
+            return {
+                "Category": defn["category"],
+                "Signal Name": defn["label"],
+                "Weight": "—" if defn["axis"] == "context" else f"{defn.get('weight', 0):.1f}",
+                "Redundancy Group": defn.get("redundancy_group") or "—",
+                "Source": real_source,
+                "Tier / Phase": f"{defn.get('automation_tier') or '—'} / Phase {defn.get('phase')}",
+                "Status": STATUS_BADGES.get(disp_status, disp_status),
+                "Mode": mode_badge,
+                "Value": _format_indicator_value(sig_key, val, defn),
+                "Modifier": modifier or "—",
+                "Caveat": caveat_note,
+                "Freshness Window": f"{fresh_window} days",
+                "Last Fetched": fetched_str,
+                "What was counted": raw_ref,
+            }
 
         # Top Header Summary
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -1270,9 +1496,13 @@ def _render_tab1_content(db: Session):
                 st.caption(f"Source: {sig.source} · {sig.fetched_at.strftime('%Y-%m-%d')}" if has_val and sig.fetched_at else ("Not yet checked." if not has_val else f"Source: {sig.source}"))
 
         with st.expander("📋 Full Financial & Cost Structure Table (every indicator, with plain-English description)", expanded=False):
-            st.caption("Every Financial Health and Cost Structure indicator in the catalog for this company, checked or not. **Value** is the raw figure as computed/injected (monetary financials in thousands, **k**) — not a 0-100 score (see Score Breakdown below for that).")
-            fin_df = pd.DataFrame(_financial_profile_rows(sig_dict, indicator_defs))
-            st.dataframe(fin_df, use_container_width=True, hide_index=True)
+            st.caption("Every Financial Health and Cost Structure indicator in the catalog for this company, checked or not. **Value** is the raw figure as computed/injected (monetary financials in thousands, **k**) — not a 0-100 score (see Score Breakdown below for that). 🔍 opens the full audit trail, including the real source and the matching raw record.")
+            from indicators import CAT_FINANCIAL, CAT_COST
+            fin_keys = sorted(
+                [k for k, d in indicator_defs.items() if d["category"] in (CAT_FINANCIAL, CAT_COST)],
+                key=lambda k: indicator_defs[k]["label"],
+            )
+            _render_signal_rows_with_audit(fin_keys, indicator_defs, sig_dict, db, company, _build_row, key_prefix="finprofile")
 
         # Indicative valuation — a separate lens, never blended into Need/Readiness.
         with st.expander("💶 Indicative valuation (multiples + DCF)", expanded=False):
@@ -1334,23 +1564,14 @@ def _render_tab1_content(db: Session):
             )
             st.dataframe(pd.DataFrame(_category_breakdown_rows(sig_dict, indicator_defs)), use_container_width=True, hide_index=True)
 
-        # Data Provenance
-        with st.expander("📜 Data Sources for This Company"):
-            prov_rows = _provenance_rows(db, company)
-            if prov_rows:
-                st.dataframe(pd.DataFrame(prov_rows), use_container_width=True, hide_index=True)
-            else:
-                st.caption("No live (non-simulated) signals recorded yet for this company.")
-
-        # Raw Injected Data — the blob side: full original rows, untouched
-        # by whatever got mapped at import time.
-        raw_records = db.query(RawImportRecord).filter_by(company_id=company.id).order_by(RawImportRecord.dataset_name).all()
-        if raw_records:
-            with st.expander(f"📦 Raw Injected Data ({len(raw_records)} dataset(s))"):
-                st.caption("The complete original row for this company from each dataset upload, exactly as injected — every column, not just the ones mapped to an indicator. Useful for applying a new mapping idea later without re-uploading the file.")
-                for rec in raw_records:
-                    st.markdown(f"**{rec.dataset_name}** — {rec.source_filename or 'filename not recorded'} · updated {rec.updated_at.strftime('%Y-%m-%d %H:%M') if rec.updated_at else '—'}")
-                    st.json(rec.raw_row, expanded=False)
+        # Data Provenance + Raw Injected Data moved to the dedicated
+        # 🗂️ Raw Data & Mapping tab (render_company_detail_page) — that's
+        # also where a raw column's indicator mapping can be corrected.
+        st.caption(
+            "📜 Which sources populated this company's live data, and 📦 every raw dataset collected for it "
+            "(files + all 8 crawlers), are in the **🗂️ Raw Data & Mapping** tab — including a mapping editor "
+            "to reassign a raw column to a different indicator."
+        )
 
         # People & Ownership — exploded from newline-stacked multi-value
         # cells (see company_service.import_company_people). Covers whatever
@@ -1464,64 +1685,6 @@ def _render_tab1_content(db: Session):
 
         st.markdown("---")
 
-        from company_service import is_source_applicable
-
-        def _build_row(sig_key, defn):
-            sig_rec = sig_dict.get(sig_key)
-            source_sys = defn.get("source_system") or "—"
-            is_app = is_source_applicable(source_sys, company.country or "Germany")
-            # A signal can carry real, observed data (e.g. from the flexible
-            # data feeder) even when the catalog's own automated-pipeline
-            # source_system isn't applicable for this country — that's the
-            # normal case for an Italian company fed via a file upload rather
-            # than the German-only Bundesanzeiger adapter. Only fall back to
-            # the country-scope "N/A" placeholder when nothing real exists.
-            has_real_data = sig_rec is not None and sig_rec.status != "not_yet_checked"
-
-            if not is_app and not has_real_data:
-                disp_status = f"⚪ N/A ({company.country})"
-                val = "—"
-                fetched_str = "N/A (Country scope)"
-                raw_ref = f"Source {source_sys} not applicable for {company.country}"
-                mode_badge = "—"
-            elif sig_rec:
-                disp_status = get_signal_display_status(sig_rec.status, defn.get("freshness_days"), sig_rec.fetched_at)
-                # text_value now doubles as the provenance summary written by the
-                # Phase 7 crawlers, so prefer a real number when there is one — only
-                # fall back to text for the context rows that are genuinely textual
-                # (manual entries like product_type_tag, which carry no number).
-                if sig_rec.numeric_value is not None:
-                    val = sig_rec.numeric_value
-                elif defn["axis"] == "context" and sig_rec.text_value:
-                    val = sig_rec.text_value
-                else:
-                    val = None
-                fetched_str = sig_rec.fetched_at.strftime("%Y-%m-%d %H:%M") if sig_rec.fetched_at else "N/A"
-                raw_ref = sig_rec.text_value or ""
-                mode_badge = mode_badge_for(sig_rec)
-            else:
-                disp_status, val, fetched_str, raw_ref, mode_badge = "not_yet_checked", None, "Never", "", "—"
-
-            fresh_window = defn.get("freshness_days") or 90
-            modifier = defn.get("axis_modifier") or ""
-            caveat_note = f"⚠️ {defn.get('comment')}" if modifier == "CAVEAT" and defn.get("comment") else "—"
-            return {
-                "Category": defn["category"],
-                "Signal Name": defn["label"],
-                "Weight": "—" if defn["axis"] == "context" else f"{defn.get('weight', 0):.1f}",
-                "Redundancy Group": defn.get("redundancy_group") or "—",
-                "Source": source_sys,
-                "Tier / Phase": f"{defn.get('automation_tier') or '—'} / Phase {defn.get('phase')}",
-                "Status": STATUS_BADGES.get(disp_status, disp_status),
-                "Mode": mode_badge,
-                "Value": _format_indicator_value(sig_key, val, defn),
-                "Modifier": modifier or "—",
-                "Caveat": caveat_note,
-                "Freshness Window": f"{fresh_window} days",
-                "Last Fetched": fetched_str,
-                "What was counted": raw_ref,
-            }
-
         # Scored signals, grouped by category
         st.subheader("📊 Scored Signal Audit & Freshness Breakdown")
         st.caption(f"Every indicator feeding the Need/Readiness score for {company.legal_name} ({company.country}).")
@@ -1529,29 +1692,13 @@ def _render_tab1_content(db: Session):
         scored_defs = {k: d for k, d in indicator_defs.items() if d["axis"] != "context"}
         categories = sorted(set(d["category"] for d in scored_defs.values()))
         for cat in categories:
-            cat_keys = [k for k, d in scored_defs.items() if d["category"] == cat]
+            cat_keys = sorted(
+                [k for k, d in scored_defs.items() if d["category"] == cat],
+                key=lambda k: scored_defs[k]["label"],
+            )
             cat_checked = sum(1 for k in cat_keys if sig_dict.get(k) and sig_dict[k].status != "not_yet_checked")
             with st.expander(f"{cat} ({cat_checked}/{len(cat_keys)} checked)", expanded=(cat_checked > 0)):
-                rows = [_build_row(k, scored_defs[k]) for k in sorted(cat_keys, key=lambda k: scored_defs[k]["label"])]
-                df_cat = pd.DataFrame(rows).drop(columns=["Category"])
-                st.dataframe(
-                    df_cat,
-                    column_config={
-                        "Weight": "Weight",
-                        "Redundancy Group": st.column_config.TextColumn("Redundancy Group", help="Dampened against other checked members of the same group within this axis."),
-                        "Status": "Tri-State Status",
-                        "Mode": "Live / Simulated",
-                        "Value": "Populated Value",
-                        "Modifier": st.column_config.TextColumn("Modifier"),
-                        "Caveat": st.column_config.TextColumn("Caveat", width="large"),
-                        "What was counted": st.column_config.TextColumn(
-                            "What was counted", width="large",
-                            help="Plain-language provenance for this value. Full item-by-item evidence, "
-                                 "with links to check it against, is in the Evidence section below."),
-                    },
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                _render_signal_rows_with_audit(cat_keys, scored_defs, sig_dict, db, company, _build_row, key_prefix="catloop")
 
         _render_signal_evidence(sig_dict, indicator_defs)
 
@@ -1561,17 +1708,142 @@ def _render_tab1_content(db: Session):
             st.markdown("---")
             st.subheader("🏷️ Context & Moderator Tags")
             st.caption("Informational tags — not part of weighted scoring sum.")
-            rows = [_build_row(k, context_defs[k]) for k in sorted(context_defs.keys(), key=lambda k: context_defs[k]["label"])]
-            df_ctx = pd.DataFrame(rows)[["Signal Name", "Status", "Value", "What was counted", "Last Fetched"]]
-            st.dataframe(df_ctx, use_container_width=True, hide_index=True)
+            ctx_keys = sorted(context_defs.keys(), key=lambda k: context_defs[k]["label"])
+            _render_signal_rows_with_audit(ctx_keys, context_defs, sig_dict, db, company, _build_row, key_prefix="ctxtags")
+
+
+def _render_raw_data_tab(db: Session):
+    """
+    Everything raw collected for one company — every uploaded-file dataset
+    (AIDA, flexible imports) AND every Phase 7 crawler capture, both already
+    unified in RawImportRecord — plus which sources actually produced live
+    data. For spreadsheet-shaped datasets (not crawler captures, which are
+    already interpreted into structured evidence rather than free-form
+    columns), a column can be reassigned to a different indicator here:
+    that fixes THIS company's data immediately (via
+    company_service.reapply_mapping_to_raw_record) and saves the mapping
+    for future imports of the same dataset shape (via save_mapping_profile)
+    — the "train the model for the future" ask.
+    """
+    st.subheader("🗂️ Raw Data & Mapping")
+    st.caption(
+        "Every raw record collected for one company, exactly as captured — independent of whether "
+        "it's been mapped to a scored indicator. Use this to audit what was actually collected, and "
+        "to correct/teach a column's mapping without re-uploading anything."
+    )
+
+    companies = db.query(Company).order_by(Company.legal_name).all()
+    if not companies:
+        st.info("No companies yet — add one from the ➕ Add Single Company tab.")
+        return
+
+    country_flags = {"Germany": "🇩🇪", "Italy": "🇮🇹"}
+    company_names = {
+        f"{c.legal_name} ({c.registration_number}) — {country_flags.get(c.country, '🌐')} {c.country} [{c.segment}]": c.id
+        for c in companies
+    }
+    name_list = list(company_names.keys())
+    # Defaults to whichever company is selected on the Company Intelligence
+    # tab, when that selection is still valid here (different tab, so it
+    # needs its own selectbox/key — Streamlit doesn't let two widgets share
+    # one key in the same run — but there's no reason to make the user
+    # re-pick the company they were just looking at).
+    default_name = st.session_state.get("detail_company_select")
+    default_idx = name_list.index(default_name) if default_name in name_list else 0
+    selected_name = st.selectbox("Select Target Company", name_list, index=default_idx, key="raw_data_company_select")
+    company = db.query(Company).filter_by(id=company_names[selected_name]).first()
+
+    st.markdown("---")
+    st.markdown("##### 📜 Which sources actually populated live data")
+    prov_rows = _provenance_rows(db, company)
+    if prov_rows:
+        st.dataframe(pd.DataFrame(prov_rows), use_container_width=True, hide_index=True)
+    else:
+        st.caption("No live (non-simulated) signals recorded yet for this company.")
+
+    raw_records = db.query(RawImportRecord).filter_by(company_id=company.id).order_by(RawImportRecord.dataset_name).all()
+    if not raw_records:
+        st.info(f"No raw datasets captured yet for {company.legal_name}.")
+        return
+
+    st.markdown("---")
+    st.markdown(f"##### 📦 Raw datasets ({len(raw_records)})")
+
+    from company_service import (
+        detect_column_groups, valid_targets_for_group,
+        save_mapping_profile, reapply_mapping_to_raw_record,
+    )
+    indicator_defs = fetch_indicator_defs(db)
+
+    for rec in raw_records:
+        is_crawler = rec.dataset_name.startswith("crawler_")
+        updated_str = rec.updated_at.strftime("%Y-%m-%d %H:%M") if rec.updated_at else "—"
+        header = f"{rec.dataset_name} — {rec.source_filename or 'filename not recorded'} · updated {updated_str}"
+        with st.expander(header, expanded=False):
+            if is_crawler:
+                st.caption(
+                    "Crawler capture — already interpreted into per-signal evidence directly (see the 🔍 "
+                    "Audit button next to the relevant signal in the Company Intelligence tab), not "
+                    "free-form spreadsheet columns, so there's no column-mapping control here."
+                )
+                st.json(rec.raw_row, expanded=False)
+                continue
+
+            st.caption(
+                "Every column exactly as uploaded, not just the ones mapped to an indicator. Reassign a "
+                "column below to fix this company's data now and teach future imports of this shape."
+            )
+            st.json(rec.raw_row, expanded=False)
+
+            groups = detect_column_groups(list((rec.raw_row or {}).keys()))
+            if not groups:
+                st.caption("No mappable column groups detected in this raw row.")
+                continue
+
+            current_mapping = dict(rec.mapping_snapshot or {})
+            new_mapping = {}
+            st.markdown("###### Column mapping")
+            for base in sorted(groups.keys()):
+                group = groups[base]
+                points_desc = ", ".join(f"{suf} ({col})" for suf, col in sorted(group["points"].items()))
+                options = valid_targets_for_group(db, group)
+                option_keys = [""] + list(options.keys())
+                option_labels = {"": "— Ignore —", **options}
+                current = current_mapping.get(base) or ""
+                if current not in option_keys:
+                    current = ""
+                row_c1, row_c2 = st.columns([2, 3])
+                with row_c1:
+                    st.markdown(f"**{base}**")
+                    st.caption(points_desc)
+                with row_c2:
+                    picked = st.selectbox(
+                        f"Map '{base}' to", options=option_keys,
+                        format_func=lambda k: option_labels.get(k, k),
+                        index=option_keys.index(current),
+                        key=f"raw_map_{rec.id}_{base}", label_visibility="collapsed",
+                    )
+                    new_mapping[base] = picked
+
+            if st.button("💾 Apply mapping", key=f"raw_apply_{rec.id}", use_container_width=True):
+                result = reapply_mapping_to_raw_record(db, rec, new_mapping, indicator_defs)
+                save_mapping_profile(db, rec.dataset_name, company.country or "Germany", new_mapping)
+                if result["skipped"]:
+                    st.warning(f"Skipped: {'; '.join(f'{b} ({r})' for b, r in result['skipped'])}")
+                st.success(
+                    f"Updated {result['updated']} signal(s) for {company.legal_name} and saved the mapping "
+                    f"for future '{rec.dataset_name}' imports."
+                )
+                st.rerun()
 
 
 def render_company_detail_page(db: Session):
     st.title("🏢 Company Intelligence & Management")
     st.caption("Deep-dive company breakdown, tri-state signal audits, single company creation, and bulk CSV ingestion.")
 
-    tab_detail, tab_add, tab_import, tab_flex, tab_people, tab_flat_people, tab_manage = st.tabs([
+    tab_detail, tab_raw, tab_add, tab_import, tab_flex, tab_people, tab_flat_people, tab_manage = st.tabs([
         "🏢 Company Intelligence & Audit",
+        "🗂️ Raw Data & Mapping",
         "➕ Add Single Company",
         "📁 Bulk CSV Import",
         "🔗 Flexible Data Import",
@@ -1585,6 +1857,12 @@ def render_company_detail_page(db: Session):
     # --------------------------------------------------------------------------
     with tab_detail:
         _render_tab1_content(db)
+
+    # --------------------------------------------------------------------------
+    # TAB 1b: Raw Data & Mapping
+    # --------------------------------------------------------------------------
+    with tab_raw:
+        _render_raw_data_tab(db)
 
     # --------------------------------------------------------------------------
     # TAB 2: Add Single Company

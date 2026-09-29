@@ -1076,7 +1076,7 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
 
         # Resolve every mapped field/indicator for this row up front.
         company_field_updates = {}
-        signal_updates = {}  # signal_key -> (value, status)
+        signal_updates = {}  # signal_key -> (value, status, source_columns)
         for base, target in mapping.items():
             if not target or base == match_base:
                 continue
@@ -1093,7 +1093,8 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
             elif target.startswith("indicator:"):
                 sig_key = target.split(":", 1)[1]
                 if sig_key in indicator_defs:
-                    signal_updates[sig_key] = compute_group_value(group, row_dict, sig_key, companions=groups)
+                    value, status = compute_group_value(group, row_dict, sig_key, companions=groups)
+                    signal_updates[sig_key] = (value, status, list(group["points"].values()))
 
         is_conflict = False
         if existing:
@@ -1151,7 +1152,7 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
                 setattr(company, field, val)
 
         fetched_at = datetime.utcnow()
-        for sig_key, (value, status) in signal_updates.items():
+        for sig_key, (value, status, source_columns) in signal_updates.items():
             sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key=sig_key).first()
             if not sig:
                 sig = SignalRecord(company_id=company.id, signal_key=sig_key, source=dataset_name)
@@ -1162,7 +1163,7 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
             sig.is_simulated = False
             sig.source = dataset_name
             sig.fetched_at = fetched_at
-            payload = {"dataset": dataset_name, "signal_key": sig_key}
+            payload = {"dataset": dataset_name, "signal_key": sig_key, "source_columns": source_columns}
             if sig_key in DERIVATION_BASIS:
                 payload["basis"] = DERIVATION_BASIS[sig_key]
             sig.raw_payload_ref = json.dumps(payload)
@@ -1197,6 +1198,71 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
             result["merged"] += 1
 
     return result
+
+
+def reapply_mapping_to_raw_record(db: Session, raw_import_record: RawImportRecord,
+                                   new_mapping: dict, indicator_defs: dict) -> dict:
+    """
+    Re-applies a NEW {group_base: target_key} mapping to an ALREADY-STORED
+    RawImportRecord.raw_row, without re-uploading the source file — this is
+    the "apply a new mapping idea later without re-uploading" capability the
+    Raw Data & Mapping tab's per-column remap control uses. Modeled on
+    apply_data_import's own per-group dispatch (only "indicator:" targets
+    are handled — this updates SignalRecords for the company that already
+    owns this raw row, not company identity fields) and on
+    data_repairs.recompute_derived_signals's read-raw-row -> compute ->
+    upsert pattern.
+
+    Only touches signal_keys actually present in new_mapping — every other
+    already-stored signal for this company is left alone. Also updates the
+    record's own mapping_snapshot so subsequent reads of this raw row show
+    the corrected mapping. Returns {"updated": int, "skipped": [(base, reason), ...]}.
+    """
+    row_dict = raw_import_record.raw_row or {}
+    groups = detect_column_groups(list(row_dict.keys()))
+    company_id = raw_import_record.company_id
+    dataset_name = raw_import_record.dataset_name
+    fetched_at = datetime.utcnow()
+    updated = 0
+    skipped = []
+
+    for base, target in new_mapping.items():
+        if not target:
+            continue
+        group = groups.get(base)
+        if not group:
+            skipped.append((base, "column group not found in this raw row"))
+            continue
+        if not target.startswith("indicator:"):
+            skipped.append((base, "only indicator targets can be reapplied here"))
+            continue
+        sig_key = target.split(":", 1)[1]
+        if sig_key not in indicator_defs:
+            skipped.append((base, f"unknown indicator key '{sig_key}'"))
+            continue
+
+        value, status = compute_group_value(group, row_dict, sig_key, companions=groups)
+        sig = db.query(SignalRecord).filter_by(company_id=company_id, signal_key=sig_key).first()
+        if not sig:
+            sig = SignalRecord(company_id=company_id, signal_key=sig_key, source=dataset_name)
+            db.add(sig)
+        sig.status = status
+        sig.numeric_value = value if status == "present" else None
+        sig.confidence = 1.0
+        sig.is_simulated = False
+        sig.source = dataset_name
+        sig.fetched_at = fetched_at
+        sig.raw_payload_ref = json.dumps({
+            "dataset": dataset_name, "signal_key": sig_key,
+            "source_columns": list(group["points"].values()),
+            "note": "Remapped from the Raw Data & Mapping tab, without re-uploading the source file.",
+        })
+        updated += 1
+
+    raw_import_record.mapping_snapshot = new_mapping
+    raw_import_record.updated_at = fetched_at
+    db.commit()
+    return {"updated": updated, "skipped": skipped}
 
 
 def save_mapping_profile(db: Session, dataset_name: str, country: str, mapping: dict) -> ColumnMappingProfile:
@@ -2314,6 +2380,7 @@ def sync_succession_signal(db: Session, company: Company, source: str = "Board R
         sig.fetched_at = datetime.utcnow()
         sig.raw_payload_ref = json.dumps({
             "surname": ng["surname"], "young_manager": ng["young_manager"].full_name,
+            "person_ids": [ng["young_manager"].id], "person_names": [ng["young_manager"].full_name],
             "detected_from": "family_surname_vs_company_name_and_incorporation_date",
         })
         db.commit()
@@ -2507,36 +2574,43 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
         aged_current = [p for p in current if p.age is not None]
         if aged_current:
             _write("management_age", sum(p.age for p in aged_current) / len(aged_current),
-                   {"basis": "average_age_of_current_people_with_known_age", "n": len(aged_current)})
+                   {"basis": "average_age_of_current_people_with_known_age", "n": len(aged_current),
+                    "person_ids": [p.id for p in aged_current], "person_names": [p.full_name for p in aged_current]})
 
         # Management Gender Diversity — % women among current people with a
         # recognized gender marker.
-        known_genders = [g for g in (_person_gender_category(p.gender) for p in current) if g]
+        gendered_people = [(p, _person_gender_category(p.gender)) for p in current]
+        gendered_people = [(p, g) for p, g in gendered_people if g]
+        known_genders = [g for _, g in gendered_people]
         if known_genders:
             pct_female = 100.0 * sum(1 for g in known_genders if g == "F") / len(known_genders)
             _write("mgmt_gender_diversity", pct_female,
-                   {"basis": "pct_female_of_current_people_with_known_gender", "n": len(known_genders)})
+                   {"basis": "pct_female_of_current_people_with_known_gender", "n": len(known_genders),
+                    "person_ids": [p.id for p, _ in gendered_people], "person_names": [p.full_name for p, _ in gendered_people]})
 
         # Management National Diversity — a concentration-based proxy: % of
         # current people (with a known nationality) whose nationality is NOT
         # the single most common one in the group. Not a demographic census,
         # just "how homogeneous is this team" from whatever the roster gives.
-        nationalities = [p.nationality.strip() for p in current if p.nationality and p.nationality.strip()]
+        national_people = [p for p in current if p.nationality and p.nationality.strip()]
+        nationalities = [p.nationality.strip() for p in national_people]
         if nationalities:
             counts = Counter(n.lower() for n in nationalities)
             _, dominant_count = counts.most_common(1)[0]
             pct_diverse = 100.0 * (len(nationalities) - dominant_count) / len(nationalities)
             _write("mgmt_national_diversity", pct_diverse,
-                   {"basis": "pct_not_in_most_common_nationality", "n": len(nationalities)})
+                   {"basis": "pct_not_in_most_common_nationality", "n": len(nationalities),
+                    "person_ids": [p.id for p in national_people], "person_names": [p.full_name for p in national_people]})
 
         # Independent (Non-Family) Board Members — reuses the same surname-
         # match family detection the succession signal is built on; when no
         # family surname is detected at all, every current person counts.
         family_result = detect_family_and_succession(db, company)
         family_surnames_lower = {s.lower() for s in family_result["family_surnames"]}
-        independent_count = sum(1 for p in current if _person_surname(p).lower() not in family_surnames_lower)
-        _write("independent_board_members", float(independent_count),
-               {"basis": "current_people_not_sharing_a_family_surname", "n": len(current)})
+        independent_people = [p for p in current if _person_surname(p).lower() not in family_surnames_lower]
+        _write("independent_board_members", float(len(independent_people)),
+               {"basis": "current_people_not_sharing_a_family_surname", "n": len(current),
+                "person_ids": [p.id for p in independent_people], "person_names": [p.full_name for p in independent_people]})
 
         # Average Tenure of Senior Management — years since appointment for
         # current people with a known appointment_date.
@@ -2544,7 +2618,8 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
         if tenured:
             avg_tenure = sum((datetime.utcnow() - p.appointment_date).days / 365.25 for p in tenured) / len(tenured)
             _write("senior_mgmt_tenure", avg_tenure,
-                   {"basis": "average_years_since_appointment_date", "n": len(tenured)})
+                   {"basis": "average_years_since_appointment_date", "n": len(tenured),
+                    "person_ids": [p.id for p in tenured], "person_names": [p.full_name for p in tenured]})
 
     # Turnover of Management — appointment/resignation events in the last 3
     # years, counted across EVERY known person (not just current ones — a
@@ -2557,13 +2632,14 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
     cutoff = now - timedelta(days=TURNOVER_LOOKBACK_DAYS)
     dated_people = [p for p in people if p.appointment_date or p.resignation_date]
     if dated_people:
-        turnover_events = sum(
-            1 for p in people
+        turnover_people = [
+            p for p in people
             if (p.appointment_date and cutoff <= p.appointment_date <= now)
             or (p.resignation_date and cutoff <= p.resignation_date <= now)
-        )
-        _write("management_turnover", float(turnover_events),
-               {"basis": "appointment_or_resignation_events_in_last_3_years", "n": len(dated_people)})
+        ]
+        _write("management_turnover", float(len(turnover_people)),
+               {"basis": "appointment_or_resignation_events_in_last_3_years", "n": len(dated_people),
+                "person_ids": [p.id for p in turnover_people], "person_names": [p.full_name for p in turnover_people]})
 
     db.commit()
     return results
