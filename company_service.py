@@ -1344,6 +1344,40 @@ def delete_companies(db: Session, company_ids: list) -> dict:
     }
 
 
+def update_company_websites(db: Session, updates: dict) -> dict:
+    """
+    Bulk-corrects website_url for existing companies — the one field the Manage
+    Companies grid lets a user edit directly (the flexible CSV import can also
+    touch it, but that's a heavy mechanism for fixing a handful of known-wrong
+    URLs; see [[vienna-phase7-crawlers]] memory on the A DUE / AFINOX / TECNOINOX
+    case this was built for).
+
+    `updates` maps company_id -> new website_url (blank/None clears it). Same
+    "" .strip() or None" normalization as create_company, so a company edited
+    this way ends up with a value in the exact same shape as one entered via
+    Add Single Company or CSV import. Rows whose value doesn't actually change
+    are skipped so a no-op grid save doesn't churn updated_at.
+
+    Does NOT re-run any crawler or clear stale signals derived from the old
+    URL — those are still attributed to whatever source produced them until
+    that source is re-run against the corrected site.
+
+    Returns {"updated": [legal_name, ...]}.
+    """
+    updated = []
+    for company_id, new_url in updates.items():
+        company = db.query(Company).filter_by(id=company_id).first()
+        if not company:
+            continue
+        cleaned = (new_url or "").strip() or None
+        if cleaned == company.website_url:
+            continue
+        company.website_url = cleaned
+        updated.append(company.legal_name)
+    db.commit()
+    return {"updated": updated}
+
+
 # =============================================================================
 # People & ownership roster import
 #

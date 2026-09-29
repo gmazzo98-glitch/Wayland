@@ -31,6 +31,7 @@ from company_service import (
     explode_person_group,
     import_company_people,
     delete_companies,
+    update_company_websites,
     detect_family_and_succession,
     sync_succession_signal,
     suggest_person_mapping,
@@ -645,6 +646,48 @@ def test_delete_companies_ignores_unknown_ids(db):
         "pilot_outcomes_deleted": 0, "raw_import_records_deleted": 0,
         "people_deleted": 0,
     }
+
+
+def test_update_company_websites_corrects_a_wrong_url(db):
+    company, err = create_company(db, {
+        "legal_name": "Wrong URL S.p.A.", "registration_number": "7703803430",
+        "country": "Italy", "website_url": "spareparts.example.it",
+    }, auto_sync=False)
+    assert err is None
+
+    result = update_company_websites(db, {company.id: "www.example.it"})
+    assert result["updated"] == ["Wrong URL S.p.A."]
+
+    db.refresh(company)
+    assert company.website_url == "www.example.it"
+
+
+def test_update_company_websites_normalizes_blank_to_none(db):
+    company, err = create_company(db, {
+        "legal_name": "Clear Me S.p.A.", "registration_number": "IT99988877766",
+        "country": "Italy", "website_url": "example.it",
+    }, auto_sync=False)
+    assert err is None
+
+    update_company_websites(db, {company.id: "   "})
+    db.refresh(company)
+    assert company.website_url is None
+
+
+def test_update_company_websites_ignores_unknown_ids(db):
+    result = update_company_websites(db, {"not-a-real-id": "https://x.com"})
+    assert result["updated"] == []
+
+
+def test_update_company_websites_is_a_noop_when_value_is_unchanged(db):
+    company, err = create_company(db, {
+        "legal_name": "Unchanged S.p.A.", "registration_number": "IT88877766655",
+        "country": "Italy", "website_url": "example.it",
+    }, auto_sync=False)
+    assert err is None
+
+    result = update_company_websites(db, {company.id: "example.it"})
+    assert result["updated"] == []
 
 
 # --- Management & board roster import (newline-stacked multi-value cells) ---

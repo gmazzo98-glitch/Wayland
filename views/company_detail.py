@@ -625,10 +625,12 @@ def _render_manage_companies_tab(db: Session):
         "Every company currently in the database, regardless of how it was added "
         "(seed data, manual entry, CSV or flexible import). Select rows to delete "
         "permanently — this also removes that company's signal history and any "
-        "recorded pilot outcomes."
+        "recorded pilot outcomes. Website is editable directly in the table below "
+        "— useful when it points at the wrong site (e.g. a spare-parts/B2B sub-portal "
+        "instead of the company's real one, which throws off every crawler that reads it)."
     )
 
-    from company_service import delete_companies
+    from company_service import delete_companies, update_company_websites
 
     companies = db.query(Company).order_by(Company.legal_name).all()
     if not companies:
@@ -655,6 +657,7 @@ def _render_manage_companies_tab(db: Session):
             "Registration #": c.registration_number,
             "Country": c.country,
             "Segment": c.segment,
+            "Website": c.website_url or "",
             "Shortlist Status": c.shortlist_status,
             "Need Score": c.need_score,
             "Readiness Score": c.readiness_score,
@@ -670,17 +673,36 @@ def _render_manage_companies_tab(db: Session):
         hide_index=True,
         use_container_width=True,
         num_rows="fixed",
-        column_order=["Delete", "Legal Name", "Registration #", "Country", "Segment",
+        column_order=["Delete", "Legal Name", "Registration #", "Country", "Segment", "Website",
                       "Shortlist Status", "Need Score", "Readiness Score",
                       "Present Signals", "Pilot Outcomes"],
         disabled=["Legal Name", "Registration #", "Country", "Segment", "Shortlist Status",
                   "Need Score", "Readiness Score", "Present Signals", "Pilot Outcomes"],
         column_config={
             "Delete": st.column_config.CheckboxColumn("🗑️ Delete", help="Check to mark for deletion"),
+            "Website": st.column_config.TextColumn(
+                "🌐 Website", help="The site every crawler reads for this company — correct it here if it "
+                                    "points at the wrong page (e.g. a spare-parts/B2B sub-portal)."),
             "Need Score": st.column_config.NumberColumn(format="%.1f"),
             "Readiness Score": st.column_config.NumberColumn(format="%.1f"),
         },
     )
+
+    website_changes = {
+        row["_id"]: row["Website"]
+        for _, row in edited.iterrows()
+        if (row["Website"] or "").strip() != (df.loc[df["_id"] == row["_id"], "Website"].iloc[0] or "").strip()
+    }
+    if website_changes:
+        plural = "y" if len(website_changes) == 1 else "ies"
+        st.info(f"**{len(website_changes)}** website URL{'' if len(website_changes) == 1 else 's'} changed for "
+                f"{len(website_changes)} compan{plural} — not saved yet.")
+        if st.button("💾 Save Website Changes", use_container_width=True):
+            result = update_company_websites(db, website_changes)
+            st.success(f"Updated website for {len(result['updated'])} compan{plural}. "
+                       "Re-run the relevant crawlers (Company Intelligence → 🕸️ Run Deep Crawlers) to "
+                       "refresh data pulled from the old URL.")
+            st.rerun()
 
     selected = edited[edited["Delete"]]
     if len(selected) > 0:
