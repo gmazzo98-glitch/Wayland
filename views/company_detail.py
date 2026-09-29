@@ -870,6 +870,7 @@ def _render_score_breakdown(axis_label: str, axis_score: float, detail: list, me
 _CRAWLER_SOURCE_TO_DATASET = {
     "Digital Maturity Crawler": "crawler_digital_maturity",
     "Company Website Crawler": "crawler_company_website",
+    "Product Catalog Crawler": "crawler_product_catalog",
     "Job Postings Crawler": "crawler_job_postings",
     "Innovation Participation Crawler": "crawler_innovation_participation",
     "News Signals Crawler": "crawler_news_signals",
@@ -1439,9 +1440,9 @@ def _render_tab1_content(db: Session):
             with col_s4:
                 st.markdown("&nbsp;")
                 if st.button("🕸️ Run Deep Crawlers", use_container_width=True,
-                             help="Phase 7 — 8 Node-based crawlers (company site, jobs, reviews, news, "
-                                  "directories, innovation participation, digital maturity). Takes a few minutes; "
-                                  "runs in the background — follow it in the widget at the bottom right."):
+                             help="Phase 7 — 9 Node-based crawlers (company site, product catalog, jobs, reviews, "
+                                  "news, directories, innovation participation, digital maturity). Takes a few "
+                                  "minutes; runs in the background — follow it in the widget at the bottom right."):
                     from views.crawl_widget import queue_crawl
                     from views.crawler_setup import resolve_crawl_target
                     where = resolve_crawl_target(db)
@@ -1569,7 +1570,7 @@ def _render_tab1_content(db: Session):
         # also where a raw column's indicator mapping can be corrected.
         st.caption(
             "📜 Which sources populated this company's live data, and 📦 every raw dataset collected for it "
-            "(files + all 8 crawlers), are in the **🗂️ Raw Data & Mapping** tab — including a mapping editor "
+            "(files + all 9 crawlers), are in the **🗂️ Raw Data & Mapping** tab — including a mapping editor "
             "to reassign a raw column to a different indicator."
         )
 

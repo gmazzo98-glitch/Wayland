@@ -138,7 +138,7 @@ def render_pipeline_health_page(db: Session):
     st.markdown("&nbsp;")
     st.markdown("**🕸️ Phase 7 — Crawler Deep Enrichment (Node-based, slower)**")
     st.caption(
-        "Each of the 8 crawlers under Scraper/crawlers/ spawns its own subprocess per company "
+        "Each of the 9 crawlers under Scraper/crawlers/ spawns its own subprocess per company "
         "(Node/Playwright startup, sometimes an LLM call). A company's crawlers run at the same time, so it "
         "takes as long as its slowest one (about 2 minutes) rather than the sum, and several companies run in "
         "parallel on top of that. What may really run together is capped per resource — 4 headless Chromium "

@@ -26,7 +26,7 @@ from scrapers import handelsregister_free, wappalyzer_local, management_diversit
 from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
     directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler,
-    linkedin_profile_crawler,
+    linkedin_profile_crawler, product_catalog_crawler,
 )
 
 SUPPORTED_COUNTRIES = ["Germany", "Italy"]
@@ -41,7 +41,7 @@ SUPPORTED_COUNTRIES = ["Germany", "Italy"]
 PHASE_7_SOURCES = [
     "Company Website Crawler", "Job Postings Crawler", "Review Crawler",
     "News Signals Crawler", "Directory Listing Crawler", "Innovation Participation Crawler",
-    "Digital Maturity Crawler", "LinkedIn Profile Crawler",
+    "Digital Maturity Crawler", "Product Catalog Crawler", "LinkedIn Profile Crawler",
 ]
 
 
@@ -147,9 +147,13 @@ class SourceStep:
 # Slowest first when a company's steps are started together: a run lasts as long as its slowest
 # step, so that one must never start last. Measured 2026-09-21: website ~100-170s (token-bound),
 # digital ~40-170s (archive-bound), jobs ~70s, directory ~50s; everything else is quick or gated.
+# Product Catalog Crawler is untimed as of its introduction (visits up to 45 pages, more than any
+# other Phase 7 source) — placed third rather than guessed into the top two so it doesn't disturb
+# the measured ordering above it until it has its own real numbers.
 _SLOWEST_FIRST = (
-    "Company Website Crawler", "Digital Maturity Crawler", "Job Postings Crawler", "Directory Listing Crawler",
-    "Review Crawler", "LinkedIn Profile Crawler", "News Signals Crawler", "Innovation Participation Crawler",
+    "Company Website Crawler", "Digital Maturity Crawler", "Product Catalog Crawler", "Job Postings Crawler",
+    "Directory Listing Crawler", "Review Crawler", "LinkedIn Profile Crawler", "News Signals Crawler",
+    "Innovation Participation Crawler",
 )
 
 
@@ -221,6 +225,7 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
             SourceStep("Directory Listing Crawler", directory_listing_crawler.sync_directory_listing, 7),
             SourceStep("Innovation Participation Crawler", innovation_participation_crawler.sync_innovation_participation, 7),
             SourceStep("Digital Maturity Crawler", digital_maturity_crawler.sync_digital_maturity, 7),
+            SourceStep("Product Catalog Crawler", product_catalog_crawler.sync_product_catalog, 7),
             SourceStep("LinkedIn Profile Crawler", linkedin_profile_crawler.sync_linkedin_profiles, 7),
         ]
     return steps, after

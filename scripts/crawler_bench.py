@@ -13,7 +13,7 @@ Usage:
     python scripts/crawler_bench.py --companies companies.json --db bench.db --out report.json
         --lanes jobs,directory [--only "CANGINI BENNE,RCM"] [--log-dir logs/]
 
-Lanes (comma-separated): website, jobs, reviews, directory, digital, news, innovation,
+Lanes (comma-separated): website, catalog, jobs, reviews, directory, digital, news, innovation,
 news_rss, wappalyzer, ownsite, all.
 
 --mode queue runs the companies through the REAL background path instead (crawl_jobs manager ->
@@ -67,11 +67,12 @@ from adapters import google_news_rss  # noqa: E402
 from scrapers import (  # noqa: E402
     company_website_crawler, digital_maturity_crawler, directory_listing_crawler,
     innovation_participation_crawler, job_postings_crawler, management_diversity,
-    news_signals_crawler, review_crawler, wappalyzer_local,
+    news_signals_crawler, product_catalog_crawler, review_crawler, wappalyzer_local,
 )
 
 LANES = {
     "website": ("Company Website Crawler", company_website_crawler.sync_company_website),
+    "catalog": ("Product Catalog Crawler", product_catalog_crawler.sync_product_catalog),
     "jobs": ("Job Postings Crawler", job_postings_crawler.sync_job_postings),
     "reviews": ("Review Crawler", review_crawler.sync_reviews),
     "directory": ("Directory Listing Crawler", directory_listing_crawler.sync_directory_listing),
