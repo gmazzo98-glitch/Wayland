@@ -73,19 +73,18 @@ SERIES_SPEC = [
 ]
 YEAR_SUFFIXES = {"ultimo anno disp.": "latest", "anno - 1": "y-1", "anno - 2": "y-2"}
 
-# How each raw series is described to the mapping snapshot the rest of the app reads (same base names the
-# curated import used, so the company page's trend headlines and data_repairs keep working).
+# Each stored source column points to one observed financial fact. Calculated
+# indicators such as revenue_trend are described by their signal provenance,
+# never by pretending that a whole source series is one mapped column.
 MAPPING_SNAPSHOT = {
-    "revenue": "indicator:revenue_trend", "ebit": "indicator:ebit_trend", "ebitda": "indicator:ebitda_trend",
-    "gross_margin": "indicator:margin_compression", "cash": "indicator:cash_position", "total_debt": "indicator:debt_level",
-    "total_assets": "indicator:total_assets", "interest_coverage": "indicator:interest_coverage_ratio",
-    "leverage_ratio": "indicator:leverage_ratio", "production_costs": "indicator:cogs",
-    "material_capex": "indicator:material_capex", "immaterial_capex": "indicator:immaterial_capex",
+    f"{base}_{period}": f"variable:{base}_{period}"
+    for base, _, _ in SERIES_SPEC
+    for period in ("latest", "y-1", "y-2")
 }
 
 # Exact raw inputs used by each computed financial signal.  This is deliberately
-# separate from MAPPING_SNAPSHOT: a mapping is one source series -> one target,
-# while these indicators are formulas that may consume several series.  Keeping
+# separate from MAPPING_SNAPSHOT: a mapping is one source column -> one fact,
+# while these indicators are formulas that may consume several facts. Keeping
 # the formula lineage explicit prevents the UI from implying that (for example)
 # a stray year in the old curated ``cogs`` group fed labour cost.
 FINANCIAL_SIGNAL_INPUT_FIELDS = {

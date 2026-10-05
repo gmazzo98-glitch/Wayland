@@ -639,7 +639,7 @@ TREND_BASE_ALIASES = {"revenue": "revenue_trend", "ebit": "ebit_trend", "gross_m
 # deliberately not IndicatorDefinitions: ``revenue_latest`` is an observed
 # fact, while ``revenue_trend`` is a formula derived from several facts.
 CANONICAL_SERIES_LABELS = {
-    "revenue": "Revenue", "ebit": "EBIT", "ebitda": "EBITDA",
+    "revenue": "Revenue", "production_value": "Production value", "ebit": "EBIT", "ebitda": "EBITDA",
     "gross_margin": "Gross margin / margin on consumption",
     "employees": "Employees", "production_costs": "Production costs",
     "personnel_costs": "Personnel costs", "materials": "Materials costs",
@@ -651,6 +651,7 @@ CANONICAL_SERIES_LABELS = {
 CANONICAL_BASE_ALIASES = {
     "revenue": "revenue", "revenues": "revenue", "ricavi": "revenue",
     "ricavi_vendite_e_prestazioni": "revenue", "fatturato": "revenue",
+    "production_value": "production_value", "valore_della_produzione": "production_value",
     "ebit": "ebit", "risultato_operativo": "ebit",
     "ebitda": "ebitda", "gross_margin": "gross_margin", "margine_sui_consumi": "gross_margin",
     "employees": "employees", "dipendenti": "employees", "headcount": "employees",

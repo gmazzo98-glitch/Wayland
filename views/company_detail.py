@@ -1879,10 +1879,23 @@ def _render_raw_data_tab(db: Session):
             st.json(rec.raw_row, expanded=False)
 
             if is_pipeline_managed:
+                options = valid_targets_for_column(db)
+                point_mapping = suggest_column_mapping(
+                    db, list((rec.raw_row or {}).keys()), existing_profile=rec.mapping_snapshot or {}
+                )
+                st.markdown("###### Source column mapping — one column to one financial fact")
+                st.dataframe(pd.DataFrame([
+                    {
+                        "Source column": column,
+                        "Raw value": value,
+                        "Mapped fact": options.get(point_mapping.get(column) or "", "— Ignore —"),
+                    }
+                    for column, value in (rec.raw_row or {}).items()
+                ]), use_container_width=True, hide_index=True)
                 st.info(
-                    "This is a formula-driven source, so it is read-only here. Its indicators can use several "
-                    "raw columns; treating one column as a direct mapping would change units and create false "
-                    "lineage. Open an indicator's 🔍 Audit view to see its exact file, columns, raw values, and formula."
+                    "The AIDA importer calculates indicators such as Revenue Trend from these individual "
+                    "financial facts. This source is read-only here; open an indicator's 🔍 Audit view for "
+                    "the original file headers, raw values, and formula."
                 )
                 continue
 

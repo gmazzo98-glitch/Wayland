@@ -30,6 +30,15 @@ def db():
 
 # ---- reading by header name, never by position -----------------------------------------------------------
 
+def test_aida_snapshot_maps_each_stored_year_to_one_financial_fact():
+    assert A.MAPPING_SNAPSHOT["revenue_latest"] == "variable:revenue_latest"
+    assert A.MAPPING_SNAPSHOT["revenue_y-1"] == "variable:revenue_y-1"
+    assert A.MAPPING_SNAPSHOT["revenue_y-2"] == "variable:revenue_y-2"
+    assert A.MAPPING_SNAPSHOT["production_costs_latest"] == "variable:production_costs_latest"
+    assert "revenue" not in A.MAPPING_SNAPSHOT
+    assert "indicator:revenue_trend" not in A.MAPPING_SNAPSHOT.values()
+
+
 def test_years_are_matched_by_header_name_even_when_the_export_orders_them_oddly():
     # The real export lists this series Ultimo, Anno-2, Anno-1 — the order the curated file mis-read.
     df = pd.DataFrame([[1.0, 3.0, 2.0]], columns=[
