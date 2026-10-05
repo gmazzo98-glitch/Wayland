@@ -16,7 +16,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models import Company, SignalRecord, PilotOutcome, RawImportRecord, CompanyPerson, SHORTLIST_STATUSES
-from indicators import fetch_indicator_defs
+from indicators import SRC_AIDA, fetch_indicator_defs
 from scoring import calculate_company_scores
 from utils import get_signal_display_status
 
@@ -125,16 +125,17 @@ def _render_flexible_import_tab(db: Session):
     st.subheader("🔗 Flexible Data Import")
     st.caption(
         "Upload a dataset with ANY column layout — the app detects columns it doesn't "
-        "recognize and lets you link them to existing fields/indicators (or create new "
-        "ones). The mapping is saved under the dataset name so re-uploading the same "
-        "shape later reuses it. Columns named like revenue_latest/revenue_y-1/revenue_y-2 "
-        "are auto-grouped as a time series so trend indicators can be computed from them."
+        "recognize and lets you link each physical source column to a company field, a canonical "
+        "financial fact, or a direct indicator. Map periods separately—for example Revenue — latest, "
+        "Revenue — year -1, and Revenue — year -2. Trends are then calculated automatically from "
+        "those reviewed facts. The mapping is saved under the dataset name for reuse."
     )
 
     from company_service import (
-        parse_uploaded_file, detect_column_groups, suggest_mapping,
-        valid_targets_for_group, apply_data_import, save_mapping_profile,
+        parse_uploaded_file, suggest_column_mapping,
+        valid_targets_for_column, apply_data_import, save_mapping_profile,
         load_mapping_profile, create_ad_hoc_indicator, list_mapping_profiles,
+        AUTO_DERIVED_TRENDS,
     )
 
     NEW_INDICATOR_OPTION = "__new__"
@@ -171,53 +172,67 @@ def _render_flexible_import_tab(db: Session):
             return
         st.session_state["flex_file_sig"] = file_sig
         st.session_state["flex_df"] = df
-        groups = detect_column_groups(list(df.columns))
         profile_mapping = load_mapping_profile(db, dataset_name) if dataset_name.strip() else {}
-        st.session_state["flex_mapping"] = suggest_mapping(db, groups, existing_profile=profile_mapping)
+        st.session_state["flex_mapping"] = suggest_column_mapping(db, list(df.columns), existing_profile=profile_mapping)
         st.session_state["flex_new_labels"] = {}
         st.session_state["flex_preview"] = None
 
     df = st.session_state["flex_df"]
-    groups = detect_column_groups(list(df.columns))
     mapping_state = st.session_state["flex_mapping"]
     new_labels_state = st.session_state["flex_new_labels"]
 
-    st.markdown(f"##### Detected **{len(groups)}** column group(s) across **{len(df)}** row(s)")
+    st.markdown(f"##### Detected **{len(df.columns)}** source column(s) across **{len(df)}** row(s)")
     st.dataframe(df.head(5), use_container_width=True)
     st.markdown("###### Column Mapping")
 
-    for base in sorted(groups.keys()):
-        group = groups[base]
-        points_desc = ", ".join(f"{suf} ({col})" for suf, col in sorted(group["points"].items()))
-        options = valid_targets_for_group(db, group)
+    options = valid_targets_for_column(db)
+    for source_column in df.columns:
         option_keys = list(options.keys()) + [NEW_INDICATOR_OPTION]
         option_labels = {**options, NEW_INDICATOR_OPTION: "+ Create New Indicator..."}
 
-        current = mapping_state.get(base)
+        current = mapping_state.get(source_column)
         if current not in option_keys:
             current = ""
         default_idx = option_keys.index(current)
 
         row_c1, row_c2 = st.columns([2, 3])
         with row_c1:
-            tag = "📈 time series" if group["is_timeseries"] else "•"
-            st.markdown(f"**{base}** {tag}")
-            st.caption(points_desc)
+            st.markdown(f"**{source_column}**")
+            st.caption("One source column → one fact")
         with row_c2:
             picked = st.selectbox(
-                f"Map '{base}' to", options=option_keys,
+                f"Map '{source_column}' to", options=option_keys,
                 format_func=lambda k: option_labels.get(k, k),
-                index=default_idx, key=f"flex_map_{base}", label_visibility="collapsed",
+                index=default_idx, key=f"flex_map_{source_column}", label_visibility="collapsed",
             )
-            mapping_state[base] = picked
+            mapping_state[source_column] = picked
             if picked == NEW_INDICATOR_OPTION:
-                new_labels_state[base] = st.text_input(
-                    f"New indicator label for '{base}'",
-                    value=new_labels_state.get(base, base.replace("_", " ").title()),
-                    key=f"flex_new_label_{base}",
+                new_labels_state[source_column] = st.text_input(
+                    f"New indicator label for '{source_column}'",
+                    value=new_labels_state.get(source_column, source_column.replace("_", " ").title()),
+                    key=f"flex_new_label_{source_column}",
                 )
     st.session_state["flex_mapping"] = mapping_state
     st.session_state["flex_new_labels"] = new_labels_state
+
+    mapped_variables = {
+        target.split(":", 1)[1]
+        for target in mapping_state.values()
+        if isinstance(target, str) and target.startswith("variable:")
+    }
+    automatic_trends = []
+    defs = fetch_indicator_defs(db)
+    for base, signal_key in AUTO_DERIVED_TRENDS.items():
+        prior_periods = {period for period in ("y-1", "y-2") if f"{base}_{period}" in mapped_variables}
+        ready = f"{base}_latest" in mapped_variables and bool(prior_periods)
+        if signal_key == "margin_compression":
+            ready = ready and "revenue_latest" in mapped_variables and any(
+                f"revenue_{period}" in mapped_variables for period in prior_periods
+            )
+        if ready:
+            automatic_trends.append(defs.get(signal_key, {}).get("label", signal_key.replace("_", " ").title()))
+    if automatic_trends:
+        st.info("Calculated automatically from the mapped facts: " + ", ".join(automatic_trends) + ".")
 
     reg_targets = [b for b, t in mapping_state.items() if t == "company:registration_number"]
     name_targets = [b for b, t in mapping_state.items() if t == "company:legal_name"]
@@ -730,7 +745,7 @@ def _render_manage_companies_tab(db: Session):
         st.caption("Check the 🗑️ Delete column next to any row(s), then confirm below to remove them.")
 
 
-def _trend_groups_from_raw(raw_row: dict) -> dict:
+def _trend_groups_from_raw(raw_row: dict, mapping_snapshot: dict = None) -> dict:
     """
     Detects multi-year column groups (e.g. revenue_latest/revenue_y-1/
     revenue_y-2) within one company's raw injected row — financial or not,
@@ -740,6 +755,19 @@ def _trend_groups_from_raw(raw_row: dict) -> dict:
     """
     from company_service import detect_column_groups
     groups = detect_column_groups(list(raw_row.keys()))
+    # A source can call its columns anything. Point-level mappings provide the
+    # canonical names needed to chart Ricavi ultimo anno / anno -1 / anno -2
+    # as one Revenue series without renaming or modifying the uploaded row.
+    canonical_row = {
+        target.split(":", 1)[1]: raw_row.get(source_column)
+        for source_column, target in (mapping_snapshot or {}).items()
+        if isinstance(target, str) and target.startswith("variable:") and source_column in raw_row
+    }
+    if canonical_row:
+        canonical_groups = detect_column_groups(list(canonical_row.keys()))
+        for base, group in canonical_groups.items():
+            group["_canonical_row"] = canonical_row
+            groups[base] = group
     trends = {}
     for base, group in groups.items():
         if not group["is_timeseries"]:
@@ -749,7 +777,8 @@ def _trend_groups_from_raw(raw_row: dict) -> dict:
         ordered = y_suffixes + (["latest"] if "latest" in points else [])
         series = []
         for suf in ordered:
-            raw_val = raw_row.get(points[suf])
+            source_row = group.get("_canonical_row", raw_row)
+            raw_val = source_row.get(points[suf])
             try:
                 val = float(raw_val) if raw_val is not None else None
             except (TypeError, ValueError):
@@ -775,7 +804,10 @@ def _single_point_fields_from_raw(raw_row: dict) -> dict:
 
 # Reverse of company_service.TREND_BASE_ALIASES — which raw column-group
 # base name (from a RawImportRecord) underlies each computed trend indicator.
-_TREND_KEY_TO_RAW_BASE = {"revenue_trend": "revenue", "ebit_trend": "ebit", "margin_compression": "gross_margin"}
+_TREND_KEY_TO_RAW_BASE = {
+    "revenue_trend": "revenue", "ebit_trend": "ebit", "ebitda_trend": "ebitda",
+    "margin_compression": "gross_margin", "employee_growth": "employees",
+}
 
 # Keys representing monetary financial levels / amounts uploaded in thousands (k)
 MONETARY_INDICATOR_KEYS = {
@@ -954,6 +986,18 @@ def _render_evidence_block(payload: dict):
         for k, v in inputs.items():
             st.markdown(f"- {k}: {v}")
 
+    raw_fields = ev.get("raw_fields") or payload.get("raw_fields") or []
+    if raw_fields:
+        st.markdown("**Exact source fields:**")
+        st.dataframe(pd.DataFrame([
+            {
+                "Source file": item.get("source_file") or payload.get("source_file") or payload.get("dataset") or "—",
+                "Source column": item.get("source_header") or item.get("column") or item.get("field") or "—",
+                "Raw value": item.get("raw_value"),
+            }
+            for item in raw_fields
+        ]), use_container_width=True, hide_index=True)
+
     names = ev.get("person_names") or payload.get("person_names")
     if names:
         st.markdown(f"**People counted ({len(names)}):**")
@@ -989,7 +1033,7 @@ def _render_evidence_block(payload: dict):
     rest_keys = {"method", "basis", "inputs", "person_ids", "person_names", "found",
                  "open_roles_sample", "source_urls", "note", "social_profiles",
                  "source_columns", "evidence", "simulated", "fallback_reason",
-                 "dataset", "signal_key", "n"}
+                 "dataset", "signal_key", "raw_fields", "n"}
     rest = {k: v for k, v in payload.items() if k not in rest_keys}
     if isinstance(payload.get("evidence"), dict):
         rest.update({k: v for k, v in payload["evidence"].items() if k not in rest_keys})
@@ -1159,7 +1203,7 @@ def _trend_headline(indicator_key: str, sig, raw_records: list) -> dict:
     base_name = _TREND_KEY_TO_RAW_BASE.get(indicator_key)
     if base_name:
         for rec in raw_records:
-            groups = _trend_groups_from_raw(rec.raw_row)
+            groups = _trend_groups_from_raw(rec.raw_row, rec.mapping_snapshot)
             series = groups.get(base_name)
             if series:
                 values = [(label, v) for label, v in series if v is not None]
@@ -1539,7 +1583,7 @@ def _render_tab1_content(db: Session):
             with st.expander("📈 Data Trends (from Raw Injected Data)", expanded=False):
                 st.caption("Every multi-year figure exactly as uploaded — financial and non-financial, whether or not it was mapped to a scored indicator (financial values in thousands, **k**).")
                 for rec in raw_records_for_trends:
-                    trend_groups = _trend_groups_from_raw(rec.raw_row)
+                    trend_groups = _trend_groups_from_raw(rec.raw_row, rec.mapping_snapshot)
                     flat_fields = _single_point_fields_from_raw(rec.raw_row)
                     st.markdown(f"**{rec.dataset_name}**")
                     if trend_groups:
@@ -1793,13 +1837,14 @@ def _render_raw_data_tab(db: Session):
     st.markdown(f"##### 📦 Raw datasets ({len(raw_records)})")
 
     from company_service import (
-        detect_column_groups, valid_targets_for_group,
+        suggest_column_mapping, valid_targets_for_column,
         save_mapping_profile, reapply_mapping_to_raw_record,
     )
     indicator_defs = fetch_indicator_defs(db)
 
     for rec in raw_records:
         is_crawler = rec.dataset_name.startswith("crawler_")
+        is_pipeline_managed = rec.dataset_name == SRC_AIDA
         updated_str = rec.updated_at.strftime("%Y-%m-%d %H:%M") if rec.updated_at else "—"
         header = f"{rec.dataset_name} — {rec.source_filename or 'filename not recorded'} · updated {updated_str}"
         with st.expander(header, expanded=False):
@@ -1818,35 +1863,41 @@ def _render_raw_data_tab(db: Session):
             )
             st.json(rec.raw_row, expanded=False)
 
-            groups = detect_column_groups(list((rec.raw_row or {}).keys()))
-            if not groups:
-                st.caption("No mappable column groups detected in this raw row.")
+            if is_pipeline_managed:
+                st.info(
+                    "This is a formula-driven source, so it is read-only here. Its indicators can use several "
+                    "raw columns; treating one column as a direct mapping would change units and create false "
+                    "lineage. Open an indicator's 🔍 Audit view to see its exact file, columns, raw values, and formula."
+                )
+                continue
+
+            source_columns = list((rec.raw_row or {}).keys())
+            if not source_columns:
+                st.caption("No mappable columns detected in this raw row.")
                 continue
 
             current_mapping = dict(rec.mapping_snapshot or {})
+            suggested_mapping = suggest_column_mapping(db, source_columns, existing_profile=current_mapping)
             new_mapping = {}
-            st.markdown("###### Column mapping")
-            for base in sorted(groups.keys()):
-                group = groups[base]
-                points_desc = ", ".join(f"{suf} ({col})" for suf, col in sorted(group["points"].items()))
-                options = valid_targets_for_group(db, group)
-                option_keys = [""] + list(options.keys())
-                option_labels = {"": "— Ignore —", **options}
-                current = current_mapping.get(base) or ""
+            st.markdown("###### Column mapping — one source column to one fact")
+            options = valid_targets_for_column(db)
+            option_keys = list(options.keys())
+            option_labels = dict(options)
+            for source_column in source_columns:
+                current = suggested_mapping.get(source_column) or ""
                 if current not in option_keys:
                     current = ""
                 row_c1, row_c2 = st.columns([2, 3])
                 with row_c1:
-                    st.markdown(f"**{base}**")
-                    st.caption(points_desc)
+                    st.markdown(f"**{source_column}**")
                 with row_c2:
                     picked = st.selectbox(
-                        f"Map '{base}' to", options=option_keys,
+                        f"Map '{source_column}' to", options=option_keys,
                         format_func=lambda k: option_labels.get(k, k),
                         index=option_keys.index(current),
-                        key=f"raw_map_{rec.id}_{base}", label_visibility="collapsed",
+                        key=f"raw_map_{rec.id}_{source_column}", label_visibility="collapsed",
                     )
-                    new_mapping[base] = picked
+                    new_mapping[source_column] = picked
 
             if st.button("💾 Apply mapping", key=f"raw_apply_{rec.id}", use_container_width=True):
                 result = reapply_mapping_to_raw_record(db, rec, new_mapping, indicator_defs)

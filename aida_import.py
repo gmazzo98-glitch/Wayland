@@ -83,6 +83,38 @@ MAPPING_SNAPSHOT = {
     "material_capex": "indicator:material_capex", "immaterial_capex": "indicator:immaterial_capex",
 }
 
+# Exact raw inputs used by each computed financial signal.  This is deliberately
+# separate from MAPPING_SNAPSHOT: a mapping is one source series -> one target,
+# while these indicators are formulas that may consume several series.  Keeping
+# the formula lineage explicit prevents the UI from implying that (for example)
+# a stray year in the old curated ``cogs`` group fed labour cost.
+FINANCIAL_SIGNAL_INPUT_FIELDS = {
+    "revenue_trend": ("revenue_y-2", "revenue_latest"),
+    "ebit_trend": ("ebit_y-2", "ebit_latest"),
+    "ebitda_trend": ("ebitda_y-2", "ebitda_latest"),
+    "margin_compression": ("gross_margin_y-2", "gross_margin_latest", "revenue_y-2", "revenue_latest"),
+    "interest_coverage_ratio": ("interest_coverage_latest",),
+    "leverage_ratio": ("leverage_ratio_latest",),
+    "cash_position": ("cash_latest",),
+    "debt_level": ("total_debt_latest",),
+    "total_assets": ("total_assets_latest",),
+    "cogs": ("production_costs_latest",),
+    "material_capex": ("material_capex_latest",),
+    "immaterial_capex": ("immaterial_capex_latest",),
+    "ebit_margin": ("ebit_latest", "revenue_latest"),
+    "net_margin": ("net_income_latest", "revenue_latest"),
+    "cash_to_revenue": ("cash_latest", "revenue_latest"),
+    "intangibles_share": ("intangibles_latest", "total_assets_latest"),
+    "revenue_per_employee": ("revenue_latest", "employees_latest"),
+    "employee_growth": ("employees_y-2", "employees_latest"),
+    "labour_cost": ("personnel_costs_latest", "revenue_latest"),
+    "materials_cost": ("materials_latest", "revenue_latest"),
+    "cogs_ratio": ("gross_margin_latest", "revenue_latest"),
+    "number_of_employees": ("employees_latest",),
+    "average_salary": ("personnel_costs_latest", "employees_latest"),
+    "capex_ratio": ("material_capex_latest", "immaterial_capex_latest", "revenue_latest"),
+}
+
 
 # ---- reading -------------------------------------------------------------------------------------------
 
@@ -133,6 +165,7 @@ def load_exports(data_dir: Path) -> Dict[str, pd.DataFrame]:
         if not found:
             raise FileNotFoundError(f"{pattern} not found in {data_dir}")
         out[key] = read_export(found[-1])
+        out[key].attrs["source_filename"] = found[-1].name
     return out
 
 
@@ -450,6 +483,20 @@ def build_records(exports: Dict[str, pd.DataFrame]) -> Dict[str, dict]:
             for suffix, col in found.items():
                 n[f"{base}_{suffix}"] = _num(df.at[bvd, col]) if bvd in df.index else None
         signals = derive_financial_signals(n)
+        raw_field_meta = {}
+        for (base, export), found in cols.items():
+            for suffix, header in found.items():
+                raw_field_meta[f"{base}_{suffix}"] = {
+                    "field": f"{base}_{suffix}",
+                    "source_file": exports[export].attrs.get("source_filename") or EXPORT_PATTERNS[export],
+                    "source_header": header,
+                    "raw_value": n.get(f"{base}_{suffix}"),
+                }
+        for signal_key, draft in signals.items():
+            draft["raw_fields"] = [
+                raw_field_meta[field] for field in FINANCIAL_SIGNAL_INPUT_FIELDS.get(signal_key, ())
+                if field in raw_field_meta
+            ]
 
         procedures = parse_procedures(cell(struct, c["proc"], bvd), cell(struct, c["proc_start"], bvd), cell(struct, c["proc_close"], bvd))
         shareholders = parse_shareholders(cell(share, c["sh_name"], bvd), cell(share, c["sh_type"], bvd), cell(share, c["sh_country"], bvd),
@@ -478,7 +525,15 @@ def build_records(exports: Dict[str, pd.DataFrame]) -> Dict[str, dict]:
             "immediate_shareholders": _lines(cell(share, c["ish_name"], bvd))[:10],
             "procedures": procedures["names"], "procedure_closings": procedures["closings"],
         })
-        records[bvd] = {"signals": signals, "blob": _json_safe(blob), "stale_accounts": bool(accounts_close and accounts_close < datetime(2024, 9, 1))}
+        records[bvd] = {
+            "signals": signals,
+            "blob": _json_safe(blob),
+            "source_files": sorted({
+                df.attrs.get("source_filename") or EXPORT_PATTERNS[key]
+                for key, df in exports.items()
+            }),
+            "stale_accounts": bool(accounts_close and accounts_close < datetime(2024, 9, 1)),
+        }
     return records
 
 
@@ -492,7 +547,10 @@ def _differs(a, b) -> bool:
 
 def _aida_owned(sig) -> bool:
     """A row this importer may overwrite: nothing real there yet (empty or simulated), or already AIDA's."""
-    return sig.status == "not_yet_checked" or bool(sig.is_simulated) or (sig.source or "").strip().lower().startswith("aida")
+    # A flexible import named e.g. "Aida Main 50-99" is a distinct,
+    # human-reviewed producer.  The old startswith("aida") check silently
+    # claimed and overwrote those rows, contradicting the conflict guarantee.
+    return sig.status == "not_yet_checked" or bool(sig.is_simulated) or (sig.source or "").strip() == DATASET_NAME
 
 
 def _bulk_update_signals(db: Session, rows: List[dict]) -> None:
@@ -542,7 +600,8 @@ def apply_records(db: Session, records: Dict[str, dict], apply: bool = False) ->
             stat = report["by_key"].setdefault(key, {"present": 0, "not_yet_checked": 0, "conflict": 0})
             stat[d["status"]] += 1
             payload = json.dumps({"dataset": DATASET_NAME, "signal_key": key, "simulated": False, "basis": d["basis"],
-                                  "evidence": {"method": d["basis"], "inputs": _json_safe(d["inputs"])}}, default=str)
+                                  "evidence": {"method": d["basis"], "inputs": _json_safe(d["inputs"]),
+                                               "raw_fields": _json_safe(d.get("raw_fields", []))}}, default=str)
             row = {"numeric_value": d["value"], "status": d["status"], "text_value": d["text"], "source": DATASET_NAME,
                    "confidence": 1.0, "is_simulated": False, "fetched_at": now, "raw_payload_ref": payload}
             sig = existing.get((company.id, key))
@@ -553,7 +612,8 @@ def apply_records(db: Session, records: Dict[str, dict], apply: bool = False) ->
                 stat["conflict"] += 1
                 report["conflicts"].append({"company_id": company.id, "signal_key": key, "held_by": sig.source, "value": sig.numeric_value})
             elif (sig.status == row["status"] and not _differs(sig.numeric_value, row["numeric_value"])
-                  and (sig.source or "") == DATASET_NAME and (sig.text_value or None) == row["text_value"]):
+                  and (sig.source or "") == DATASET_NAME and (sig.text_value or None) == row["text_value"]
+                  and (sig.raw_payload_ref or None) == row["raw_payload_ref"]):
                 report["unchanged"] += 1
             else:
                 report["backup"].append({"company_id": company.id, "signal_key": key, "numeric_value": sig.numeric_value, "status": sig.status,
@@ -573,7 +633,8 @@ def apply_records(db: Session, records: Dict[str, dict], apply: bool = False) ->
     db.query(RawImportRecord).filter(RawImportRecord.dataset_name == DATASET_NAME,
                                      RawImportRecord.company_id.in_(blob_company_ids)).delete(synchronize_session=False)
     db.bulk_insert_mappings(RawImportRecord, [
-        {"id": str(uuid.uuid4()), "company_id": companies[b].id, "dataset_name": DATASET_NAME, "source_filename": "WAYLAND_*.xls (raw AIDA exports)",
+        {"id": str(uuid.uuid4()), "company_id": companies[b].id, "dataset_name": DATASET_NAME,
+         "source_filename": "; ".join(rec.get("source_files", [])) or "WAYLAND_*.xls (raw AIDA exports)",
          "raw_row": rec["blob"], "mapping_snapshot": MAPPING_SNAPSHOT, "imported_at": now, "updated_at": now}
         for b, rec in records.items() if b in companies])
 

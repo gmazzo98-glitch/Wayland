@@ -12,7 +12,7 @@ import unicodedata
 import itertools
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 import pandas as pd
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -635,6 +635,51 @@ COMPANY_FIELD_ALIASES = {
 TREND_BASE_ALIASES = {"revenue": "revenue_trend", "ebit": "ebit_trend", "gross_margin": "margin_compression",
                       "ebitda": "ebitda_trend"}
 
+# Canonical financial facts are mapped one source column at a time.  They are
+# deliberately not IndicatorDefinitions: ``revenue_latest`` is an observed
+# fact, while ``revenue_trend`` is a formula derived from several facts.
+CANONICAL_SERIES_LABELS = {
+    "revenue": "Revenue", "ebit": "EBIT", "ebitda": "EBITDA",
+    "gross_margin": "Gross margin / margin on consumption",
+    "employees": "Employees", "production_costs": "Production costs",
+    "personnel_costs": "Personnel costs", "materials": "Materials costs",
+    "cash": "Cash", "total_debt": "Total debt", "leverage_ratio": "Leverage ratio",
+    "interest_coverage": "Interest coverage", "material_capex": "Material capex",
+    "immaterial_capex": "Immaterial capex", "total_assets": "Total assets",
+    "intangibles": "Intangibles", "equity": "Equity", "net_income": "Net income",
+}
+CANONICAL_BASE_ALIASES = {
+    "revenue": "revenue", "revenues": "revenue", "ricavi": "revenue",
+    "ricavi_vendite_e_prestazioni": "revenue", "fatturato": "revenue",
+    "ebit": "ebit", "risultato_operativo": "ebit",
+    "ebitda": "ebitda", "gross_margin": "gross_margin", "margine_sui_consumi": "gross_margin",
+    "employees": "employees", "dipendenti": "employees", "headcount": "employees",
+    "production_costs": "production_costs", "cogs": "production_costs", "costi_della_produzione": "production_costs",
+    "personnel_costs": "personnel_costs", "totale_costi_del_personale": "personnel_costs",
+    "materials": "materials", "materials_cost": "materials", "materie_prime_e_consumo": "materials",
+    "cash": "cash", "disponibilita_liquide": "cash", "tot_dispon_liquide": "cash",
+    "total_debt": "total_debt", "totale_debiti": "total_debt",
+    "leverage_ratio": "leverage_ratio", "rapporto_di_indebitamento": "leverage_ratio",
+    "interest_coverage": "interest_coverage", "interest_coverage_ratio": "interest_coverage",
+    "grado_di_copertura_degli_interessi_passivi": "interest_coverage",
+    "material_capex": "material_capex", "materialcapex": "material_capex",
+    "immaterial_capex": "immaterial_capex", "immaterialcapex": "immaterial_capex",
+    "total_assets": "total_assets", "totale_attivo": "total_assets",
+    "intangibles": "intangibles", "totale_immob_immateriali": "intangibles",
+    "equity": "equity", "totale_patrimonio_netto": "equity",
+    "net_income": "net_income", "utile_netto": "net_income",
+}
+CANONICAL_PERIOD_LABELS = {"latest": "latest year", "y-1": "year -1", "y-2": "year -2"}
+CANONICAL_VARIABLE_TARGETS = {
+    f"variable:{base}_{suffix}": f"Financial fact: {label} — {CANONICAL_PERIOD_LABELS[suffix]}"
+    for base, label in CANONICAL_SERIES_LABELS.items()
+    for suffix in ("latest", "y-1", "y-2")
+}
+AUTO_DERIVED_TRENDS = {
+    "revenue": "revenue_trend", "ebit": "ebit_trend", "ebitda": "ebitda_trend",
+    "gross_margin": "margin_compression", "employees": "employee_growth",
+}
+
 # How a derived (multi-column) signal was computed, stored on the SignalRecord so the number can be audited
 # without reading this file.
 DERIVATION_BASIS = {
@@ -677,6 +722,25 @@ COMPANY_TARGET_LABELS = {
 
 def _norm(s) -> str:
     return str(s).strip().lower().replace(" ", "_")
+
+
+def infer_canonical_variable(column: str) -> Optional[str]:
+    """Infers ``<series>_<period>`` from English or Italian source headers."""
+    normalized = re.sub(r"_+", "_", _norm(column).replace("-", "_")).strip("_")
+    period = None
+    for pattern, suffix in (
+        (r"_(?:latest|ultimo_anno(?:_disp|_disponibile)?)$", "latest"),
+        (r"_(?:y_?1|anno_?1)$", "y-1"),
+        (r"_(?:y_?2|anno_?2)$", "y-2"),
+    ):
+        match = re.search(pattern, normalized)
+        if match:
+            normalized, period = normalized[:match.start()], suffix
+            break
+    if not period:
+        return None
+    base = CANONICAL_BASE_ALIASES.get(normalized)
+    return f"{base}_{period}" if base else None
 
 
 def create_ad_hoc_indicator(db: Session, label: str, dataset_name: str = None, source_column: str = None) -> str:
@@ -794,6 +858,51 @@ def suggest_mapping(db: Session, groups: dict, existing_profile: dict = None) ->
     return suggestions
 
 
+def suggest_column_mapping(db: Session, columns: list, existing_profile: dict = None) -> dict:
+    """Point-level mapping suggestions used by the current mapping UI.
+
+    Old profiles mapped an entire ``revenue`` group straight to
+    ``revenue_trend``.  When such a profile is loaded, its individual source
+    columns are migrated in memory to canonical facts; the saved profile is
+    upgraded only after the user reviews and confirms it.
+    """
+    existing_profile = existing_profile or {}
+    groups = detect_column_groups(columns)
+    legacy_by_column = {}
+    for base, group in groups.items():
+        old_target = existing_profile.get(base)
+        if old_target == f"indicator:{TREND_BASE_ALIASES.get(_norm(base))}":
+            canonical_base = CANONICAL_BASE_ALIASES.get(_norm(base))
+            if canonical_base:
+                for suffix, column in group["points"].items():
+                    if suffix in CANONICAL_PERIOD_LABELS:
+                        legacy_by_column[column] = f"variable:{canonical_base}_{suffix}"
+        elif old_target and len(group["points"]) == 1:
+            legacy_by_column[next(iter(group["points"].values()))] = old_target
+
+    indicator_defs = fetch_indicator_defs(db)
+    key_by_label = {_norm(defn["label"]): key for key, defn in indicator_defs.items()}
+    suggestions = {}
+    for column in columns:
+        if column in existing_profile:
+            suggestions[column] = existing_profile[column]
+            continue
+        if column in legacy_by_column:
+            suggestions[column] = legacy_by_column[column]
+            continue
+        norm_col = _norm(column)
+        target = COMPANY_FIELD_ALIASES.get(norm_col)
+        canonical = infer_canonical_variable(column)
+        if not target and canonical:
+            target = f"variable:{canonical}"
+        if not target and norm_col in indicator_defs and norm_col not in set(AUTO_DERIVED_TRENDS.values()):
+            target = f"indicator:{norm_col}"
+        if not target and norm_col in key_by_label and key_by_label[norm_col] not in set(AUTO_DERIVED_TRENDS.values()):
+            target = f"indicator:{key_by_label[norm_col]}"
+        suggestions[column] = target
+    return suggestions
+
+
 def valid_targets_for_group(db: Session, group: dict) -> dict:
     """
     The full set of {target_key: display_label} the mapping UI may offer for
@@ -808,6 +917,22 @@ def valid_targets_for_group(db: Session, group: dict) -> dict:
         if key in TREND_INDICATOR_KEYS and not group["is_timeseries"]:
             continue
         options[f"indicator:{key}"] = f"{defn['category']} — {defn['label']}"
+    return options
+
+
+def valid_targets_for_column(db: Session) -> dict:
+    """Targets for one physical source column.
+
+    Derived trend indicators are intentionally absent: users map facts and
+    the importer creates trends automatically from the available periods.
+    """
+    options = {"": "— Ignore —"}
+    options.update(COMPANY_TARGET_LABELS)
+    options.update(CANONICAL_VARIABLE_TARGETS)
+    derived = set(AUTO_DERIVED_TRENDS.values())
+    for key, defn in sorted(fetch_indicator_defs(db).items(), key=lambda kv: (kv[1]["category"], kv[1]["label"])):
+        if key not in derived:
+            options[f"indicator:{key}"] = f"Indicator (direct value): {defn['category']} — {defn['label']}"
     return options
 
 
@@ -969,6 +1094,106 @@ def compute_group_value(group: dict, row: dict, indicator_key: str = None, compa
     return latest_num, "present"
 
 
+def source_fields_used(group: dict, row: dict, indicator_key: str = None, companions: dict = None) -> list:
+    """Exact columns consumed by ``compute_group_value``.
+
+    A direct indicator consumes only its latest point, not every historical
+    column in the group.  The old provenance listed the whole group and made
+    a shifted ``cogs_y-2`` value look as though it had fed the current COGS
+    (and, by association, personnel cost).  Trend formulas consume the latest
+    and furthest-back points; margin compression also consumes revenue at the
+    same two points.
+    """
+    latest, base = _latest_and_base_suffixes(group["points"])
+    suffixes = [latest]
+    if indicator_key in TREND_INDICATOR_KEYS:
+        suffixes.append(base)
+
+    fields = []
+    for suffix in dict.fromkeys(s for s in suffixes if s):
+        column = group["points"].get(suffix)
+        if column:
+            fields.append({"column": column, "point": suffix, "raw_value": _json_safe(row.get(column))})
+
+    if indicator_key == "margin_compression":
+        revenue_group = (companions or {}).get("revenue")
+        if revenue_group:
+            for suffix in dict.fromkeys(s for s in suffixes if s):
+                column = revenue_group["points"].get(suffix)
+                if column:
+                    fields.append({"column": column, "point": suffix, "raw_value": _json_safe(row.get(column))})
+    return fields
+
+
+def derive_signals_from_variables(variable_values: dict, variable_sources: dict) -> dict:
+    """Builds calculated SignalRecords from individually mapped canonical facts.
+
+    Returns ``{signal_key: (value, status, raw_fields, extra_payload)}``.
+    The oldest available prior period is used, so latest + year -1 works
+    without requiring year -2; when both exist, year -2 is the base.
+    """
+    canonical_groups = {}
+    for variable in variable_values:
+        match = _GROUP_SUFFIX_RE.match(variable)
+        if match:
+            canonical_groups.setdefault(match.group("base"), {"points": {}})["points"][match.group("suffix")] = variable
+    for group in canonical_groups.values():
+        group["is_timeseries"] = len(group["points"]) >= 2
+
+    updates = {}
+    for base, signal_key in AUTO_DERIVED_TRENDS.items():
+        group = canonical_groups.get(base)
+        if not group or not group["is_timeseries"] or "latest" not in group["points"]:
+            continue
+        value, status = compute_group_value(group, variable_values, signal_key, companions=canonical_groups)
+        canonical_fields = source_fields_used(group, variable_values, signal_key, companions=canonical_groups)
+        raw_fields = []
+        for field in canonical_fields:
+            source = dict(variable_sources.get(field["column"], {}))
+            source.setdefault("column", field["column"])
+            source["canonical_variable"] = field["column"]
+            source["point"] = field["point"]
+            source["raw_value"] = field["raw_value"]
+            raw_fields.append(source)
+        latest, oldest = _latest_and_base_suffixes(group["points"])
+        if signal_key == "margin_compression":
+            basis = "percentage-point fall in gross margin as a share of revenue, latest versus oldest mapped period, floored at 0"
+        else:
+            basis = f"% change, {latest} versus {oldest}, divided by the absolute oldest-period value"
+        updates[signal_key] = (value, status, raw_fields, {
+            "basis": basis,
+            "derived_automatically": True,
+            "canonical_variables": [f["canonical_variable"] for f in raw_fields],
+        })
+
+    # Levels and ratios (cash position, leverage, COGS, labour/materials
+    # ratios, etc.) use the same audited formulas as the fixed AIDA importer,
+    # but are emitted only when every required canonical fact was explicitly
+    # mapped by the user.
+    from aida_import import FINANCIAL_SIGNAL_INPUT_FIELDS, derive_financial_signals
+    drafts = derive_financial_signals(variable_values)
+    auto_trend_keys = set(AUTO_DERIVED_TRENDS.values())
+    for signal_key, draft in drafts.items():
+        if signal_key in auto_trend_keys:
+            continue
+        required = FINANCIAL_SIGNAL_INPUT_FIELDS.get(signal_key, ())
+        if not required or not all(field in variable_values for field in required):
+            continue
+        raw_fields = []
+        for variable in required:
+            source = dict(variable_sources.get(variable, {}))
+            source.setdefault("column", variable)
+            source["canonical_variable"] = variable
+            source["raw_value"] = variable_values.get(variable)
+            raw_fields.append(source)
+        updates[signal_key] = (draft["value"], draft["status"], raw_fields, {
+            "basis": draft["basis"],
+            "derived_automatically": True,
+            "canonical_variables": list(required),
+        })
+    return updates
+
+
 def _parse_date(val):
     try:
         ts = pd.to_datetime(val, errors="coerce")
@@ -984,8 +1209,9 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
                        dry_run: bool = False, source_filename: str = None,
                        progress_callback=None) -> dict:
     """
-    Applies a reviewed column mapping ({group_base: 'company:<field>' |
-    'indicator:<key>' | None}) to every row of df, one row per company.
+    Applies a reviewed column mapping ({source_column: 'variable:<canonical
+    fact>' | 'company:<field>' | 'indicator:<key>' | None}) to every row of
+    df, one row per company. Legacy group-level mappings remain supported.
 
     progress_callback, when given, is called as progress_callback(rows_done,
     total_rows) once per row (including skipped/errored ones) so a caller
@@ -1058,7 +1284,8 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
         row_dict = row.to_dict()
         row_num = idx + 2  # 1-indexed header + 1
 
-        match_points = {suffix: row_dict.get(col) for suffix, col in groups[match_base]["points"].items()}
+        match_group = groups.get(match_base) or {"points": {"value": match_base}, "is_timeseries": False}
+        match_points = {suffix: row_dict.get(col) for suffix, col in match_group["points"].items()}
         raw_match, _ = _pick_latest_and_base(match_points)
         has_match_val = raw_match is not None and not (isinstance(raw_match, float) and pd.isna(raw_match)) and str(raw_match).strip()
 
@@ -1081,11 +1308,12 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
 
         # Resolve every mapped field/indicator for this row up front.
         company_field_updates = {}
-        signal_updates = {}  # signal_key -> (value, status, source_columns)
+        signal_updates = {}  # signal_key -> (value, status, exact source fields, extra payload)
+        variable_values, variable_sources = {}, {}
         for base, target in mapping.items():
             if not target or base == match_base:
                 continue
-            group = groups.get(base)
+            group = groups.get(base) or ({"points": {"value": base}, "is_timeseries": False} if base in row_dict else None)
             if not group:
                 continue
             point_values = {suffix: row_dict.get(col) for suffix, col in group["points"].items()}
@@ -1095,11 +1323,25 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
                 val, _ = _pick_latest_and_base(point_values)
                 if val is not None and not (isinstance(val, float) and pd.isna(val)):
                     company_field_updates[field] = val
+            elif target.startswith("variable:"):
+                variable = target.split(":", 1)[1]
+                source_column = next(iter(group["points"].values()))
+                value = _to_float(row_dict.get(source_column))
+                variable_values[variable] = value
+                variable_sources[variable] = {
+                    "column": source_column, "canonical_variable": variable,
+                    "raw_value": _json_safe(row_dict.get(source_column)),
+                }
             elif target.startswith("indicator:"):
                 sig_key = target.split(":", 1)[1]
                 if sig_key in indicator_defs:
                     value, status = compute_group_value(group, row_dict, sig_key, companions=groups)
-                    signal_updates[sig_key] = (value, status, list(group["points"].values()))
+                    used_fields = source_fields_used(group, row_dict, sig_key, companions=groups)
+                    signal_updates[sig_key] = (value, status, used_fields, {})
+
+        # Canonical facts produce calculated trends; users never need to map
+        # a source column directly onto a trend indicator.
+        signal_updates.update(derive_signals_from_variables(variable_values, variable_sources))
 
         is_conflict = False
         if existing:
@@ -1157,7 +1399,7 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
                 setattr(company, field, val)
 
         fetched_at = datetime.utcnow()
-        for sig_key, (value, status, source_columns) in signal_updates.items():
+        for sig_key, (value, status, used_fields, extra_payload) in signal_updates.items():
             sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key=sig_key).first()
             if not sig:
                 sig = SignalRecord(company_id=company.id, signal_key=sig_key, source=dataset_name)
@@ -1168,9 +1410,11 @@ def apply_data_import(db: Session, df: pd.DataFrame, mapping: dict, dataset_name
             sig.is_simulated = False
             sig.source = dataset_name
             sig.fetched_at = fetched_at
-            payload = {"dataset": dataset_name, "signal_key": sig_key, "source_columns": source_columns}
+            payload = {"dataset": dataset_name, "source_file": source_filename, "signal_key": sig_key,
+                       "source_columns": [f["column"] for f in used_fields], "raw_fields": used_fields}
+            payload.update(extra_payload)
             if sig_key in DERIVATION_BASIS:
-                payload["basis"] = DERIVATION_BASIS[sig_key]
+                payload.setdefault("basis", DERIVATION_BASIS[sig_key])
             sig.raw_payload_ref = json.dumps(payload)
 
         # Blob side: the complete original row, every column, untouched by
@@ -1230,16 +1474,31 @@ def reapply_mapping_to_raw_record(db: Session, raw_import_record: RawImportRecor
     fetched_at = datetime.utcnow()
     updated = 0
     skipped = []
+    signal_updates = {}
+    variable_values, variable_sources = {}, {}
 
     for base, target in new_mapping.items():
         if not target:
             continue
-        group = groups.get(base)
+        group = groups.get(base) or ({"points": {"value": base}, "is_timeseries": False} if base in row_dict else None)
         if not group:
             skipped.append((base, "column group not found in this raw row"))
             continue
+        if target.startswith("company:"):
+            # Identity/master-data changes are intentionally outside this
+            # company-owned raw-record remapper.
+            continue
+        if target.startswith("variable:"):
+            variable = target.split(":", 1)[1]
+            source_column = next(iter(group["points"].values()))
+            variable_values[variable] = _to_float(row_dict.get(source_column))
+            variable_sources[variable] = {
+                "column": source_column, "canonical_variable": variable,
+                "raw_value": _json_safe(row_dict.get(source_column)),
+            }
+            continue
         if not target.startswith("indicator:"):
-            skipped.append((base, "only indicator targets can be reapplied here"))
+            skipped.append((base, "unsupported mapping target"))
             continue
         sig_key = target.split(":", 1)[1]
         if sig_key not in indicator_defs:
@@ -1247,6 +1506,12 @@ def reapply_mapping_to_raw_record(db: Session, raw_import_record: RawImportRecor
             continue
 
         value, status = compute_group_value(group, row_dict, sig_key, companions=groups)
+        used_fields = source_fields_used(group, row_dict, sig_key, companions=groups)
+        signal_updates[sig_key] = (value, status, used_fields, {})
+
+    signal_updates.update(derive_signals_from_variables(variable_values, variable_sources))
+
+    for sig_key, (value, status, used_fields, extra_payload) in signal_updates.items():
         sig = db.query(SignalRecord).filter_by(company_id=company_id, signal_key=sig_key).first()
         if not sig:
             sig = SignalRecord(company_id=company_id, signal_key=sig_key, source=dataset_name)
@@ -1257,11 +1522,15 @@ def reapply_mapping_to_raw_record(db: Session, raw_import_record: RawImportRecor
         sig.is_simulated = False
         sig.source = dataset_name
         sig.fetched_at = fetched_at
-        sig.raw_payload_ref = json.dumps({
+        payload = {
             "dataset": dataset_name, "signal_key": sig_key,
-            "source_columns": list(group["points"].values()),
+            "source_file": raw_import_record.source_filename,
+            "source_columns": [f["column"] for f in used_fields],
+            "raw_fields": used_fields,
             "note": "Remapped from the Raw Data & Mapping tab, without re-uploading the source file.",
-        })
+        }
+        payload.update(extra_payload)
+        sig.raw_payload_ref = json.dumps(payload)
         updated += 1
 
     raw_import_record.mapping_snapshot = new_mapping

@@ -63,7 +63,7 @@ PHASE_MANUAL = 6
 # revenue_latest/revenue_y-1/revenue_y-2), never for a single column, since a
 # trend needs two timepoints to compute. See detect_column_groups/
 # compute_group_value in company_service.py.
-TREND_INDICATOR_KEYS = {"revenue_trend", "ebit_trend", "margin_compression", "ebitda_trend"}
+TREND_INDICATOR_KEYS = {"revenue_trend", "ebit_trend", "margin_compression", "ebitda_trend", "employee_growth"}
 
 # Every monetary financial the app imports (AIDA "migl EUR") is held in THOUSANDS of euro — the
 # Company Intelligence page shows them with a "k" suffix. Any raw_min/raw_max on a monetary

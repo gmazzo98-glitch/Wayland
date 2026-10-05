@@ -225,7 +225,7 @@ def test_a_value_someone_entered_by_hand_is_never_overwritten(db):
     assert db.query(SignalRecord).filter_by(company_id=company.id, signal_key="average_salary").one().numeric_value == 70.0
 
 
-def test_a_simulated_placeholder_and_an_old_aida_value_are_replaced_and_backed_up(db):
+def test_a_simulated_placeholder_is_replaced_but_a_separate_aida_named_dataset_is_not(db):
     company = _company(db)
     db.add_all([
         SignalRecord(company_id=company.id, signal_key="cash_position", source="Aida Main 50-99", status="present", numeric_value=1.0, is_simulated=False),
@@ -233,8 +233,9 @@ def test_a_simulated_placeholder_and_an_old_aida_value_are_replaced_and_backed_u
     ])
     db.commit()
     report = A.apply_records(db, {"IT1": _record()}, apply=True)
-    assert {b["signal_key"] for b in report["backup"]} == {"cash_position", "debt_level"}          # the old values are kept for the backup file
-    assert db.query(SignalRecord).filter_by(company_id=company.id, signal_key="cash_position").one().numeric_value == 15298.539
+    assert {b["signal_key"] for b in report["backup"]} == {"debt_level"}
+    assert any(c["signal_key"] == "cash_position" and c["held_by"] == "Aida Main 50-99" for c in report["conflicts"])
+    assert db.query(SignalRecord).filter_by(company_id=company.id, signal_key="cash_position").one().numeric_value == 1.0
     assert db.query(SignalRecord).filter_by(company_id=company.id, signal_key="debt_level").one().is_simulated is False
 
 
@@ -346,6 +347,10 @@ def test_the_real_exports_load_and_match_the_hand_verified_row():
     assert blob["production_costs_y-1"] == pytest.approx(108046.374) and blob["personnel_costs_latest"] == pytest.approx(8716.906)
     assert blob["leverage_ratio_y-1"] == pytest.approx(8.63) and blob["leverage_ratio_y-2"] == pytest.approx(9.05)     # the pair the curated file swapped
     assert n["bvd_independence"]["status"] == "present" and n["group_size"]["value"] > 100
+    labour_fields = n["labour_cost"]["raw_fields"]
+    assert [f["field"] for f in labour_fields] == ["personnel_costs_latest", "revenue_latest"]
+    assert "Totale costi del personale" in labour_fields[0]["source_header"]
+    assert labour_fields[0]["source_file"] == "WAYLAND_FINANCIAL_PL_C28_SME_50_99_V0.xls"
     present = lambda k: sum(1 for r in records.values() if r["signals"][k]["status"] == "present")
     assert present("total_assets") == 954 and present("labour_cost") == 954 and present("subsidiary_participations") == 954
     assert 5 <= sum(1 for r in records.values() if r["signals"]["distress_procedure"]["value"] == 1.0) <= 25

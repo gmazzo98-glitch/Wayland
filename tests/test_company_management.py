@@ -4,6 +4,7 @@ Registration ID Normalization, CSV Bulk Import, and the flexible
 column-mapping data feeder.
 """
 
+import json
 import pytest
 import pandas as pd
 from datetime import datetime, timedelta
@@ -18,6 +19,10 @@ from company_service import (
     sync_company_applicable_sources,
     detect_column_groups,
     compute_group_value,
+    source_fields_used,
+    infer_canonical_variable,
+    suggest_column_mapping,
+    valid_targets_for_column,
     valid_targets_for_group,
     suggest_mapping,
     apply_data_import,
@@ -307,6 +312,14 @@ def test_compute_group_value_direct_single_point():
     assert value == 1.8
 
 
+def test_direct_value_provenance_lists_only_the_latest_column_actually_used():
+    group = {"points": {"latest": "cogs_latest", "y-1": "cogs_y-1", "y-2": "cogs_y-2"}}
+    row = {"cogs_latest": 17602.262, "cogs_y-1": 199.399, "cogs_y-2": 5753.836}
+    assert source_fields_used(group, row, "cogs") == [
+        {"column": "cogs_latest", "point": "latest", "raw_value": 17602.262}
+    ]
+
+
 def test_compute_group_value_direct_missing_is_not_faked():
     group = {"points": {"latest": "leverage_ratio_latest"}}
     row = {"leverage_ratio_latest": None}
@@ -391,8 +404,33 @@ def _aida_style_mapping():
     return {
         "partita_iva": "company:registration_number",
         "ragione_sociale": "company:legal_name",
-        "revenue": "indicator:revenue_trend",
-        "leverage_ratio": "indicator:leverage_ratio",
+        "revenue_latest": "variable:revenue_latest",
+        "revenue_y-1": "variable:revenue_y-1",
+        "revenue_y-2": "variable:revenue_y-2",
+        "leverage_ratio_latest": "variable:leverage_ratio_latest",
+    }
+
+
+def test_point_level_financial_mapping_understands_italian_period_headers(db):
+    assert infer_canonical_variable("ricavi_ultimo_anno") == "revenue_latest"
+    assert infer_canonical_variable("ricavi_anno_-_1") == "revenue_y-1"
+    assert infer_canonical_variable("ricavi_anno_-_2") == "revenue_y-2"
+    mapping = suggest_column_mapping(db, ["ricavi_ultimo_anno", "ricavi_anno_-_1", "ricavi_anno_-_2"])
+    assert mapping == {
+        "ricavi_ultimo_anno": "variable:revenue_latest",
+        "ricavi_anno_-_1": "variable:revenue_y-1",
+        "ricavi_anno_-_2": "variable:revenue_y-2",
+    }
+    assert "indicator:revenue_trend" not in valid_targets_for_column(db)
+
+
+def test_old_group_mapping_profile_is_migrated_to_point_level_suggestions(db):
+    columns = ["revenue_latest", "revenue_y-1", "revenue_y-2"]
+    mapping = suggest_column_mapping(db, columns, existing_profile={"revenue": "indicator:revenue_trend"})
+    assert mapping == {
+        "revenue_latest": "variable:revenue_latest",
+        "revenue_y-1": "variable:revenue_y-1",
+        "revenue_y-2": "variable:revenue_y-2",
     }
 
 
@@ -476,6 +514,10 @@ def test_apply_data_import_creates_companies_and_signals(db):
     assert revenue_sig.numeric_value == pytest.approx(25.0)  # (5.0M - 4.0M) / 4.0M * 100
     assert revenue_sig.is_simulated is False
     assert revenue_sig.source == "Test AIDA Financials"
+    revenue_payload = json.loads(revenue_sig.raw_payload_ref)
+    assert revenue_payload["derived_automatically"] is True
+    assert revenue_payload["canonical_variables"] == ["revenue_latest", "revenue_y-2"]
+    assert revenue_payload["source_columns"] == ["revenue_latest", "revenue_y-2"]
 
     leverage_sig = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="leverage_ratio").first()
     assert leverage_sig.numeric_value == pytest.approx(1.2)
