@@ -10,6 +10,7 @@ be answered from a first-contact call (Phase 6 — no scraper will ever fetch
 """
 
 import json
+import hashlib
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -58,6 +59,15 @@ def _progress_reporter(label: str = "row"):
         status.caption(f"Processing {label} {done} of {total}...")
 
     return bar, status, _callback
+
+
+def _mapping_signature(mapping: dict) -> str:
+    """Short stable token used in Streamlit widget keys to avoid stale dropdown state."""
+    try:
+        payload = json.dumps(mapping or {}, sort_keys=True, default=str)
+    except TypeError:
+        payload = str(mapping or {})
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def _upsert_manual_signal(db: Session, company_id: str, key: str, defn: dict, status: str,
@@ -163,7 +173,9 @@ def _render_flexible_import_tab(db: Session):
         return
 
     file_sig = (uploaded.name, uploaded.size)
-    if st.session_state.get("flex_file_sig") != file_sig:
+    profile_mapping = load_mapping_profile(db, dataset_name) if dataset_name.strip() else {}
+    mapping_context_sig = (uploaded.name, uploaded.size, dataset_name.strip(), _mapping_signature(profile_mapping))
+    if st.session_state.get("flex_mapping_context_sig") != mapping_context_sig:
         try:
             uploaded.seek(0)
             df = parse_uploaded_file(uploaded, filename=uploaded.name)
@@ -171,14 +183,16 @@ def _render_flexible_import_tab(db: Session):
             st.error(f"Could not read file: {e}")
             return
         st.session_state["flex_file_sig"] = file_sig
+        st.session_state["flex_mapping_context_sig"] = mapping_context_sig
         st.session_state["flex_df"] = df
-        profile_mapping = load_mapping_profile(db, dataset_name) if dataset_name.strip() else {}
         st.session_state["flex_mapping"] = suggest_column_mapping(db, list(df.columns), existing_profile=profile_mapping)
+        st.session_state["flex_widget_sig"] = _mapping_signature(st.session_state["flex_mapping"])
         st.session_state["flex_new_labels"] = {}
         st.session_state["flex_preview"] = None
 
     df = st.session_state["flex_df"]
     mapping_state = st.session_state["flex_mapping"]
+    flex_widget_sig = st.session_state.get("flex_widget_sig", _mapping_signature(mapping_state))
     new_labels_state = st.session_state["flex_new_labels"]
 
     st.markdown(f"##### Detected **{len(df.columns)}** source column(s) across **{len(df)}** row(s)")
@@ -203,7 +217,7 @@ def _render_flexible_import_tab(db: Session):
             picked = st.selectbox(
                 f"Map '{source_column}' to", options=option_keys,
                 format_func=lambda k: option_labels.get(k, k),
-                index=default_idx, key=f"flex_map_{source_column}", label_visibility="collapsed",
+                index=default_idx, key=f"flex_map_{flex_widget_sig}_{source_column}", label_visibility="collapsed",
             )
             mapping_state[source_column] = picked
             if picked == NEW_INDICATOR_OPTION:
@@ -321,6 +335,7 @@ def _render_flexible_import_tab(db: Session):
                         for err in result["errors"]:
                             st.warning(err)
                 for k in ("flex_df", "flex_file_sig", "flex_mapping", "flex_new_labels",
+                          "flex_mapping_context_sig", "flex_widget_sig",
                           "flex_preview", "flex_resolved_mapping"):
                     st.session_state.pop(k, None)
                 st.rerun()
@@ -1878,6 +1893,7 @@ def _render_raw_data_tab(db: Session):
 
             current_mapping = dict(rec.mapping_snapshot or {})
             suggested_mapping = suggest_column_mapping(db, source_columns, existing_profile=current_mapping)
+            suggested_sig = _mapping_signature(suggested_mapping)
             new_mapping = {}
             st.markdown("###### Column mapping — one source column to one fact")
             options = valid_targets_for_column(db)
@@ -1895,7 +1911,7 @@ def _render_raw_data_tab(db: Session):
                         f"Map '{source_column}' to", options=option_keys,
                         format_func=lambda k: option_labels.get(k, k),
                         index=option_keys.index(current),
-                        key=f"raw_map_{rec.id}_{source_column}", label_visibility="collapsed",
+                        key=f"raw_map_{rec.id}_{suggested_sig}_{source_column}", label_visibility="collapsed",
                     )
                     new_mapping[source_column] = picked
 
