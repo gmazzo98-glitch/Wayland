@@ -1879,25 +1879,11 @@ def _render_raw_data_tab(db: Session):
             st.json(rec.raw_row, expanded=False)
 
             if is_pipeline_managed:
-                options = valid_targets_for_column(db)
-                point_mapping = suggest_column_mapping(
-                    db, list((rec.raw_row or {}).keys()), existing_profile=rec.mapping_snapshot or {}
-                )
-                st.markdown("###### Source column mapping — one column to one financial fact")
-                st.dataframe(pd.DataFrame([
-                    {
-                        "Source column": column,
-                        "Raw value": value,
-                        "Mapped fact": options.get(point_mapping.get(column) or "", "— Ignore —"),
-                    }
-                    for column, value in (rec.raw_row or {}).items()
-                ]), use_container_width=True, hide_index=True)
                 st.info(
-                    "The AIDA importer calculates indicators such as Revenue Trend from these individual "
-                    "financial facts. This source is read-only here; open an indicator's 🔍 Audit view for "
-                    "the original file headers, raw values, and formula."
+                    "AIDA indicators such as Revenue Trend are calculated from the individual facts below. "
+                    "Changes here apply to this company and are retained when the AIDA files are imported again. "
+                    "Open an indicator's 🔍 Audit view for its original file headers, raw values, and formula."
                 )
-                continue
 
             source_columns = list((rec.raw_row or {}).keys())
             if not source_columns:
@@ -1919,6 +1905,7 @@ def _render_raw_data_tab(db: Session):
                 row_c1, row_c2 = st.columns([2, 3])
                 with row_c1:
                     st.markdown(f"**{source_column}**")
+                    st.caption(f"Raw value: {(rec.raw_row or {}).get(source_column)!r}")
                 with row_c2:
                     picked = st.selectbox(
                         f"Map '{source_column}' to", options=option_keys,
@@ -1930,12 +1917,14 @@ def _render_raw_data_tab(db: Session):
 
             if st.button("💾 Apply mapping", key=f"raw_apply_{rec.id}", use_container_width=True):
                 result = reapply_mapping_to_raw_record(db, rec, new_mapping, indicator_defs)
-                save_mapping_profile(db, rec.dataset_name, company.country or "Germany", new_mapping)
+                if not is_pipeline_managed:
+                    save_mapping_profile(db, rec.dataset_name, company.country or "Germany", new_mapping)
                 if result["skipped"]:
                     st.warning(f"Skipped: {'; '.join(f'{b} ({r})' for b, r in result['skipped'])}")
                 st.success(
-                    f"Updated {result['updated']} signal(s) for {company.legal_name} and saved the mapping "
-                    f"for future '{rec.dataset_name}' imports."
+                    f"Updated {result['updated']} signal(s) for {company.legal_name}. "
+                    + ("This company's AIDA mapping will be retained on re-import."
+                       if is_pipeline_managed else f"Saved the mapping for future '{rec.dataset_name}' imports.")
                 )
                 st.rerun()
 

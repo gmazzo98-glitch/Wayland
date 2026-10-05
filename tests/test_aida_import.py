@@ -224,6 +224,33 @@ def test_import_writes_signals_a_blob_and_source_health_and_a_rerun_changes_noth
     assert db.query(RawImportRecord).filter_by(dataset_name=SRC_AIDA).count() == 1                                         # replaced, not duplicated
 
 
+def test_reviewed_aida_column_mapping_survives_reimport_and_clears_old_results(db):
+    from company_service import reapply_mapping_to_raw_record
+    from indicators import fetch_indicator_defs
+
+    company = _company(db)
+    first = _record()
+    first["blob"].update({"revenue_latest": 150.0, "revenue_y-1": 100.0})
+    A.apply_records(db, {"IT1": first}, apply=True)
+    raw = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=SRC_AIDA).one()
+    mapping = {"revenue_latest": "variable:revenue_latest", "revenue_y-1": "variable:revenue_y-1"}
+    reapply_mapping_to_raw_record(db, raw, mapping, fetch_indicator_defs(db))
+    trend = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="revenue_trend").one()
+    cogs = db.query(SignalRecord).filter_by(company_id=company.id, signal_key="cogs").one()
+    assert trend.numeric_value == pytest.approx(50.0)
+    assert cogs.status == "not_yet_checked" and cogs.numeric_value is None
+
+    second = _record()
+    second["blob"].update({"revenue_latest": 200.0, "revenue_y-1": 100.0})
+    A.apply_records(db, {"IT1": second}, apply=True)
+    raw = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=SRC_AIDA).one()
+    db.refresh(trend)
+    db.refresh(cogs)
+    assert raw.mapping_snapshot == mapping
+    assert trend.numeric_value == pytest.approx(100.0)
+    assert cogs.status == "not_yet_checked" and cogs.numeric_value is None
+
+
 def test_a_value_someone_entered_by_hand_is_never_overwritten(db):
     company = _company(db)
     db.add(SignalRecord(company_id=company.id, signal_key="average_salary", source="Manual Entry", status="present",

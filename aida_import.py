@@ -582,6 +582,16 @@ def apply_records(db: Session, records: Dict[str, dict], apply: bool = False) ->
     dry_run (apply=False) computes the same report and writes nothing.
     """
     companies = {c.external_ref_id: c for c in db.query(Company).filter(Company.external_ref_id.in_(list(records))).all()}
+    company_ids = [c.id for c in companies.values()]
+    reviewed_mappings = {
+        row.company_id: row.mapping_snapshot
+        for row in db.query(RawImportRecord.company_id, RawImportRecord.mapping_snapshot).filter(
+            RawImportRecord.dataset_name == DATASET_NAME,
+            RawImportRecord.company_id.in_(company_ids),
+        )
+        if row.mapping_snapshot and row.mapping_snapshot != MAPPING_SNAPSHOT
+        and "revenue" not in row.mapping_snapshot  # the old importer default was a group mapping
+    }
     keys = sorted({k for r in records.values() for k in r["signals"]})
     existing = {(s.company_id, s.signal_key): s for s in db.query(SignalRecord).filter(
         SignalRecord.company_id.in_([c.id for c in companies.values()]), SignalRecord.signal_key.in_(keys)).all()}
@@ -634,7 +644,8 @@ def apply_records(db: Session, records: Dict[str, dict], apply: bool = False) ->
     db.bulk_insert_mappings(RawImportRecord, [
         {"id": str(uuid.uuid4()), "company_id": companies[b].id, "dataset_name": DATASET_NAME,
          "source_filename": "; ".join(rec.get("source_files", [])) or "WAYLAND_*.xls (raw AIDA exports)",
-         "raw_row": rec["blob"], "mapping_snapshot": MAPPING_SNAPSHOT, "imported_at": now, "updated_at": now}
+         "raw_row": rec["blob"], "mapping_snapshot": reviewed_mappings.get(companies[b].id, MAPPING_SNAPSHOT),
+         "imported_at": now, "updated_at": now}
         for b, rec in records.items() if b in companies])
 
     health = db.query(SourceHealth).filter_by(source_name=DATASET_NAME).first()
@@ -644,6 +655,13 @@ def apply_records(db: Session, records: Dict[str, dict], apply: bool = False) ->
     health.mode, health.last_status, health.last_run_at, health.last_error_message = "live", "success", now, None
     health.total_calls = (health.total_calls or 0) + 1
     db.commit()
+    if reviewed_mappings:
+        from company_service import fetch_indicator_defs, reapply_mapping_to_raw_record
+        indicator_defs = fetch_indicator_defs(db)
+        for company_id, mapping in reviewed_mappings.items():
+            raw_record = db.query(RawImportRecord).filter_by(company_id=company_id, dataset_name=DATASET_NAME).first()
+            if raw_record is not None:
+                reapply_mapping_to_raw_record(db, raw_record, mapping, indicator_defs)
     return report
 
 

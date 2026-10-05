@@ -1512,8 +1512,37 @@ def reapply_mapping_to_raw_record(db: Session, raw_import_record: RawImportRecor
 
     signal_updates.update(derive_signals_from_variables(variable_values, variable_sources))
 
+    # A revised mapping may stop supplying an indicator that this same source
+    # produced earlier. Clear that old result; otherwise an ignored or moved
+    # column leaves a plausible-looking but stale financial number behind.
+    from aida_import import FINANCIAL_SIGNAL_INPUT_FIELDS
+    stale_keys = set(FINANCIAL_SIGNAL_INPUT_FIELDS) | set(AUTO_DERIVED_TRENDS.values())
+    stale_keys.update(
+        target.split(":", 1)[1]
+        for target in (raw_import_record.mapping_snapshot or {}).values()
+        if isinstance(target, str) and target.startswith("indicator:")
+    )
+    for sig in db.query(SignalRecord).filter_by(company_id=company_id, source=dataset_name).all():
+        if sig.signal_key not in stale_keys or sig.signal_key in signal_updates:
+            continue
+        sig.status = "not_yet_checked"
+        sig.numeric_value = None
+        sig.text_value = None
+        sig.is_simulated = False
+        sig.fetched_at = fetched_at
+        sig.raw_payload_ref = json.dumps({
+            "dataset": dataset_name, "signal_key": sig.signal_key,
+            "source_file": raw_import_record.source_filename,
+            "note": "The reviewed column mapping no longer supplies the inputs for this indicator.",
+            "source_columns": [], "raw_fields": [],
+        })
+        updated += 1
+
     for sig_key, (value, status, used_fields, extra_payload) in signal_updates.items():
         sig = db.query(SignalRecord).filter_by(company_id=company_id, signal_key=sig_key).first()
+        if sig and sig.source != dataset_name and sig.status == "present" and not sig.is_simulated:
+            skipped.append((sig_key, f"currently supplied by {sig.source}"))
+            continue
         if not sig:
             sig = SignalRecord(company_id=company_id, signal_key=sig_key, source=dataset_name)
             db.add(sig)
