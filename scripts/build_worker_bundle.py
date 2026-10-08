@@ -188,6 +188,7 @@ def main() -> None:
             "version": info["version"],
             "build": build,
             "sha256": hashlib.sha256(OUT_ZIP.read_bytes()).hexdigest(),
+            "size_bytes": OUT_ZIP.stat().st_size,
         }
         manifest_path = ROOT / "worker_shim" / "app" / "update_manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

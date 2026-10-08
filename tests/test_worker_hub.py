@@ -96,9 +96,13 @@ def test_status_walks_through_every_state(db):
     assert "Automatic update" in s["label"]
 
     updating, _ = _live_worker(db, "updating", build="oldbuild", auto_update=True,
-                               update_state="updating", target_build=EXPECTED["build"])
+                               update_state="updating", target_build=EXPECTED["build"],
+                               update_progress={"stage": "installing", "label": "Installing crawler libraries", "percent": 63,
+                                                "completed_packages": 42, "total_packages": 100})
     s = worker_hub.worker_status(updating, EXPECTED)
     assert (s["state"], s["usable"]) == (worker_hub.UPDATING, False)
+    assert s["update_progress"]["percent"] == 63
+    assert s["detail"] == "Installing crawler libraries"
 
     broken, _ = _live_worker(db, "broken", checks={"browser": {"ok": False, "detail": "the headless browser is not installed"}})
     s = worker_hub.worker_status(broken, EXPECTED)
@@ -372,6 +376,7 @@ def test_update_manifest_identifies_the_exact_committed_bundle():
     manifest = json.loads((worker_installer.ROOT / "worker_shim" / "app" / "update_manifest.json").read_text())
     assert manifest["build"] == worker_installer.bundle_info()["build"]
     assert manifest["sha256"] == hashlib.sha256(worker_installer.BUNDLE_PATH.read_bytes()).hexdigest()
+    assert manifest["size_bytes"] == worker_installer.BUNDLE_PATH.stat().st_size
 
 
 def test_the_installer_script_is_plain_ascii():

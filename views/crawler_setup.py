@@ -37,7 +37,7 @@ SETUP_FILE_KEY = "crawler_setup_file"
 LOCAL = "local"
 AUTO = "auto"  # sidebar default: spread a batch across every usable computer (see resolve_batch_targets)
 
-_BADGE = {READY: "🟢", OUTDATED: "🟡", UPDATING: "🔵", BROKEN: "🔴", OFFLINE: "⚪",
+_BADGE = {READY: "🟢", OUTDATED: "🟡", UPDATING: "🔄", BROKEN: "🔴", OFFLINE: "⚪",
           WAITING: "🕓", REVOKED: "⚫", INCOMPATIBLE: "🔴"}
 
 
@@ -217,6 +217,23 @@ def _render_computers(db, expected) -> None:
             with head:
                 st.markdown(f"{_BADGE[status['state']]} **{w.name}** — {status['label']}")
                 st.caption(status["detail"])
+                if status["state"] == worker_hub.UPDATING:
+                    progress = status.get("update_progress") or {}
+                    percent = progress.get("percent")
+                    label = progress.get("label") or "Updating crawler files"
+                    if isinstance(percent, (int, float)):
+                        st.progress(max(0.0, min(1.0, percent / 100)), text=f"{int(percent)}% · {label}")
+                    else:
+                        st.progress(0.0, text=label)
+                    if progress.get("downloaded_bytes") and progress.get("total_bytes"):
+                        mb = 1024 * 1024
+                        st.caption(f"Downloaded {progress['downloaded_bytes'] / mb:.1f} of "
+                                   f"{progress['total_bytes'] / mb:.1f} MB")
+                    elif progress.get("downloaded_bytes"):
+                        st.caption(f"Downloaded {progress['downloaded_bytes'] / (1024 * 1024):.1f} MB")
+                    elif progress.get("completed_packages") is not None:
+                        st.caption(f"Installed {progress['completed_packages']} of "
+                                   f"{progress.get('total_packages', '?')} packages")
             with action:
                 if st.button("Remove", key=f"rm_{w.id}", help="Stops this computer from receiving crawls."):
                     revoke_worker(db, w.id)

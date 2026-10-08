@@ -267,9 +267,10 @@ def worker_status(worker: CrawlerWorker, expected: Optional[Dict[str, Any]] = No
     seen = worker.last_seen_at
     seen_ago = (now - seen).total_seconds() if seen else None
 
-    def result(state: str, label: str, detail: str, problems: Optional[List[str]] = None):
+    def result(state: str, label: str, detail: str, problems: Optional[List[str]] = None,
+               update_progress: Optional[Dict[str, Any]] = None):
         return {"state": state, "usable": state in USABLE_STATES, "label": label, "detail": detail,
-                "problems": problems or [], "seen_ago": seen_ago}
+                "problems": problems or [], "seen_ago": seen_ago, "update_progress": update_progress}
 
     if worker.revoked:
         return result(REVOKED, "Removed", "This computer was removed; its installer no longer works.")
@@ -277,9 +278,13 @@ def worker_status(worker: CrawlerWorker, expected: Optional[Dict[str, Any]] = No
         return result(WAITING, "Waiting for the installer",
                       "Nothing has connected yet. Run the downloaded setup file on that computer.")
     if info.get("update_state") == "updating" and seen_ago <= 20 * 60:
+        progress = info.get("update_progress")
+        if not isinstance(progress, dict):
+            progress = None
         return result(UPDATING, "Updating automatically",
+                      (progress.get("label") if progress else None) or
                       "The new crawler set is being installed and checked. The previous installation will be "
-                      "removed after the replacement connects successfully.")
+                      "removed after the replacement connects successfully.", update_progress=progress)
     if seen_ago > ONLINE_SECONDS:
         return result(OFFLINE, "Offline",
                       "The worker isn't running (computer off, asleep, or the worker closed). "

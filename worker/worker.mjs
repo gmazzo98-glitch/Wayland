@@ -121,10 +121,41 @@ async function fetchJson(url) {
 }
 
 async function startUpdate(manifest, workerInfo) {
+  const reportProgress = async (progress) => {
+    writeStatus({ state: 'updating', updateProgress: progress });
+    try {
+      await rpc('vienna_worker_heartbeat', { p_token: CONFIG.token, p_info: {
+        ...workerInfo, update_state: 'updating', target_build: manifest.build,
+        update_progress: progress,
+      } });
+    } catch (e) { log(`could not report update progress: ${String(e.message).slice(0, 200)}`); }
+  };
+  await reportProgress({ stage: 'downloading', label: 'Downloading crawler update', percent: 0, downloaded_bytes: 0, total_bytes: null });
   const download = await fetch(manifest.download_url, { signal: AbortSignal.timeout(120_000) });
   if (!download.ok) throw new Error(`update download -> HTTP ${download.status}`);
-  const bytes = Buffer.from(await download.arrayBuffer());
+  const totalBytes = Number(download.headers.get('content-length')) || Number(manifest.size_bytes) || null;
+  const reader = download.body?.getReader();
+  if (!reader) throw new Error('update download returned no response body');
+  const chunks = [];
+  let downloadedBytes = 0;
+  let lastReported = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(Buffer.from(value));
+    downloadedBytes += value.byteLength;
+    if (downloadedBytes > 100 * 1024 * 1024) throw new Error('update bundle is unexpectedly large');
+    if (Date.now() - lastReported >= 700) {
+      const percent = totalBytes ? Math.min(29, Math.floor(downloadedBytes / totalBytes * 29)) : null;
+      await reportProgress({ stage: 'downloading', label: 'Downloading crawler update', percent,
+        downloaded_bytes: downloadedBytes, total_bytes: totalBytes });
+      lastReported = Date.now();
+    }
+  }
+  const bytes = Buffer.concat(chunks);
   if (bytes.length > 100 * 1024 * 1024) throw new Error('update bundle is unexpectedly large');
+  await reportProgress({ stage: 'verifying', label: 'Checking downloaded update', percent: 30,
+    downloaded_bytes: bytes.length, total_bytes: totalBytes || bytes.length });
   const actual = crypto.createHash('sha256').update(bytes).digest('hex');
   if (actual !== manifest.sha256) throw new Error('update bundle failed checksum verification');
 
@@ -134,16 +165,17 @@ async function startUpdate(manifest, workerInfo) {
   fs.writeFileSync(zipPath, bytes);
   fs.copyFileSync(path.join(HERE, 'update.ps1'), updaterPath);
   writeStatus({ state: 'updating', fromBuild: VERSION_INFO.build, toBuild: manifest.build,
-    startedAt: new Date().toISOString() });
+    startedAt: new Date().toISOString(), updateProgress: { stage: 'starting', label: 'Starting installer', percent: 32 } });
   await rpc('vienna_worker_heartbeat', { p_token: CONFIG.token, p_info: {
     ...workerInfo, update_state: 'updating', target_build: manifest.build,
+    update_progress: { stage: 'starting', label: 'Starting installer', percent: 32 },
   } });
   log(`update ${VERSION_INFO.build} -> ${manifest.build} downloaded and verified; handing over to updater`);
 
   const child = spawn('powershell.exe', [
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updaterPath,
     '-Dir', ROOT, '-ZipPath', zipPath, '-ExpectedBuild', manifest.build,
-    '-ParentPid', String(process.pid),
+    '-ParentPid', String(process.pid), '-WorkerInfoBase64', Buffer.from(JSON.stringify(workerInfo)).toString('base64'),
   ], { detached: true, windowsHide: true, stdio: 'ignore' });
   child.unref();
   process.exit(0);
