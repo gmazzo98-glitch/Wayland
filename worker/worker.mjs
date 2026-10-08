@@ -45,6 +45,13 @@ const ENV_ALLOWLIST = new Set([
   // kill timeout), and the optional second LLM provider used when the first is rate-limited.
   'SOFT_DEADLINE_SECONDS', 'LLM_FALLBACK_API_KEY', 'LLM_FALLBACK_BASE_URL', 'LLM_FALLBACK_MODEL',
   'LLM_REASONING_EFFORT',
+  // digital-maturity-crawler's visual-assessment phase (2026-10-08) — a separate provider
+  // namespace from LLM_* above, see config.py's CRAWLER_VISION_LLM_* docstring. Same
+  // primary + one-fallback coverage as the LLM_* entries; without these, that phase's calls
+  // get silently stripped to nothing on a remote worker and visual_assessment reads not_found
+  // for every company it runs there, with no error surfaced.
+  'VISION_LLM_API_KEY', 'VISION_LLM_BASE_URL', 'VISION_LLM_MODEL',
+  'VISION_LLM_FALLBACK_API_KEY', 'VISION_LLM_FALLBACK_BASE_URL', 'VISION_LLM_FALLBACK_MODEL',
 ]);
 
 function readJson(file) {
