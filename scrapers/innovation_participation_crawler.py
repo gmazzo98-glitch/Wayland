@@ -29,12 +29,9 @@ PHASE = 7
 
 def _derive_signals(row: dict) -> dict:
     """
-    Absence is only asserted when the searches actually ran — the crawler warns
-    that a 'not_found' after a failed search "may just mean couldn't search",
-    and this indicator carries weight 4.0 on the readiness axis, so a fabricated
-    zero here is expensive.
+    A bounded press search can establish a cited participation event. An empty
+    search is inconclusive, especially while the known-program list is a demo.
     """
-    field_status = row.get("field_status") or {}
     pages = row.get("pages_considered")
     if row.get("has_prior_innovation_participation"):
         events = row.get("events_found") or []
@@ -55,13 +52,8 @@ def _derive_signals(row: dict) -> dict:
                 "best_confidence": row.get("confidence"),
             },
         }}
-    searches_all_ran = not (row.get("search_errors") or [])
-    if searches_all_ran and field_status.get("events_found") == "not_found":
-        return {"prior_open_innovation_usage": {
-            "value": 0.0, "status": "absent",
-            "summary": f"searched {pages} pages, no accelerator/hackathon/competition participation found",
-            "evidence": {"method": "press/web search plus known-program list", "found": [], "pages_considered": pages},
-        }}
+    # General news discovery and the demonstration-only known-program list
+    # cannot prove that no prior participation exists.
     return {}
 
 

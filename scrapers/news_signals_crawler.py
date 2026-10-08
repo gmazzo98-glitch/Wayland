@@ -35,16 +35,10 @@ PHASE = 7
 
 def _derive_signals(row: dict) -> dict:
     """
-    A 'not_found' here only counts as a confirmed absence when every search
-    actually ran — the crawler logs this itself ("search failed — not_found may
-    just mean couldn't search") and reports the failures in search_errors.
-    Treating a failed search as "confirmed: no university partnership" would put
-    a fabricated zero on a weight-5.0 readiness row, so when search_errors is
-    non-empty only positive findings are written.
+    A bounded news search can establish a cited positive finding, but cannot
+    establish that an event never happened. Only positive results are scored.
     """
     signals = {}
-    field_status = row.get("field_status") or {}
-    searches_all_ran = not (row.get("search_errors") or [])
     articles = row.get("articles_considered")
 
     def _flag(field: str, key: str, value_when_found, describe):
@@ -62,13 +56,8 @@ def _derive_signals(row: dict) -> dict:
                     "found": cited, "articles_considered": articles,
                 },
             }
-        elif searches_all_ran and field_status.get(field) == "not_found":
-            signals[key] = {
-                "value": 0.0, "status": "absent",
-                "summary": f"searched {articles} articles, nothing found",
-                "evidence": {"method": "LLM extraction over news-search results",
-                              "found": [], "articles_considered": articles},
-            }
+        # NewsAPI is a bounded discovery sample, not an exhaustive company record.
+        # An empty result cannot establish that the event never happened.
 
     _flag("external_collaboration", "external_collaboration", 1.0,
           lambda i: f"{i.get('partner_name')} ({i.get('partner_type')}) — {i.get('purpose')}")
@@ -78,7 +67,7 @@ def _derive_signals(row: dict) -> dict:
           lambda i: f"{i.get('product_name')} ({i.get('launch_date') or 'date unknown'})")
 
     precedent = row.get("sector_pilot_precedent") or {}
-    if field_status.get("sector_pilot_precedent") == "value" and precedent.get("count") is not None:
+    if precedent.get("count", 0) > 0:
         mentions = precedent.get("mentions") or []
         signals["sector_pilot_precedent"] = {
             "value": float(precedent["count"]), "status": "present",

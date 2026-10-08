@@ -16,7 +16,7 @@ import pandas as pd
 from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from models import Company, SignalRecord, PilotOutcome, RawImportRecord, CompanyPerson, SHORTLIST_STATUSES
+from models import Company, SignalRecord, PilotOutcome, RawImportRecord, CompanyPerson, CompanySourceRun, SHORTLIST_STATUSES
 from indicators import SRC_AIDA, fetch_indicator_defs
 from scoring import calculate_company_scores
 from utils import get_signal_display_status
@@ -923,7 +923,8 @@ def _render_score_breakdown(axis_label: str, axis_score: float, detail: list, me
             with st.expander(f"⚪ {len(unchecked)} signal(s) not yet checked — highest-weight gaps shown first"):
                 st.caption("None of these count for or against the score yet. Checking the top ones would move it the most.")
                 st.dataframe(pd.DataFrame([
-                    {"Signal": e["label"], "Category": e["category"], "Weight if checked": e["base_weight"]}
+                    {"Signal": e["label"], "Category": e["category"], "Weight if checked": e["base_weight"],
+                     "Reason": e.get("score_exclusion_reason") or "No eligible observation yet"}
                     for e in top_gaps
                 ]), use_container_width=True, hide_index=True)
 
@@ -944,6 +945,8 @@ _CRAWLER_SOURCE_TO_DATASET = {
     "Innovation Participation Crawler": "crawler_innovation_participation",
     "News Signals Crawler": "crawler_news_signals",
     "Google News RSS": "crawler_news_rss",
+    "TED Contract Awards Crawler": "crawler_ted_contract_awards",
+    "FDA Recalls Crawler": "crawler_fda_recalls",
 }
 # Directory Listing / Review crawlers fan out one RawImportRecord per
 # sub-source they check (e.g. "crawler_directory_mecspe") rather than one
@@ -1003,11 +1006,12 @@ def _render_evidence_block(payload: dict):
 
     raw_fields = ev.get("raw_fields") or payload.get("raw_fields") or []
     if raw_fields:
-        st.markdown("**Exact source fields:**")
+        st.markdown("**Recorded input fields:**")
         st.dataframe(pd.DataFrame([
             {
                 "Source file": item.get("source_file") or payload.get("source_file") or payload.get("dataset") or "—",
-                "Source column": item.get("source_header") or item.get("column") or item.get("field") or "—",
+                "Original file header": item.get("source_header") if item.get("source_header_is_verbatim") else "Not retained/verified",
+                "Stored field": item.get("column") or item.get("field") or "—",
                 "Raw value": item.get("raw_value"),
             }
             for item in raw_fields
@@ -1021,7 +1025,7 @@ def _render_evidence_block(payload: dict):
 
     cols = payload.get("source_columns") or ev.get("source_columns")
     if cols:
-        st.markdown(f"**Source column(s):** {', '.join(cols)}")
+        st.markdown(f"**Stored column key(s):** {', '.join(cols)}")
 
     items = ev.get("found") or ev.get("open_roles_sample") or []
     if items:
@@ -1367,6 +1371,9 @@ def _render_tab1_content(db: Session):
         sig_dict = {s.signal_key: s for s in signals}
         indicator_defs = fetch_indicator_defs(db)
         scores = calculate_company_scores(signals, indicator_defs, include_detail=True)
+        score_exclusions = {e["key"]: e["score_exclusion_reason"]
+                            for e in scores["need_detail"] + scores["readiness_detail"]
+                            if e.get("score_exclusion_reason")}
 
         from company_service import is_source_applicable
 
@@ -1390,6 +1397,8 @@ def _render_tab1_content(db: Session):
                 mode_badge = "—"
             elif sig_rec:
                 disp_status = get_signal_display_status(sig_rec.status, defn.get("freshness_days"), sig_rec.fetched_at)
+                if sig_key in score_exclusions:
+                    disp_status = "not_yet_checked"
                 # text_value now doubles as the provenance summary written by the
                 # Phase 7 crawlers, so prefer a real number when there is one — only
                 # fall back to text for the context rows that are genuinely textual
@@ -1402,6 +1411,8 @@ def _render_tab1_content(db: Session):
                     val = None
                 fetched_str = sig_rec.fetched_at.strftime("%Y-%m-%d %H:%M") if sig_rec.fetched_at else "N/A"
                 raw_ref = sig_rec.text_value or ""
+                if sig_key in score_exclusions:
+                    raw_ref = f"Not scored: {score_exclusions[sig_key]}. " + raw_ref
                 mode_badge = mode_badge_for(sig_rec)
             else:
                 disp_status, val, fetched_str, raw_ref, mode_badge = "not_yet_checked", None, "Never", "", "—"
@@ -1521,8 +1532,10 @@ def _render_tab1_content(db: Session):
             with col_s4:
                 st.markdown("&nbsp;")
                 if st.button("🕸️ Run Deep Crawlers", use_container_width=True,
-                             help="Phase 7 — 9 Node-based crawlers (company site, product catalog, jobs, reviews, "
-                                  "news, directories, innovation participation, digital maturity). Takes a few "
+                             help="Phase 7 — 9 site/news crawlers plus TED public contracts and "
+                                  "sector-relevant FDA recalls "
+                                  "(company site, product catalog, jobs, reviews, news, directories, "
+                                  "innovation participation, digital maturity). Takes a few "
                                   "minutes; runs in the background — follow it in the widget at the bottom right."):
                     from views.crawl_widget import queue_crawl
                     from views.crawler_setup import resolve_crawl_target
@@ -1532,6 +1545,116 @@ def _render_tab1_content(db: Session):
                         st.rerun()
                     else:
                         st.error(where["problem"])
+
+        from company_service import eligible_phase7_sources
+        eligible = eligible_phase7_sources(company)
+        run_rows = {r.source_name: r for r in db.query(CompanySourceRun).filter_by(
+            company_id=company.id, phase=7).all()}
+        with st.expander(f"🕸️ Deep crawler coverage ({sum(run_rows.get(s) is not None and run_rows[s].status == 'live' for s in eligible)}/{len(eligible)} sources completed)"):
+            st.caption("A completed crawl can legitimately find no scored signal. Failed and unavailable sources stay eligible for retry.")
+            st.dataframe(pd.DataFrame([{
+                "Source": source,
+                "Status": run_rows[source].status if source in run_rows else "not run",
+                "Last run": run_rows[source].finished_at.strftime("%Y-%m-%d %H:%M") if source in run_rows else "—",
+                "Error": run_rows[source].error_message or "—" if source in run_rows else "—",
+            } for source in sorted(eligible)]), use_container_width=True, hide_index=True)
+
+        catalog_record = db.query(RawImportRecord).filter_by(
+            company_id=company.id, dataset_name="crawler_product_catalog").first()
+        if catalog_record and catalog_record.raw_row:
+            catalog = catalog_record.raw_row
+            if catalog.get("products_count"):
+                st.subheader("📦 Product intelligence")
+                st.write(catalog.get("catalog_narrative") or
+                         "Catalog categories found: " + ", ".join(catalog.get("categories") or []))
+                coverage = "Partial site sample" if catalog.get("is_partial") else "Within the crawler's page limit"
+                st.caption(f"{catalog['products_count']} products found across "
+                           f"{catalog.get('crawled_pages_count') or 0} crawled pages · {coverage}. "
+                           "This describes the public catalog; it is not a scored company fact.")
+                examples = [(p.get("product_name"), p.get("source_url")) for p in catalog.get("products") or []]
+                examples = [(name, url) for name, url in examples if name and url][:5]
+                if examples:
+                    st.write("Examples: " + " · ".join(f"[{name}]({url})" for name, url in examples))
+
+        award_record = db.query(RawImportRecord).filter_by(
+            company_id=company.id, dataset_name="crawler_ted_contract_awards").first()
+        if award_record and award_record.raw_row:
+            awards = (award_record.raw_row or {}).get("awards") or []
+            st.subheader("🏛️ Public contract evidence")
+            if awards:
+                st.caption(f"{len(awards)} TED notice(s) naming this company as a winning supplier. "
+                           "A notice can have multiple winners; contract values are not attributed to this company.")
+                for award in awards[:10]:
+                    title = award.get("title") or award.get("publication_number") or "Award notice"
+                    st.markdown(f"- [{title}]({award['url']}) — buyer: {award.get('buyer') or 'not stated'}; "
+                                f"published {str(award.get('published') or 'date unknown')[:10]}")
+            else:
+                st.caption("No matching TED award was found in this bounded search. "
+                           "This says nothing about private or nationally published contracts.")
+
+        recall_record = db.query(RawImportRecord).filter_by(
+            company_id=company.id, dataset_name="crawler_fda_recalls").first()
+        if recall_record and recall_record.raw_row:
+            recalls = (recall_record.raw_row or {}).get("recalls") or []
+            if recalls:
+                st.subheader("⚠️ Published US product recalls")
+                st.caption("FDA enforcement reports matching this firm's name. Check the linked record for identity, scope, "
+                           "date and current status; this is not an EU compliance finding.")
+                for recall in recalls[:8]:
+                    st.markdown(f"- [{recall['recall_number']}]({recall['url']}) — "
+                                f"{recall.get('classification') or 'unclassified'}, "
+                                f"{str(recall.get('report_date') or 'date unknown')[:8]}: "
+                                f"{recall.get('reason') or recall.get('product') or 'see record'}")
+
+        patent_record = db.query(RawImportRecord).filter_by(
+            company_id=company.id, dataset_name="crawler_epo_ops_search").first()
+        if patent_record and patent_record.raw_row:
+            patent_payload = patent_record.raw_row
+            sample = patent_payload.get("publication_sample") or []
+            if sample:
+                st.subheader("🔬 Patent activity snapshot")
+                st.caption(f"{patent_payload.get('total_result_count', 0)} matching publication records. "
+                           "Titles below come from the first search page; multiple publications may belong "
+                           "to one patent family. This is not a count of distinct inventions.")
+                for patent in sample[:8]:
+                    title = patent.get("title") or "Untitled patent publication"
+                    coapplicants = ", ".join(patent.get("applicants") or [])
+                    st.markdown(f"- **{title}** — {patent.get('publication') or 'publication unknown'} "
+                                f"({str(patent.get('publication_date') or 'date unknown')[:8]})"
+                                + (f" · applicants: {coapplicants}" if coapplicants else ""))
+
+        from company_brief import collect_evidence, evidence_fingerprint, generate_brief
+        from config import CRAWLER_LLM_API_KEY
+        brief_evidence = collect_evidence(db, company)
+        if brief_evidence:
+            with st.expander("✨ AI evidence brief", expanded=False):
+                st.caption("On-demand interpretation of cited records. It does not change Need or Readiness scores.")
+                brief_record = db.query(RawImportRecord).filter_by(
+                    company_id=company.id, dataset_name="crawler_ai_company_brief").first()
+                brief = brief_record.raw_row if brief_record else None
+                if CRAWLER_LLM_API_KEY:
+                    if st.button("Generate / refresh brief", key=f"ai_brief_{company.id}"):
+                        try:
+                            with st.spinner("Reading the collected evidence..."):
+                                brief = generate_brief(db, company)
+                        except Exception as exc:
+                            st.error(f"Brief could not be generated: {exc}")
+                else:
+                    st.caption("Configure CRAWLER_LLM_API_KEY to generate a brief from these records.")
+                if brief:
+                    if brief.get("evidence_fingerprint") != evidence_fingerprint(brief_evidence):
+                        st.warning("New source evidence is available. Refresh this brief before using it.")
+                    by_id = {item["id"]: item for item in brief.get("evidence") or []}
+                    for finding in brief.get("findings") or []:
+                        refs = []
+                        for evidence_id in finding.get("evidence_ids") or []:
+                            item = by_id.get(evidence_id)
+                            if item:
+                                refs.append(f"[{evidence_id}]({item['url']})" if item.get("url") else evidence_id)
+                        if refs:
+                            st.markdown(f"- {finding.get('text', '')}  **Sources:** {', '.join(refs)}")
+                    st.caption("Check the source records before using any claim in outreach. "
+                               "Patent samples and source coverage are bounded.")
 
         # Financial Profile — plain-language headline metrics + the complete table
         st.subheader("💰 Financial Profile")
@@ -1651,7 +1774,7 @@ def _render_tab1_content(db: Session):
         # also where a raw column's indicator mapping can be corrected.
         st.caption(
             "📜 Which sources populated this company's live data, and 📦 every raw dataset collected for it "
-            "(files + all 9 crawlers), are in the **🗂️ Raw Data & Mapping** tab — including a mapping editor "
+            "(files + all crawlers), are in the **🗂️ Raw Data & Mapping** tab — including a mapping editor "
             "to reassign a raw column to a different indicator."
         )
 

@@ -40,7 +40,6 @@ CRAWLER_DIR = "job-postings-crawler"
 DATASET_NAME = "crawler_job_postings"
 PHASE = 7
 # Minimum plausible listings before the digital-lead gate may be asserted absent.
-MIN_LISTINGS_FOR_GATE = 3
 
 # The crawler treats whatever careers_url it's handed AS the careers page. Handing it
 # a bare homepage makes its generic adapter harvest every link on that page as a
@@ -517,20 +516,15 @@ def _derive_signals(row: dict, country: str = None) -> dict:
             },
         }
 
-    # Gating indicator (gate_penalty_multiplier=0.7) — a false "absent" here costs the
-    # company 30% of its readiness score, so it needs more than one stray link to fire.
-    # Generic careers-page scraping is noisy enough that a single plausible listing is
-    # not evidence that no digital-lead role exists; below the threshold, stay silent.
-    if len(roles_sample) >= MIN_LISTINGS_FOR_GATE or any(
-        DIGITAL_LEAD_TITLE_RE.search(r.get("title") or "") for r in roles_sample
-    ):
-        matched = [r.get("title") for r in roles_sample if DIGITAL_LEAD_TITLE_RE.search(r.get("title") or "")]
-        found = bool(matched)
+    # An advertised lead vacancy proves that the company recognises this role.
+    # The absence of such a vacancy says nothing about its existing employees;
+    # in particular it must never fire this indicator's 30% readiness gate.
+    matched = [r.get("title") for r in roles_sample if DIGITAL_LEAD_TITLE_RE.search(r.get("title") or "")]
+    if matched:
         signals["digital_lead_role_present"] = {
-            "value": 1.0 if found else 0.0,
-            "status": "present" if found else "absent",
-            "summary": (f"matched open role: {matched[0]}" if found
-                        else f"no digital/innovation-lead title among {len(roles_sample)} open roles"),
+            "value": 1.0,
+            "status": "present",
+            "summary": f"matched open role: {matched[0]}",
             "evidence": {
                 "method": f"title regex over open roles: {DIGITAL_LEAD_TITLE_RE.pattern}",
                 "matched_titles": matched, "source_urls": source_urls,

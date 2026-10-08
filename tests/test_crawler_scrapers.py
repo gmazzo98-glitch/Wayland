@@ -379,7 +379,7 @@ def test_job_postings_no_digital_lead_when_no_match():
         "field_status": {"technical_digital_roles_count": "value"},
     }
     signals = job_postings_crawler._derive_signals(row)
-    assert_signal(signals["digital_lead_role_present"], 0.0, "absent")
+    assert "digital_lead_role_present" not in signals
 
 
 def test_job_postings_unreachable_careers_page_writes_nothing():
@@ -539,7 +539,7 @@ def test_news_signals_derive_signals():
     }
     signals = news_signals_crawler._derive_signals(row)
     assert_signal(signals["external_collaboration"], 1.0, "present")
-    assert_signal(signals["university_partnership"], 0.0, "absent")
+    assert "university_partnership" not in signals
     assert_signal(signals["press_launch_mentions"], 2.0, "present")
     assert_signal(signals["sector_pilot_precedent"], 3.0, "present")
 
@@ -564,7 +564,7 @@ def test_directory_listing_derive_signals_hit_and_miss():
     assert_signal(directory_listing_crawler._derive_signals(hit_rows)["trade_fair_participation"], 1.0, "present")
 
     miss_rows = [{"appears_in_directory": False, "possible_match": False, "status": "ok"}]
-    assert_signal(directory_listing_crawler._derive_signals(miss_rows)["trade_fair_participation"], 0.0, "absent")
+    assert "trade_fair_participation" not in directory_listing_crawler._derive_signals(miss_rows)
 
     unchecked_rows = [{"appears_in_directory": False, "status": "no_config"}]
     assert directory_listing_crawler._derive_signals(unchecked_rows) == {}
@@ -579,7 +579,7 @@ def test_innovation_participation_derive_signals():
         {"has_prior_innovation_participation": False, "field_status": {"events_found": "not_found"},
          "search_errors": []}
     )
-    assert_signal(none_found["prior_open_innovation_usage"], 0.0, "absent")
+    assert "prior_open_innovation_usage" not in none_found
 
 
 def test_innovation_participation_failed_search_does_not_assert_absence():

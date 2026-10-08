@@ -123,8 +123,8 @@ def sync_reviews(company, db_session: Session) -> dict:
             raise CrawlerRunError("review-crawler returned no rows for this company")
         rows_by_source = {r.get("source_type"): r for r in matches}
         captured["rows_by_source"] = rows_by_source
-        if all(r.get("status") in ("error",) for r in matches):
-            raise CrawlerRunError("review-crawler errored on every configured source")
+        if all(r.get("status") in ("error", "blocked", "skipped_robots") for r in matches):
+            raise CrawlerRunError("review-crawler could not search any configured source")
         return {
             "signals": _derive_signals(rows_by_source),
             "raw_payload": {st: {"status": r.get("status"), "review_count": r.get("review_count")}

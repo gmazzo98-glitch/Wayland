@@ -86,13 +86,10 @@ def test_digital_maturity_stable_history_is_a_floor_not_nothing():
 
 def test_directory_fuzzy_match_is_not_a_confirmed_listing():
     """The crawler flags a fuzzy hit as appears_in_directory=true AND possible_match=true.
-    Only a human can confirm it, so it scores 0 and stays in the evidence."""
+    Only a human can confirm it, so it stays in the raw capture and does not score."""
     rows = [{"appears_in_directory": True, "possible_match": True, "status": "ok", "directory_name": "MECSPE",
              "listing_url": "https://m/brembomatic-pedrali", "directory_url": "https://m"}]
-    sig = directory_listing_crawler._derive_signals(rows)["trade_fair_participation"]
-    assert sig["value"] == 0.0 and sig["status"] == "absent"
-    assert sig["evidence"]["found"][0]["url"] == "https://m/brembomatic-pedrali"
-    assert "needs human verification" in sig["evidence"]["found"][0]["label"]
+    assert directory_listing_crawler._derive_signals(rows) == {}
 
 
 def test_directory_exact_match_is_still_a_hit():

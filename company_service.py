@@ -17,16 +17,17 @@ import pandas as pd
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, PilotOutcome, RawImportRecord, CompanyPerson
+from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, PilotOutcome, RawImportRecord, CompanyPerson, CompanySourceRun
 from indicators import fetch_indicator_defs, TREND_INDICATOR_KEYS, CAT_CONTEXT
 from utils import normalize_registration_nr
-from config import has_credentials
+from config import has_credentials, LINKEDIN_LI_AT
 from adapters import epo_ops, euipo, eu_funding, arbeitsagentur, google_news, google_news_rss, eurostat_sector_growth, eurostat_export_exposure
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
 from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
     directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler,
     linkedin_profile_crawler, product_catalog_crawler,
+    ted_awards_crawler, fda_recalls_crawler,
 )
 
 SUPPORTED_COUNTRIES = ["Germany", "Italy"]
@@ -36,12 +37,13 @@ SUPPORTED_COUNTRIES = ["Germany", "Italy"]
 #   Exposure, Wappalyzer, Google News, Own-Site Scrape
 # - Germany only: Arbeitsagentur, Handelsregister Free Snapshot, Bundesanzeiger, Kununu Reseller
 # - Italy only: Italian national registers / ISTAT (future integration hooks)
-# Phase 7 (Node-based crawlers, see scrapers/*_crawler.py) is universal too — none of
-# the 8 are Germany/Italy-specific by construction, so both country rows list all 8.
+# Phase 7 has nine Node-based crawlers plus keyless TED and sector-specific FDA searches.
 PHASE_7_SOURCES = [
     "Company Website Crawler", "Job Postings Crawler", "Review Crawler",
     "News Signals Crawler", "Directory Listing Crawler", "Innovation Participation Crawler",
     "Digital Maturity Crawler", "Product Catalog Crawler", "LinkedIn Profile Crawler",
+    "TED Contract Awards Crawler",
+    "FDA Recalls Crawler",
 ]
 
 
@@ -102,6 +104,43 @@ def phase_source_names(country: str, phase: int) -> list:
     return COUNTRY_SOURCE_MAP.get(country, COUNTRY_SOURCE_MAP["Germany"]).get(f"Phase {phase}", [])
 
 
+def eligible_phase7_sources(company: Company) -> set[str]:
+    """Sources this company can actually run in the current configuration."""
+    names = {"Directory Listing Crawler", "TED Contract Awards Crawler"}
+    if fda_recalls_crawler.relevant_endpoints(company):
+        names.add("FDA Recalls Crawler")
+    if company.website_url:
+        names.update({"Job Postings Crawler", "Digital Maturity Crawler", "Product Catalog Crawler"})
+        if has_credentials("Company Website Crawler"):
+            names.add("Company Website Crawler")
+    for source in ("News Signals Crawler", "Innovation Participation Crawler", "Review Crawler"):
+        if has_credentials(source):
+            names.add(source)
+    if has_credentials("LinkedIn Profile Crawler") and LINKEDIN_LI_AT and any(p.linkedin_url for p in company.people):
+        names.add("LinkedIn Profile Crawler")
+    return names
+
+
+def _record_source_run(db: Session, company_id: str, step: "SourceStep", outcome: dict,
+                       commit: bool = True) -> None:
+    if step.phase != 7:
+        return
+    row = db.query(CompanySourceRun).filter_by(company_id=company_id, source_name=step.name).first()
+    if row is None:
+        row = CompanySourceRun(company_id=company_id, source_name=step.name, phase=step.phase)
+        db.add(row)
+    if outcome.get("status") == "success" and (outcome.get("mode") == "live" or step.name == "LinkedIn Profile Crawler"):
+        row.status = "live"
+    elif outcome.get("status") == "error":
+        row.status = "error"
+    else:
+        row.status = "skipped" if outcome.get("status") == "skipped" else "simulated"
+    row.error_message = str(outcome.get("error") or outcome.get("reason") or "")[:500] or None
+    row.finished_at = datetime.utcnow()
+    if commit:
+        db.commit()
+
+
 def companies_not_yet_crawled(db: Session, companies: list, phase: int) -> list:
     """
     Filters `companies` down to the ones with no REAL (non-simulated) SignalRecord yet from
@@ -116,6 +155,13 @@ def companies_not_yet_crawled(db: Session, companies: list, phase: int) -> list:
     API/LLM budget on companies already covered; the page's own toggle bypasses it to force
     a full re-run.
     """
+    if phase == 7:
+        ids = [c.id for c in companies]
+        live = set(db.query(CompanySourceRun.company_id, CompanySourceRun.source_name)
+                   .filter(CompanySourceRun.company_id.in_(ids), CompanySourceRun.phase == 7,
+                           CompanySourceRun.status == "live").all()) if ids else set()
+        return [c for c in companies if any((c.id, source) not in live for source in eligible_phase7_sources(c))]
+
     by_country: Dict[str, List[Company]] = {}
     for c in companies:
         by_country.setdefault(c.country or "Germany", []).append(c)
@@ -153,7 +199,7 @@ class SourceStep:
 _SLOWEST_FIRST = (
     "Company Website Crawler", "Digital Maturity Crawler", "Product Catalog Crawler", "Job Postings Crawler",
     "Directory Listing Crawler", "Review Crawler", "LinkedIn Profile Crawler", "News Signals Crawler",
-    "Innovation Participation Crawler",
+    "Innovation Participation Crawler", "TED Contract Awards Crawler", "FDA Recalls Crawler",
 )
 
 
@@ -214,8 +260,8 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
             steps.append(SourceStep("Google News RSS", google_news_rss.sync_news_rss, 4))
 
     if 7 in phases:
-        # Phase 7 — Node/Crawlee crawlers (Scraper/crawlers/), both DE & IT. Slower
-        # than every other phase (each call spawns a subprocess), so never part of
+        # Phase 7 — nine Node/Crawlee crawlers plus TED public award search, both DE & IT.
+        # Most calls spawn a subprocess, so this phase is never part of
         # the default auto_sync=[1, 4] path — always an explicit trigger.
         steps += [
             SourceStep("Company Website Crawler", company_website_crawler.sync_company_website, 7),
@@ -227,6 +273,8 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
             SourceStep("Digital Maturity Crawler", digital_maturity_crawler.sync_digital_maturity, 7),
             SourceStep("Product Catalog Crawler", product_catalog_crawler.sync_product_catalog, 7),
             SourceStep("LinkedIn Profile Crawler", linkedin_profile_crawler.sync_linkedin_profiles, 7),
+            SourceStep("TED Contract Awards Crawler", ted_awards_crawler.sync_ted_awards, 7),
+            SourceStep("FDA Recalls Crawler", fda_recalls_crawler.sync_fda_recalls, 7),
         ]
     return steps, after
 
@@ -253,7 +301,13 @@ def sync_company_applicable_sources(company: Company, db: Session, phases: list 
             if on_step:
                 on_step(phase7_index, phase7_total, step.name)
             phase7_index += 1
-        results[step.name] = step.fn(company, db)
+        try:
+            outcome = step.fn(company, db)
+        except Exception as e:
+            db.rollback()
+            outcome = {"status": "error", "error": f"{type(e).__name__}: {e}"}
+        _record_source_run(db, company.id, step, outcome)
+        results[step.name] = outcome
     for compute in after:
         compute(db, company)
     return results
@@ -312,12 +366,15 @@ def run_company_phases(company_id: str, phases: list, session_factory=None, on_s
 
     try:
         results = _run_steps_concurrently(company_id, steps, session_factory, on_step)
-        if after:
+        if after or any(step.phase == 7 for step in steps):
             tail = _open_step_session(session_factory)
             try:
+                for step in steps:
+                    _record_source_run(tail, company_id, step, results[step.name], commit=False)
                 company = tail.query(Company).filter_by(id=company_id).first()
                 for compute in after:
                     compute(tail, company)
+                tail.commit()
             finally:
                 tail.close()
         return company_id, name, results

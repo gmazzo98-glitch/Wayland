@@ -37,7 +37,6 @@ def _derive_signals(rows: list) -> dict:
     # confirmed listing is "appears AND NOT possible_match" — reading appears alone
     # (as this did before) counted "BREMBOMATIC PEDRALI SRL" as Brembo exhibiting.
     hit_rows = [r for r in rows if r.get("appears_in_directory") and not r.get("possible_match")]
-    maybe_rows = [r for r in rows if r.get("possible_match")]
     checked_rows = [r for r in rows if r.get("status") == "ok"]
     if not checked_rows:
         return signals
@@ -56,23 +55,9 @@ def _derive_signals(rows: list) -> dict:
             "evidence": {"method": "exact name match in each directory's own exhibitor/member search",
                           "found": listed, "directories_checked": directories_checked},
         }
-    else:
-        # A fuzzy-only match is flagged for human verification by the crawler and
-        # scores NOTHING until a human confirms it: its matcher accepts a substring
-        # either way, so "Brembo" fuzzy-matches "BREMBOMATIC PEDRALI SRL" and
-        # "OFFICINE X" fuzzy-matches any other "Officine" exhibitor. Half a point for
-        # a probably-different company is a fabricated readiness signal; the candidate
-        # is kept in the evidence so the check is a one-click job.
-        near = [{"label": f"possible match in {r.get('directory_name')} — needs human verification",
-                  "url": r.get("listing_url") or r.get("directory_url")} for r in maybe_rows]
-        signals["trade_fair_participation"] = {
-            "value": 0.0, "status": "absent",
-            "summary": (f"no confirmed listing; {len(maybe_rows)} fuzzy match(es) need checking"
-                        if maybe_rows else
-                        "searched " + ", ".join(str(d["label"]) for d in directories_checked) + " — not listed"),
-            "evidence": {"method": "exact name match in each directory's own exhibitor/member search",
-                          "found": near, "directories_checked": directories_checked},
-        }
+    # A miss in the sole configured directory (MECSPE) cannot establish
+    # absence from trade fairs or associations. Fuzzy candidates remain in
+    # the saved raw crawler record for manual inspection.
     return signals
 
 
@@ -88,6 +73,8 @@ def sync_directory_listing(company, db_session: Session) -> dict:
         if not matches:
             raise CrawlerRunError("directory-listing-crawler returned no rows for this company")
         captured["rows"] = matches
+        if not any(r.get("status") == "ok" for r in matches):
+            raise CrawlerRunError("directory-listing-crawler did not complete a searchable directory")
         return {
             "signals": _derive_signals(matches),
             "raw_payload": {r.get("directory_url"): r.get("status") for r in matches},

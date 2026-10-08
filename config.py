@@ -71,7 +71,7 @@ GOOGLE_CSE_API_KEY = os.getenv("GOOGLE_CSE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
 
 # ---------------------------------------------------------------------------
-# Node-based crawlers (scrapers/*_crawler.py) — the 8 independent Crawlee
+# Node-based crawlers (scrapers/*_crawler.py) — the independent Crawlee
 # packages under the sibling Scraper/crawlers/ folder (not part of this git
 # repo). Same honest-pipeline contract as everything else: each wrapper falls
 # back to run_adapter's simulate() path whenever the crawler folder, Node, or
@@ -277,7 +277,7 @@ PHASE_CONFIG = {
     4: {"name": "Phase 4: Website & Light Social Layer", "auto_run": True, "requires_approval": False},
     5: {"name": "Phase 5: Paid Social & Review Data", "auto_run": False, "requires_approval": True},
     6: {"name": "Phase 6: Manual / First-Contact Data", "auto_run": False, "requires_approval": False},
-    # Phase 7 — the 8 Node/Crawlee crawlers under Scraper/crawlers/. Deliberately
+    # Phase 7 — the 9 Node/Crawlee crawlers under Scraper/crawlers/. Deliberately
     # NOT auto_run: each call spawns a subprocess (Node/Playwright startup, sometimes
     # an LLM extraction call) that can take tens of seconds per company, so it must
     # stay an explicit, on-demand trigger rather than firing on every company creation

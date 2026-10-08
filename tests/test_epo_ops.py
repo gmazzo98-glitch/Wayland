@@ -116,7 +116,8 @@ def test_fetch_live_sends_the_cached_token(monkeypatch):
 
     result = epo_ops._fetch_live(_Co())
     assert captured["headers"]["Authorization"] == "Bearer tok-xyz"
-    assert result["signals"]["patent_count"] == {"value": 0.0, "status": "absent"}
+    assert result["signals"] == {}
+    assert result["raw_payload"]["http_status"] == 404
 
 
 def test_401_refreshes_token_once(monkeypatch):
@@ -156,7 +157,56 @@ def test_temporary_failure_retries_then_recovers(monkeypatch):
     responses = iter((_Resp(503), _Resp(429), _Resp(404)))
     monkeypatch.setattr(epo_ops.requests, "get", lambda *a, **kw: next(responses))
     result = epo_ops._fetch_live(_Co())
-    assert result["signals"]["patent_count"]["value"] == 0.0
+    assert result["signals"] == {}
+
+
+def test_ipc_diversity_is_only_reported_for_a_complete_result_set(monkeypatch):
+    monkeypatch.setattr(epo_ops, "_get_access_token", lambda: "tok")
+    seen = {}
+
+    def search(total):
+        xml = (f'<world-patent-data><biblio-search total-result-count="{total}">'
+               '<exchange-document><classification-ipcr><text>H01M</text></classification-ipcr></exchange-document>'
+               '<exchange-document><classification-ipcr><text>F16D</text></classification-ipcr></exchange-document>'
+               '</biblio-search></world-patent-data>').encode()
+        return _Resp(200, content=xml)
+
+    def fake_get(url, **kw):
+        seen["range"] = kw["params"]["Range"]
+        return search(2)
+
+    monkeypatch.setattr(epo_ops.requests, "get", fake_get)
+    complete = epo_ops._fetch_live(_Co())
+    assert seen["range"] == "1-100"
+    assert complete["signals"]["patent_ipc_diversity"]["value"] == 2.0
+
+    monkeypatch.setattr(epo_ops.requests, "get", lambda *a, **kw: search(760))
+    partial = epo_ops._fetch_live(_Co())
+    assert partial["signals"]["patent_count"]["value"] == 760.0
+    assert "patent_ipc_diversity" not in partial["signals"]
+
+
+def test_search_keeps_titles_dates_family_ids_and_applicants_as_a_sample(monkeypatch):
+    monkeypatch.setattr(epo_ops, "_get_access_token", lambda: "tok")
+    xml = b'''<world-patent-data><biblio-search total-result-count="760">
+      <exchange-document country="US" doc-number="20260125782" kind="A1" family-id="99635294">
+        <bibliographic-data>
+          <publication-reference><document-id><date>20260507</date></document-id></publication-reference>
+          <invention-title lang="en">Brake disc material</invention-title>
+          <applicant data-format="original"><applicant-name><name>Brembo S.p.A.</name></applicant-name></applicant>
+        </bibliographic-data>
+        <abstract lang="en"><p>Cast iron for brake discs.</p></abstract>
+      </exchange-document>
+    </biblio-search></world-patent-data>'''
+    monkeypatch.setattr(epo_ops.requests, "get", lambda *a, **kw: _Resp(200, content=xml))
+    result = epo_ops._fetch_live(_Co("Brembo S.p.A."))
+    assert "patent_ipc_diversity" not in result["signals"]
+    sample = result["raw_payload"]["publication_sample"]
+    assert sample == [{
+        "publication": "US20260125782A1", "publication_date": "20260507",
+        "family_id": "99635294", "title": "Brake disc material",
+        "abstract_excerpt": "Cast iron for brake discs.", "applicants": ["Brembo S.p.A."],
+    }]
 
 
 def test_throttling_header_slows_and_green_restores_scheduler():

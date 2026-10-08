@@ -1,6 +1,6 @@
 """
 run_phase7_batch / run_company_phases: several companies AND each company's own sources in flight
-at once, every source on its own DB session. No crawler is spawned — the nine per-source syncs
+at once, every source on its own DB session. No crawler is spawned — the per-source syncs
 are stubbed — and the configured DATABASE_URL is never touched: a throwaway SQLite FILE in the
 test's tmp dir, so each thread gets its own connection (an in-memory DB behind a StaticPool
 shares one connection across threads, which intermittently returned no rows under concurrency).
@@ -26,6 +26,8 @@ PHASE7_SOURCES = [
     (company_service.digital_maturity_crawler, "sync_digital_maturity", "Digital Maturity Crawler"),
     (company_service.product_catalog_crawler, "sync_product_catalog", "Product Catalog Crawler"),
     (company_service.linkedin_profile_crawler, "sync_linkedin_profiles", "LinkedIn Profile Crawler"),
+    (company_service.ted_awards_crawler, "sync_ted_awards", "TED Contract Awards Crawler"),
+    (company_service.fda_recalls_crawler, "sync_fda_recalls", "FDA Recalls Crawler"),
 ]
 
 
@@ -81,7 +83,7 @@ def test_batch_runs_companies_in_parallel_on_separate_sessions(monkeypatch, fact
     assert all(r["Job Postings Crawler"] == {"status": "success", "mode": "live"} for r in results.values())
     assert elapsed < 0.8, f"5 x 0.2s should overlap, took {elapsed:.2f}s"
     assert len({thread for thread, _ in seen.values()}) > 1, "work never left the calling thread"
-    assert len({id(session) for _, session in seen.values()}) == 5 * 9, "no two sources may share a session"
+    assert len({id(session) for _, session in seen.values()}) == 5 * len(PHASE7_SOURCES), "no two sources may share a session"
     assert [t[0] for t in ticks] == [1, 2, 3, 4, 5] and all(t[1] == 5 for t in ticks)
     assert all(name.startswith("Company ") for _, _, name in ticks)
 
@@ -105,8 +107,8 @@ def test_one_companys_sources_run_at_the_same_time(monkeypatch, factory):
     elapsed = time.time() - t0
 
     assert (cid, name) == ("c0", "Company 0 S.R.L.")
-    assert len(results) == 9 and all(r == {"status": "success"} for r in results.values())
-    assert peak[0] == 9, "all nine sources should have been in flight together"
+    assert len(results) == len(PHASE7_SOURCES) and all(r == {"status": "success"} for r in results.values())
+    assert peak[0] == len(PHASE7_SOURCES), "all sources should have been in flight together"
     assert elapsed < 1.2, f"9 x 0.3s sequentially is 2.7s; concurrently ~0.3s — took {elapsed:.2f}s"
 
 
@@ -131,7 +133,7 @@ def test_a_failing_source_is_recorded_and_does_not_stop_the_others(monkeypatch, 
     assert all(r["Digital Maturity Crawler"] == {"status": "success"} for r in (results["c0"], results["c2"]))
     failed = results["c1"]["Digital Maturity Crawler"]
     assert failed["status"] == "error" and "RuntimeError: crawler folder missing" in failed["error"]
-    assert sum(1 for r in results["c1"].values() if r.get("status") == "success") == 8, "the other 8 must still have run"
+    assert sum(1 for r in results["c1"].values() if r.get("status") == "success") == len(PHASE7_SOURCES) - 1
     assert results["missing"]["error"] == "company not found"
 
 
@@ -146,7 +148,7 @@ def test_each_source_gets_a_session_that_keeps_its_attributes_across_commits(mon
 
     _stub_crawlers(monkeypatch, behaviour)
     company_service.run_phase7_for_company("c0", factory)
-    assert flags == [False] * 9
+    assert flags == [False] * len(PHASE7_SOURCES)
 
 
 def test_batch_with_no_companies_is_a_noop(factory):
@@ -167,8 +169,8 @@ def test_phase7_reports_each_crawler_before_it_starts(monkeypatch, factory):
     )
     session.close()
 
-    assert [s[0] for s in steps] == list(range(9)) and all(s[1] == 9 for s in steps)
-    assert steps[0][2] == "Company Website Crawler" and steps[-1][2] == "LinkedIn Profile Crawler"
+    assert [s[0] for s in steps] == list(range(len(PHASE7_SOURCES))) and all(s[1] == len(PHASE7_SOURCES) for s in steps)
+    assert steps[0][2] == "Company Website Crawler" and steps[-1][2] == "FDA Recalls Crawler"
     assert list(results) == [s[2] for s in steps]
     # The hook fires BEFORE each crawler: step i is reported, then that crawler runs.
     assert calls[0] == ("step", 0) and calls[1][0] == "ran" and calls[2] == ("step", 1)
@@ -185,8 +187,8 @@ def test_the_hook_reports_every_start_and_end_with_the_number_finished(monkeypat
     company_service.run_phase7_for_company("c0", factory, on_step=hook)
     starts = [e for e in events if e[0] == "start"]
     dones = [e for e in events if e[0] == "done"]
-    assert len(starts) == 9 and len(dones) == 9 and all(e[2] == 9 for e in events)
-    assert sorted(e[1] for e in dones) == list(range(1, 10)), "each end reports one more finished"
+    assert len(starts) == len(PHASE7_SOURCES) and len(dones) == len(PHASE7_SOURCES) and all(e[2] == len(PHASE7_SOURCES) for e in events)
+    assert sorted(e[1] for e in dones) == list(range(1, len(PHASE7_SOURCES) + 1)), "each end reports one more finished"
     assert {e[3] for e in starts} == {s for _, _, s in PHASE7_SOURCES}
     # The slowest-first ordering: the website and digital-maturity crawlers start before the quick ones.
     assert {starts[0][3], starts[1][3]} == {"Company Website Crawler", "Digital Maturity Crawler"}
@@ -195,7 +197,7 @@ def test_the_hook_reports_every_start_and_end_with_the_number_finished(monkeypat
 def test_run_phase7_for_company_works_without_a_hook(monkeypatch, factory):
     _stub_crawlers(monkeypatch, _ok)
     cid, name, results = company_service.run_phase7_for_company("c0", factory)
-    assert (cid, name) == ("c0", "Company 0 S.R.L.") and len(results) == 9
+    assert (cid, name) == ("c0", "Company 0 S.R.L.") and len(results) == len(PHASE7_SOURCES)
 
 
 def test_parallel_false_falls_back_to_the_sequential_path(monkeypatch, factory):
@@ -248,4 +250,4 @@ def test_source_plan_is_country_aware():
     # Eurostat Export Exposure is EU-wide and keyless — unlike the Destatis adapter it replaced
     # (Germany-only), it runs for both countries.
     assert "Eurostat Export Exposure" in de_names and "Eurostat Export Exposure" in it_names
-    assert len([s for s in it_steps if s.phase == 7]) == 9
+    assert len([s for s in it_steps if s.phase == 7]) == len(PHASE7_SOURCES)

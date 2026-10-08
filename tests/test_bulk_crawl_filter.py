@@ -8,8 +8,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, Company, SignalRecord
-from company_service import companies_not_yet_crawled, phase_source_names, COUNTRY_SOURCE_MAP
+from models import Base, Company, SignalRecord, CompanySourceRun
+from company_service import companies_not_yet_crawled, phase_source_names, COUNTRY_SOURCE_MAP, SourceStep, _record_source_run
+import company_service
 
 
 @pytest.fixture
@@ -95,3 +96,45 @@ def test_default_country_is_germany_when_unset(db):
     c = _mk(db, country=None)
     _signal(db, c.id, "Eurostat Export Exposure", is_simulated=False)
     assert companies_not_yet_crawled(db, [c], phase=1) == []
+
+
+def test_phase7_requires_each_eligible_source_even_when_one_has_a_signal(db, monkeypatch):
+    monkeypatch.setattr(company_service, "has_credentials", lambda name: False)
+    c = _mk(db, country="Italy", website_url="https://example.com")
+    _signal(db, c.id, "Job Postings Crawler", is_simulated=False)
+    assert companies_not_yet_crawled(db, [c], phase=7) == [c]
+    for source in ("Directory Listing Crawler", "Job Postings Crawler", "Digital Maturity Crawler"):
+        _record_source_run(db, c.id, SourceStep(source, None, 7), {"status": "success", "mode": "live", "signals": {}})
+    assert companies_not_yet_crawled(db, [c], phase=7) == [c]
+    _record_source_run(db, c.id, SourceStep("Product Catalog Crawler", None, 7),
+                       {"status": "success", "mode": "live", "signals": {}})
+    _record_source_run(db, c.id, SourceStep("TED Contract Awards Crawler", None, 7),
+                       {"status": "success", "mode": "live", "signals": {}})
+    assert companies_not_yet_crawled(db, [c], phase=7) == []
+
+
+def test_phase7_error_stays_retryable(db, monkeypatch):
+    monkeypatch.setattr(company_service, "has_credentials", lambda name: False)
+    c = _mk(db, country="Italy")
+    step = SourceStep("Directory Listing Crawler", None, 7)
+    _record_source_run(db, c.id, step, {"status": "error", "error": "unreachable"})
+    assert db.query(CompanySourceRun).filter_by(company_id=c.id).one().status == "error"
+    assert companies_not_yet_crawled(db, [c], phase=7) == [c]
+    _record_source_run(db, c.id, step, {"status": "success", "mode": "live", "signals": {}})
+    _record_source_run(db, c.id, SourceStep("TED Contract Awards Crawler", None, 7),
+                       {"status": "success", "mode": "live", "signals": {}})
+    assert companies_not_yet_crawled(db, [c], phase=7) == []
+
+
+def test_fda_crawl_is_required_only_for_relevant_product_sector(db, monkeypatch):
+    monkeypatch.setattr(company_service, "has_credentials", lambda name: False)
+    food = _mk(db, country="Italy", legal_name="Pasta SRL", registration_number="R-FOOD",
+               nace_code="C10.73")
+    assert "FDA Recalls Crawler" in company_service.eligible_phase7_sources(food)
+    for source in ("Directory Listing Crawler", "TED Contract Awards Crawler"):
+        _record_source_run(db, food.id, SourceStep(source, None, 7),
+                           {"status": "success", "mode": "live", "signals": {}})
+    assert companies_not_yet_crawled(db, [food], phase=7) == [food]
+    _record_source_run(db, food.id, SourceStep("FDA Recalls Crawler", None, 7),
+                       {"status": "success", "mode": "live", "signals": {}})
+    assert companies_not_yet_crawled(db, [food], phase=7) == []

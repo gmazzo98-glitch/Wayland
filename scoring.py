@@ -15,8 +15,15 @@ weighted sum independently. 'context'-axis signals are never scored — they're
 informational tags/moderators, excluded from both sums.
 """
 
+import json
 from typing import Dict, List, Any
 from utils import get_signal_display_status
+
+# Confidence is an evidence-eligibility threshold, never a multiplier on a
+# business score. Weak or simulated observations remain visible in the audit
+# trail but do not count as checked facts. Gates require stronger evidence.
+MIN_SCORABLE_CONFIDENCE = 0.60
+MIN_GATE_CONFIDENCE = 0.75
 
 
 def normalize_indicator_value(value: float, defn: Dict[str, Any]) -> float:
@@ -129,6 +136,31 @@ def _evaluate_axis(signal_map: Dict[str, Any], indicator_defs: Dict[str, Dict[st
         weight = eff_weight[key]
         data = signal_map.get(key, {"status": "not_yet_checked", "value": None})
         status = data["status"]
+        exclusion_reason = None
+        confidence = data.get("confidence")
+        if data.get("is_simulated") is True:
+            exclusion_reason = "simulated source result"
+        elif (key == "digital_lead_role_present" and data.get("source") == "Job Postings Crawler"
+              and data.get("raw_status") == "absent"):
+            exclusion_reason = "open vacancies cannot establish that no existing digital lead is employed"
+        elif (data.get("raw_status") == "absent" and data.get("source") in
+              ("News Signals Crawler", "Innovation Participation Crawler", "Directory Listing Crawler")):
+            exclusion_reason = "this source searched only a bounded sample and cannot establish absence"
+        elif (key in ("patent_count", "patent_ipc_diversity") and data.get("source") == "EPO OPS"
+              and data.get("raw_status") == "absent"):
+            exclusion_reason = "one applicant-name search cannot establish that the group has no patents"
+        elif key == "patent_ipc_diversity" and data.get("source") == "EPO OPS":
+            try:
+                payload = data.get("raw_payload_ref") or {}
+                payload = json.loads(payload) if isinstance(payload, str) else payload
+            except (ValueError, TypeError):
+                payload = {}
+            if not payload.get("ipc_diversity_complete"):
+                exclusion_reason = "IPC diversity was calculated from an incomplete search page"
+        elif confidence is not None and confidence < (MIN_GATE_CONFIDENCE if defn.get("is_gate") else MIN_SCORABLE_CONFIDENCE):
+            exclusion_reason = "source confidence below the threshold for scoring"
+        if exclusion_reason:
+            status = "not_yet_checked"
 
         entry = {
             "key": key,
@@ -137,6 +169,7 @@ def _evaluate_axis(signal_map: Dict[str, Any], indicator_defs: Dict[str, Dict[st
             "raw_value": data.get("value"),
             "status": status,
             "raw_status": data.get("raw_status", status),
+            "score_exclusion_reason": exclusion_reason,
             "base_weight": defn.get("weight", 0.0),
             "effective_weight": round(weight, 3),
             "redundancy_group": defn.get("redundancy_group"),

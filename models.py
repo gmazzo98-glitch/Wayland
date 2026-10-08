@@ -79,6 +79,7 @@ class Company(Base):
 
     # Relationships
     signals = relationship("SignalRecord", back_populates="company", cascade="all, delete-orphan")
+    source_runs = relationship("CompanySourceRun", back_populates="company", cascade="all, delete-orphan")
     parent = relationship("Company", remote_side=[id], backref="subsidiaries")
 
     def to_dict(self):
@@ -358,6 +359,23 @@ class SourceHealth(Base):
     total_cost = Column(Float, default=0.0)
     error_count = Column(Integer, default=0)
     last_error_message = Column(Text, nullable=True)
+
+
+class CompanySourceRun(Base):
+    """Latest outcome for one company's source, including successful empty crawls."""
+    __tablename__ = "company_source_runs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+    source_name = Column(String(100), nullable=False)
+    phase = Column(Integer, nullable=False)
+    status = Column(String(30), nullable=False)  # live | simulated | skipped | error
+    finished_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    error_message = Column(Text, nullable=True)
+
+    company = relationship("Company", back_populates="source_runs")
+
+    __table_args__ = (UniqueConstraint("company_id", "source_name", name="_company_source_run_uc"),)
 
 
 class PilotOutcome(Base):

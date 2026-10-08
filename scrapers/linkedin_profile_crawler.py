@@ -36,6 +36,8 @@ MAX_PROFILES_PER_RUN = 20  # matches the crawler's own hard cap
 def sync_linkedin_profiles(company, db_session: Session) -> dict:
     if not LINKEDIN_CRAWLER_ENABLED:
         return {"status": "skipped", "reason": "LINKEDIN_CRAWLER_ENABLED=false"}
+    if not LINKEDIN_LI_AT:
+        return {"status": "skipped", "reason": "LINKEDIN_LI_AT not configured"}
 
     people = [p for p in company.people if p.linkedin_url][:MAX_PROFILES_PER_RUN]
     if not people:
@@ -77,8 +79,11 @@ def sync_linkedin_profiles(company, db_session: Session) -> dict:
         person.updated_at = datetime.utcnow()
         updated.append(person.full_name or person.linkedin_url)
 
-    source_health.mode = "live"
-    source_health.last_status = "success"
+    succeeded = sum(r.get("status") == "SUCCESS" for r in rows)
+    source_health.mode = "live" if succeeded else "simulated"
+    source_health.last_status = "success" if succeeded else "error"
     db_session.commit()
 
-    return {"status": "success", "profiles_fetched": len(rows), "people_updated": updated}
+    return {"status": "success" if succeeded else "error", "profiles_fetched": len(rows),
+            "profiles_succeeded": succeeded, "people_updated": updated,
+            **({"error": "No profile returned SUCCESS"} if not succeeded else {})}

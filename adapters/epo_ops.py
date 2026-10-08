@@ -9,12 +9,14 @@ falls back to a clearly-tagged simulated value when absent. See adapters/base.py
 
 import threading
 import time
+import re
 from datetime import datetime, timedelta, timezone
 import requests
 import xml.etree.ElementTree as ET
 from sqlalchemy.orm import Session
 from adapters.base import run_adapter
 from config import EPO_OPS_CONSUMER_KEY, EPO_OPS_CONSUMER_SECRET, has_credentials
+from models import RawImportRecord
 
 SOURCE_NAME = "EPO OPS"
 PHASE = 1
@@ -170,6 +172,39 @@ def _reset_token_cache_for_tests() -> None:
         _circuit_open_until, _circuit_reason, _consecutive_rejections = 0.0, None, 0
 
 
+def _xml_text(node) -> str:
+    if node is None:
+        return ""
+    return re.sub(r"\s+", " ", " ".join(node.itertext())).strip()
+
+
+def _patent_sample(documents: list) -> list[dict]:
+    """Keep verifiable bibliographic context from the search page, not a portfolio claim."""
+    sample = []
+    for doc in documents:
+        publication = "".join(doc.get(part, "") for part in ("country", "doc-number", "kind"))
+        if not publication:
+            continue
+        titles = doc.findall(".//{*}invention-title")
+        title_node = next((n for n in titles if n.get("lang") == "en"), titles[0] if titles else None)
+        abstract_node = next((n for n in doc.findall(".//{*}abstract") if n.get("lang") == "en"), None)
+        original_applicants = [
+            _xml_text(n) for n in doc.findall(".//{*}applicant")
+            if n.get("data-format") == "original" and _xml_text(n)
+        ]
+        date = doc.find(".//{*}publication-reference/{*}document-id/{*}date")
+        sample.append({
+            "publication": publication,
+            "publication_date": _xml_text(date),
+            "family_id": doc.get("family-id"),
+            "title": _xml_text(title_node),
+            "abstract_excerpt": _xml_text(abstract_node)[:500],
+            "applicants": list(dict.fromkeys(original_applicants))[:8],
+        })
+    sample.sort(key=lambda item: item["publication_date"], reverse=True)
+    return sample[:15]
+
+
 def _fetch_live(company) -> dict:
     query = f'pa="{company.legal_name}"'
     resp = None
@@ -179,7 +214,7 @@ def _fetch_live(company) -> dict:
         token = _get_access_token()
         resp = requests.get(
             SEARCH_URL,
-            params={"q": query, "Range": "1-25"},
+            params={"q": query, "Range": "1-100"},
             headers={"Authorization": f"Bearer {token}"},
             timeout=20,
         )
@@ -205,15 +240,15 @@ def _fetch_live(company) -> dict:
         break
 
     if resp.status_code == 404:
-        # OPS returns 404 (not an empty 200) when a search yields zero hits.
+        # No hit for one legal-name spelling does not rule out filings under a
+        # former name, subsidiary, parent or trading name. Preserve the lookup
+        # in SourceHealth without scoring a fabricated portfolio absence.
         _record_search_success()
         return {
-            "signals": {
-                "patent_count": {"value": 0.0, "status": "absent"},
-                "patent_ipc_diversity": {"value": 0.0, "status": "absent"},
-            },
-            "raw_payload": {"source": SOURCE_NAME, "query": query, "http_status": 404},
-            "confidence": 0.95,
+            "signals": {},
+            "raw_payload": {"source": SOURCE_NAME, "query": query, "http_status": 404,
+                            "note": "No match for this name; aliases and group companies were not checked"},
+            "confidence": 0.0,
         }
     if resp.status_code >= 400:
         raise EpoOpsUnavailable(f"EPO OPS search failed — {_failure_detail(resp)}")
@@ -223,23 +258,28 @@ def _fetch_live(company) -> dict:
     biblio_search = root.find(".//{*}biblio-search")
     total_count = int(biblio_search.get("total-result-count", "0")) if biblio_search is not None else 0
 
+    returned_documents = root.findall(".//{*}exchange-document")
+    patent_sample = _patent_sample(returned_documents)
     ipc_prefixes = set()
     for ipc_text in root.findall(".//{*}classification-ipcr/{*}text"):
         if ipc_text.text:
             ipc_prefixes.add(ipc_text.text.strip()[:4])
-    # A patent portfolio exists but this constituent didn't return classification text —
-    # report a floor of 1 rather than falsely reading as "zero diversity".
-    diversity = float(len(ipc_prefixes)) if ipc_prefixes else (1.0 if total_count > 0 else 0.0)
-
-    status = "present" if total_count > 0 else "absent"
+    signals = {
+        "patent_count": {"value": float(total_count), "status": "present",
+                         "summary": f"{total_count} matching patent publication record(s) for {query}; not deduplicated by invention or family"},
+    } if total_count > 0 else {}
+    # IPC diversity is portfolio-wide only if every result was retrieved and
+    # classified. A first-page sample must never masquerade as the full set.
+    if total_count > 0 and len(returned_documents) >= total_count and ipc_prefixes:
+        signals["patent_ipc_diversity"] = {"value": float(len(ipc_prefixes)), "status": "present"}
     return {
-        "signals": {
-            "patent_count": {"value": float(total_count), "status": status},
-            "patent_ipc_diversity": {"value": diversity, "status": status},
-        },
+        "signals": signals,
         "raw_payload": {
             "source": SOURCE_NAME, "query": query, "total_result_count": total_count,
-            "ipc_prefixes": sorted(ipc_prefixes),
+            "returned_documents": len(returned_documents), "ipc_prefixes": sorted(ipc_prefixes),
+            "ipc_diversity_complete": "patent_ipc_diversity" in signals,
+            "publication_sample": patent_sample,
+            "sample_scope": "Up to 15 publications from the first 100 search results, sorted by publication date; not a complete patent-family portfolio",
         },
         "confidence": 0.95,
     }
@@ -268,10 +308,28 @@ def _simulate(company) -> dict:
 
 def sync_company_patents(company, db_session: Session) -> dict:
     """Populates patent_count and patent_ipc_diversity from one EPO OPS search call."""
-    return run_adapter(
+    captured = {}
+
+    def fetch(c):
+        result = _fetch_live(c)
+        captured["payload"] = result["raw_payload"]
+        return result
+
+    outcome = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=has_credentials(SOURCE_NAME),
-        fetch_live=_fetch_live, simulate=_simulate,
+        fetch_live=fetch, simulate=_simulate,
         # Concurrent companies may legitimately wait behind the shared OPS request queue.
         timeout=180,
     )
+    if captured:
+        rec = db_session.query(RawImportRecord).filter_by(
+            company_id=company.id, dataset_name="crawler_epo_ops_search").first()
+        if rec is None:
+            rec = RawImportRecord(company_id=company.id, dataset_name="crawler_epo_ops_search")
+            db_session.add(rec)
+        rec.source_filename = "EPO OPS applicant search"
+        rec.raw_row = captured["payload"]
+        rec.updated_at = datetime.utcnow()
+        db_session.commit()
+    return outcome

@@ -124,6 +124,70 @@ def test_scoring_engine_gate_penalty_applies_when_unfavorable():
     # pre-gate: (0*3 + 100*1) / (3+1) = 25.0, then halved by the gate penalty -> 12.5
     assert scores["readiness_score"] == 12.5
 
+
+def test_low_confidence_and_simulated_results_remain_visible_but_unscored():
+    defs = {"ready_x": {"axis": "readiness", "weight": 2.0, "raw_min": 0, "raw_max": 1,
+                         "freshness_days": 365, "is_gate": False}}
+    now = datetime.utcnow()
+    for extra in ({"confidence": 0.55, "is_simulated": False},
+                  {"confidence": 0.9, "is_simulated": True}):
+        score = calculate_company_scores([{"signal_key": "ready_x", "status": "present",
+                                           "numeric_value": 1.0, "fetched_at": now, **extra}], defs,
+                                         include_detail=True)
+        entry = score["readiness_detail"][0]
+        assert score["readiness_completeness_pct"] == 0.0
+        assert entry["status"] == "not_yet_checked"
+        assert entry["raw_status"] == "present"
+        assert entry["score_exclusion_reason"]
+
+
+def test_old_vacancy_based_digital_lead_absence_cannot_fire_gate():
+    defs = {"digital_lead_role_present": {"axis": "readiness", "weight": 4.0,
+             "raw_min": 0, "raw_max": 1, "freshness_days": 365,
+             "is_gate": True, "gate_penalty_multiplier": 0.7},
+            "ready_x": {"axis": "readiness", "weight": 1.0, "raw_min": 0,
+             "raw_max": 100, "freshness_days": 365}}
+    now = datetime.utcnow()
+    signals = [{"signal_key": "digital_lead_role_present", "status": "absent",
+                "numeric_value": 0, "source": "Job Postings Crawler", "confidence": 0.9,
+                "fetched_at": now, "is_simulated": False},
+               {"signal_key": "ready_x", "status": "present", "numeric_value": 100,
+                "confidence": 1.0, "fetched_at": now, "is_simulated": False}]
+    score = calculate_company_scores(signals, defs, include_detail=True)
+    assert score["readiness_score"] == 100.0
+    assert score["readiness_meta"]["gate_multiplier"] == 1.0
+    assert score["readiness_detail"][0]["score_exclusion_reason"]
+
+
+def test_old_epo_name_miss_and_partial_ipc_sample_are_unscored():
+    defs = {key: {"axis": "readiness", "weight": 1.0, "raw_min": 0, "raw_max": 10,
+                  "freshness_days": 365} for key in ("patent_count", "patent_ipc_diversity")}
+    now = datetime.utcnow()
+    records = [
+        {"signal_key": "patent_count", "status": "absent", "numeric_value": 0,
+         "source": "EPO OPS", "confidence": 0.95, "fetched_at": now},
+        {"signal_key": "patent_ipc_diversity", "status": "present", "numeric_value": 3,
+         "source": "EPO OPS", "confidence": 0.95, "fetched_at": now,
+         "raw_payload_ref": '{"total_result_count": 760, "ipc_prefixes": ["A01B", "H01M"]}'},
+    ]
+    score = calculate_company_scores(records, defs, include_detail=True)
+    assert score["readiness_completeness_pct"] == 0.0
+    assert all(e["score_exclusion_reason"] for e in score["readiness_detail"])
+
+
+def test_old_bounded_search_negatives_are_unscored():
+    sources = {"external_collaboration": "News Signals Crawler",
+               "prior_open_innovation_usage": "Innovation Participation Crawler",
+               "trade_fair_participation": "Directory Listing Crawler"}
+    defs = {key: {"axis": "readiness", "weight": 1.0, "raw_min": 0,
+                  "raw_max": 1, "freshness_days": 365} for key in sources}
+    records = [{"signal_key": key, "status": "absent", "numeric_value": 0,
+                "source": source, "confidence": 0.95, "fetched_at": datetime.utcnow()}
+               for key, source in sources.items()]
+    score = calculate_company_scores(records, defs, include_detail=True)
+    assert score["readiness_completeness_pct"] == 0.0
+    assert all(e["score_exclusion_reason"] for e in score["readiness_detail"])
+
 def test_redundancy_dampening_applies_within_group():
     # Section 2.5: same-group variables must not each count at full weight.
     # Dampening schedule confirmed with the business side: full weight to the
