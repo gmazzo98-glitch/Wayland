@@ -21,7 +21,7 @@ from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinit
 from indicators import fetch_indicator_defs, TREND_INDICATOR_KEYS, CAT_CONTEXT
 from utils import normalize_registration_nr
 from config import has_credentials, LINKEDIN_LI_AT
-from adapters import epo_ops, euipo, eu_funding, arbeitsagentur, google_news, google_news_rss, eurostat_sector_growth, eurostat_export_exposure
+from adapters import epo_ops, euipo, eu_funding, arbeitsagentur, google_news, google_news_rss, eurostat_sector_growth, eurostat_export_exposure, rna_state_aid
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
 from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
@@ -231,7 +231,19 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
         steps += [
             SourceStep("EPO OPS", epo_ops.sync_company_patents, 1),
             SourceStep("EUIPO", euipo.sync_company_trademarks, 1),
-            SourceStep("EU Funding Portal", eu_funding.sync_company_grants, 1),
+        ]
+        # public_grant_count has exactly ONE producer per company, never both: RNA's own
+        # registry match is strictly more precise for an Italian company with a matchable
+        # Partita IVA (a real registered grant, not a text search), so it takes this slot
+        # instead of EU Funding Portal there — same "pick one, not both" rule
+        # company_service.py already applies to Google News vs. Google News RSS below, for
+        # the same reason (two sources writing one signal_key race under
+        # _run_steps_concurrently's per-company parallelism, not just look messy sequentially).
+        if rna_state_aid.has_matchable_piva(company):
+            steps.append(SourceStep("RNA Aiuti di Stato", rna_state_aid.sync_italian_state_aid, 1))
+        else:
+            steps.append(SourceStep("EU Funding Portal", eu_funding.sync_company_grants, 1))
+        steps += [
             SourceStep("Eurostat Sector Growth", eurostat_sector_growth.sync_sector_growth_benchmark, 1),
             # Eurostat's trade-by-NACE + turnover-by-NACE datasets are EU-wide and keyless, so
             # unlike the Destatis adapter this replaced (Germany-only, and its GENESIS table was

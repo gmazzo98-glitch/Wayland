@@ -205,8 +205,8 @@ INDICATOR_SEED = [
          raw_min=0, raw_max=5, weight=3.0, phase=1, source_system="EU Funding Portal", freshness_days=365,
          proxy="Public grant/subsidy hits from the EU Funding Portal search API", cost_per_pull=0.0,
          rationale="Recently receiving public innovation/transformation funding shows the company has already cleared a formal application and screening process — evidence of both intent and bureaucratic capacity.",
-         comment="Reuses the existing, already-live EU Funding Portal adapter (adapters/eu_funding.py) rather than a new key — that adapter counts hits, so this stays a direct (non-inverted) count rather than the recency framing the spreadsheet describes; recency-based scoring is a real future refinement of the same adapter, not a new indicator.",
-         source_description="Fördermitteldatenbank, EU State Aid Transparency register, press releases", example_status="Recent"),
+         comment="Reuses the existing, already-live EU Funding Portal adapter (adapters/eu_funding.py) rather than a new key — that adapter counts hits, so this stays a direct (non-inverted) count rather than the recency framing the spreadsheet describes; recency-based scoring is a real future refinement of the same adapter, not a new indicator. For an Italian company with a matchable Partita IVA (2026-10-08), adapters/rna_state_aid.py takes this slot instead: an actual registered-grant match against Italy's own state-aid registry (RNA), not a text search — see company_service.plan_source_steps's own comment on why only one of the two may write it.",
+         source_description="Fördermitteldatenbank, EU State Aid Transparency register (RNA for Italy), press releases", example_status="Recent"),
 
     # ---------------------------------------------------------------- Financial Health & Capital Structure
     dict(key="ebit_trend", automation_tier="T1", redundancy_group="FIN_TREND", label="EBIT Trend", category=CAT_FINANCIAL, axis="need",

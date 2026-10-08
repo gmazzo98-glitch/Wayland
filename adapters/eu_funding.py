@@ -7,6 +7,12 @@ news mentioning the company), not filtered specifically to awarded-grant
 records — good enough as a presence/absence signal, but narrower filtering by
 result "type" is a follow-up once that taxonomy is confirmed against current
 docs, not guessed here.
+
+For an Italian company with a matchable Partita IVA, company_service.py routes
+public_grant_count to adapters/rna_state_aid.py instead — an actual registered
+grant match against Italy's own state-aid registry, not a text search — so this
+adapter is only this indicator's producer for Germany and for Italian companies
+RNA can't match (see plan_source_steps's own comment on why only one may write it).
 """
 
 import requests

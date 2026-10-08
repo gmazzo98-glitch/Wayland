@@ -65,7 +65,7 @@ GAP_PLAN = {
     "patent_count": ("RUN", "EPO OPS (key configured, verified live)", "Phase 1 in the background queue"),
     "patent_ipc_diversity": ("RUN", "EPO OPS (same call)", "Phase 1"),
     "trademark_count": ("RUN", "EUIPO (key configured)", "Phase 1"),
-    "public_grant_count": ("RUN", "EU Funding & Tenders portal (public key)", "Phase 1"),
+    "public_grant_count": ("RUN", "EU Funding & Tenders portal (public key); RNA state aid registry for Italy (2026-10-08, more precise there)", "Phase 1"),
     "sector_growth_benchmark": ("RUN", "Eurostat (keyless)", "Phase 1"),
     "sector_export_exposure": ("RUN", "Eurostat export exposure adapter (2026-09-22): ext_tec01 (trade by NACE) over sbs_ovw_act "
                                       "(turnover by NACE), both keyless, EU-wide - replaced the Germany-only Destatis producer this "

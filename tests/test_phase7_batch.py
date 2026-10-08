@@ -253,3 +253,20 @@ def test_source_plan_is_country_aware():
     # (Germany-only), it runs for both countries.
     assert "Eurostat Export Exposure" in de_names and "Eurostat Export Exposure" in it_names
     assert len([s for s in it_steps if s.phase == 7]) == len(PHASE7_SOURCES)
+
+
+def test_public_grant_count_has_exactly_one_producer_per_company():
+    """RNA replaces EU Funding Portal for an Italian company RNA can actually match (a real
+    Partita IVA) — never both, since they'd race to write the same signal_key under
+    _run_steps_concurrently's per-company parallelism."""
+    germany = Company(id="d2", legal_name="X GmbH", registration_number="HRB 1", country="Germany")
+    italy_no_piva = Company(id="i2", legal_name="X SRL", registration_number="REA MI-123456", country="Italy")
+    italy_with_piva = Company(id="i3", legal_name="X SRL", registration_number="IT12345678901", country="Italy")
+
+    de_names = [s.name for s in company_service.plan_source_steps(germany, [1])[0]]
+    it_no_piva_names = [s.name for s in company_service.plan_source_steps(italy_no_piva, [1])[0]]
+    it_piva_names = [s.name for s in company_service.plan_source_steps(italy_with_piva, [1])[0]]
+
+    assert "EU Funding Portal" in de_names and "RNA Aiuti di Stato" not in de_names
+    assert "EU Funding Portal" in it_no_piva_names and "RNA Aiuti di Stato" not in it_no_piva_names
+    assert "RNA Aiuti di Stato" in it_piva_names and "EU Funding Portal" not in it_piva_names
