@@ -291,6 +291,36 @@ def test_company_website_new_fields_write_nothing_when_not_found():
     assert company_website_crawler._derive_signals(None, None, row) == {}
 
 
+@pytest.mark.parametrize("status,amount,is_percent,expected_tier", [
+    ("none", None, False, 0.0),
+    ("planned", None, False, 1.0),
+    ("completed", None, False, 2.0),
+    ("completed", 350000, False, 3.0),
+    ("completed", 2.5, True, 3.0),
+])
+def test_company_website_energy_transition_capex_tiers(status, amount, is_percent, expected_tier):
+    row = {
+        "sustainability_report_pdf": {
+            "source_url": "https://x/report.pdf", "capex_status": status,
+            "capex_description": "Installed solar panels" if status != "none" else None,
+            "capex_amount_value": amount, "capex_is_percent": is_percent,
+            "capex_currency": "EUR" if amount and not is_percent else None,
+            "capex_year": 2023 if status != "none" else None,
+            "concrete_metrics": [], "report_year_confirmed": 2023,
+        },
+        "field_status": {"sustainability_report_pdf": "value"},
+    }
+    signals = company_website_crawler._derive_signals(None, None, row)
+    assert_signal(signals["energy_transition_capex"], expected_tier, "present")
+    assert signals["energy_transition_capex"]["evidence"]["capex_status"] == status
+    assert signals["energy_transition_capex"]["evidence"]["source_urls"] == ["https://x/report.pdf"]
+
+
+def test_company_website_energy_transition_capex_not_found_writes_nothing():
+    row = {"sustainability_report_pdf": None, "field_status": {"sustainability_report_pdf": "not_found"}}
+    assert company_website_crawler._derive_signals(None, None, row) == {}
+
+
 def test_company_website_stores_trend_needs_prior_snapshot(memory_session, company):
     old_ts = datetime.utcnow() - timedelta(days=60)
     save_crawler_blob(memory_session, company, "crawler_company_website", {"store_count": 10})

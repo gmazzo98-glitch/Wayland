@@ -25,6 +25,13 @@ year or percentage ("esportiamo dal 1998", "il 70% della produzione"), never inf
 product_innovativeness is fed from `last_product_update_signal`, which was already being
 extracted (most recent dated product/press mention across all crawled pages) but never
 turned into a signal.
+
+energy_transition_capex (2026-10-08) is fed from a deep read of the sustainability report PDF
+itself (sustainability_report_pdf — see that crawler's src/pdfExtract.ts/sustainabilityPdfLlm.ts),
+not just the HTML page's "we have a report" claim: has_sustainability_report only ever knows a
+report EXISTS, while the PDF's own text is what actually states whether a transition-capex
+project is planned/completed and, when completed, whether a real figure is given. See
+_ENERGY_CAPEX_TIER below for the 0-3 mapping this indicator expects.
 """
 
 import re
@@ -47,6 +54,12 @@ CRAWLER_DIR = "company-website-crawler"
 DATASET_NAME = "crawler_company_website"
 PHASE = 7
 MIN_DAYS_BETWEEN_TREND_POINTS = 30
+
+# indicators.py's energy_transition_capex has raw_min=0/raw_max=3. A report rarely states a
+# clean "% of revenue" figure (the proxy's own ideal), so this tiers what the PDF extraction
+# actually gives: no mention, a planned project, a completed one with no figure, or a completed
+# one with a real number attached — a coarser but honest stand-in for the ideal % figure.
+_ENERGY_CAPEX_TIER = {"none": 0.0, "planned": 1.0}
 
 
 def _stores_trend(db: Session, company, new_count):
@@ -179,6 +192,36 @@ def _derive_signals(db: Session, company, row: dict) -> dict:
             "summary": f"site states {export_pct:.0f}% of revenue/sales/production is exported or international",
             "evidence": {**base_evidence, "export_share_pct": export_pct},
         }
+
+    pdf = row.get("sustainability_report_pdf")
+    if field_status.get("sustainability_report_pdf") == "value" and pdf:
+        status = pdf.get("capex_status")
+        tier = _ENERGY_CAPEX_TIER.get(status)
+        if tier is None and status == "completed":
+            # "completed" splits into two tiers depending on whether a real figure was given —
+            # the one case _ENERGY_CAPEX_TIER's flat lookup can't express on its own.
+            tier = 3.0 if pdf.get("capex_amount_value") is not None else 2.0
+        if tier is not None:
+            if status == "none":
+                summary = "sustainability report PDF: no transition-capex project mentioned"
+            else:
+                amount = pdf.get("capex_amount_value")
+                amount_str = (f"{amount:.0f}{'%' if pdf.get('capex_is_percent') else ' ' + (pdf.get('capex_currency') or '')}"
+                              if amount is not None else "no figure given")
+                description = f" — {pdf['capex_description']}" if pdf.get("capex_description") else ""
+                summary = f"sustainability report PDF: {status} transition-capex project{description} ({amount_str})"
+            signals["energy_transition_capex"] = {
+                "value": tier, "status": "present",
+                "summary": summary,
+                "evidence": {"method": "LLM extraction over the linked sustainability report PDF itself, "
+                                       "not just the HTML page claiming it exists",
+                             "source_urls": [pdf.get("source_url")] if pdf.get("source_url") else [],
+                             "capex_status": status, "capex_description": pdf.get("capex_description"),
+                             "capex_amount_value": pdf.get("capex_amount_value"), "capex_is_percent": pdf.get("capex_is_percent"),
+                             "capex_currency": pdf.get("capex_currency"), "capex_year": pdf.get("capex_year"),
+                             "concrete_metrics": pdf.get("concrete_metrics"),
+                             "report_year_confirmed": pdf.get("report_year_confirmed")},
+            }
 
     return signals
 
