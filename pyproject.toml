@@ -1,2 +1,17 @@
+[project]
+# Vercel's Python build runs `uv lock` against this file and requires a [project] table to
+# do so, even though this repo's actual app (app.py, Streamlit) doesn't use uv/pyproject at
+# all — this file exists solely to deploy worker_shim/app/main.py (a small FastAPI service)
+# as its own Vercel project. Dependencies are declared here, not pulled from the root
+# requirements.txt, so the deployed function stays small (no streamlit/pandas/plotly/etc.
+# pulled into a lambda that only ever imports fastapi and psycopg2).
+name = "vienna-worker-shim"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.115.6",
+    "psycopg2-binary>=2.9.9",
+]
+
 [tool.vercel]
 entrypoint = "worker_shim.app.main:app"
