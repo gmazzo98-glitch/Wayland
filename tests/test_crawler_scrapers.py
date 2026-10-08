@@ -366,6 +366,52 @@ def test_job_postings_velocity_counts_all_roles_not_just_digital():
     assert_signal(signals["job_posting_velocity"], 3.0, "present")
 
 
+_JOB_BASE = {
+    "technical_digital_roles_count": 0, "total_open_roles": 1,
+    "roles_sample": [{"title": "IT Systems Administrator", "url": "https://example.com/jobs/1"}],
+    "sources_used": [{"id": "careers", "kind": "careers_page", "url": "https://example.com/careers"}],
+    "field_status": {"technical_digital_roles_count": "value", "erp_systems_mentioned": "value"},
+}
+
+
+def test_job_postings_erp_legacy_mention_sets_a_high_age():
+    row = {**_JOB_BASE, "erp_systems_mentioned": [
+        {"vendor": "SAP", "context": "legacy", "source_url": "https://example.com/jobs/1"}]}
+    signals = job_postings_crawler._derive_signals(row)
+    assert_signal(signals["erp_systems_age"], 12.0, "present")
+    assert "SAP" in signals["erp_systems_age"]["summary"]
+
+
+def test_job_postings_erp_modern_mention_sets_a_low_age():
+    row = {**_JOB_BASE, "erp_systems_mentioned": [
+        {"vendor": "SAP", "context": "modern", "source_url": "https://example.com/jobs/1"}]}
+    signals = job_postings_crawler._derive_signals(row)
+    assert_signal(signals["erp_systems_age"], 1.5, "present")
+
+
+def test_job_postings_erp_unspecified_only_writes_nothing():
+    """A bare vendor name with no legacy/modern signal word is evidence (kept in the raw blob)
+    but never turned into a guessed age."""
+    row = {**_JOB_BASE, "erp_systems_mentioned": [
+        {"vendor": "Zucchetti", "context": "unspecified", "source_url": "https://example.com/jobs/1"}]}
+    signals = job_postings_crawler._derive_signals(row)
+    assert "erp_systems_age" not in signals
+
+
+def test_job_postings_erp_legacy_outweighs_modern_when_both_mentioned():
+    row = {**_JOB_BASE, "erp_systems_mentioned": [
+        {"vendor": "SAP", "context": "legacy", "source_url": "https://example.com/jobs/1"},
+        {"vendor": "Microsoft Dynamics", "context": "modern", "source_url": "https://example.com/jobs/1"},
+    ]}
+    signals = job_postings_crawler._derive_signals(row)
+    assert_signal(signals["erp_systems_age"], 12.0, "present")
+
+
+def test_job_postings_erp_not_found_writes_nothing():
+    row = {**_JOB_BASE, "erp_systems_mentioned": [], "field_status": {**_JOB_BASE["field_status"], "erp_systems_mentioned": "not_found"}}
+    assert "erp_systems_age" not in job_postings_crawler._derive_signals(row)
+
+
 def test_job_postings_velocity_skipped_for_germany_to_avoid_racing_arbeitsagentur():
     """arbeitsagentur.sync_job_velocity already owns job_posting_velocity for Germany
     (company_service.py's Phase 1 plan) — this crawler must never also write it there,

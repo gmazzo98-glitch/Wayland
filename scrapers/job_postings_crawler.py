@@ -16,9 +16,14 @@ arbeitsagentur.sync_job_velocity as this signal_key's producer (a
 purpose-built jobs API, company_service.py's Phase 1 plan) — this wrapper
 skips it there so the two never race each other for the same company.
 
-ERP systems age (T3 in the source spreadsheet) is deliberately NOT derived
-here: the crawler's roles_sample only carries a title, not a full description,
-which isn't enough text to detect an ERP vendor mention without guessing.
+erp_systems_age (2026-10-08) is fed from erp_systems_mentioned — the crawler
+already fetches each posting's full description for technical_qualification_
+share and was discarding it afterward; src/erpDetect.ts now also scans that
+same text for a named ERP vendor (SAP, Dynamics, Zucchetti, AS/400, ...) plus
+an explicit legacy/modern signal word in the SAME posting ("SAP R/3" vs. "SAP
+S/4HANA"). A vendor named with no such signal word is kept as evidence but
+never turned into an age — see _ERP_AGE_TIER below for why that's a real gap,
+not an oversight.
 """
 
 import re
@@ -384,6 +389,12 @@ def _plausible_listings(roles_sample: list, source_urls: list, site_nav_urls: li
         keep.append(r)
     return keep
 
+# erp_systems_age's raw_max=15 (indicators.py) is "years since last major upgrade" — a bare
+# vendor name alone can't give that (SAP is sold in versions spanning 1990s R/2 to this year's
+# S/4HANA Cloud), so only a posting that ALSO states a legacy or modern signal word gets turned
+# into a number; 'unspecified' mentions are kept as evidence only, never guessed into an age.
+_ERP_AGE_TIER = {"legacy": 12.0, "modern": 1.5}
+
 DIGITAL_LEAD_TITLE_RE = re.compile(
     r"Head of Digital|Chief Digital Officer|\bCDO\b|Innovation Manager|Head of Innovation|"
     r"Digitalisierungsbeauftragter|Innovationsmanager|Leiter Digitalisierung",
@@ -531,6 +542,28 @@ def _derive_signals(row: dict, country: str = None) -> dict:
                 "open_roles_sample": sampled,
             },
         }
+
+    erp_mentions = row.get("erp_systems_mentioned") or []
+    if field_status.get("erp_systems_mentioned") == "value" and erp_mentions:
+        # The rationale is about a constraint an old system imposes, not overall modernity —
+        # one legacy-flagged vendor outweighs any number of modern-flagged ones, same reasoning
+        # as "the weakest link", not an average.
+        by_context = {m["context"]: m for m in erp_mentions if m.get("context") in _ERP_AGE_TIER}
+        chosen = by_context.get("legacy") or by_context.get("modern")
+        vendor_list = ", ".join(sorted({m["vendor"] for m in erp_mentions}))
+        if chosen:
+            signals["erp_systems_age"] = {
+                "value": _ERP_AGE_TIER[chosen["context"]], "status": "present",
+                "summary": f"job posting names {chosen['vendor']} as a {chosen['context']} system "
+                           f"(other ERP vendor(s) mentioned: {vendor_list})" if len(erp_mentions) > 1
+                           else f"job posting names {chosen['vendor']} as a {chosen['context']} system",
+                "evidence": {"method": "keyword scan of fetched job-posting descriptions for a named ERP "
+                                       "vendor plus an explicit legacy/modern signal word in the same posting",
+                             "erp_systems_mentioned": erp_mentions, "source_urls": [chosen.get("source_url")]},
+            }
+        # else: every mention named a vendor with no legacy/modern signal word — real evidence
+        # (visible in the raw crawler blob) but not enough to assert a number, so nothing is
+        # written here; never guessed from the vendor name alone.
 
     return signals
 
