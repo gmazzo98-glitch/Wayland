@@ -28,6 +28,7 @@ PHASE7_SOURCES = [
     (company_service.linkedin_profile_crawler, "sync_linkedin_profiles", "LinkedIn Profile Crawler"),
     (company_service.ted_awards_crawler, "sync_ted_awards", "TED Contract Awards Crawler"),
     (company_service.fda_recalls_crawler, "sync_fda_recalls", "FDA Recalls Crawler"),
+    (company_service.competitor_benchmark, "sync_competitor_benchmark", "Competitor Benchmark"),
 ]
 
 
@@ -170,7 +171,7 @@ def test_phase7_reports_each_crawler_before_it_starts(monkeypatch, factory):
     session.close()
 
     assert [s[0] for s in steps] == list(range(len(PHASE7_SOURCES))) and all(s[1] == len(PHASE7_SOURCES) for s in steps)
-    assert steps[0][2] == "Company Website Crawler" and steps[-1][2] == "FDA Recalls Crawler"
+    assert steps[0][2] == "Company Website Crawler" and steps[-1][2] == "Competitor Benchmark"
     assert list(results) == [s[2] for s in steps]
     # The hook fires BEFORE each crawler: step i is reported, then that crawler runs.
     assert calls[0] == ("step", 0) and calls[1][0] == "ran" and calls[2] == ("step", 1)
@@ -190,8 +191,9 @@ def test_the_hook_reports_every_start_and_end_with_the_number_finished(monkeypat
     assert len(starts) == len(PHASE7_SOURCES) and len(dones) == len(PHASE7_SOURCES) and all(e[2] == len(PHASE7_SOURCES) for e in events)
     assert sorted(e[1] for e in dones) == list(range(1, len(PHASE7_SOURCES) + 1)), "each end reports one more finished"
     assert {e[3] for e in starts} == {s for _, _, s in PHASE7_SOURCES}
-    # The slowest-first ordering: the website and digital-maturity crawlers start before the quick ones.
-    assert {starts[0][3], starts[1][3]} == {"Company Website Crawler", "Digital Maturity Crawler"}
+    # The slowest-first ordering: competitor benchmark, the website crawler and digital-maturity
+    # crawler all start before the quick ones.
+    assert {starts[0][3], starts[1][3], starts[2][3]} == {"Competitor Benchmark", "Company Website Crawler", "Digital Maturity Crawler"}
 
 
 def test_run_phase7_for_company_works_without_a_hook(monkeypatch, factory):

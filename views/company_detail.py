@@ -16,7 +16,7 @@ import pandas as pd
 from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from models import Company, SignalRecord, PilotOutcome, RawImportRecord, CompanyPerson, CompanySourceRun, SHORTLIST_STATUSES
+from models import Company, SignalRecord, PilotOutcome, RawImportRecord, CompanyPerson, CompanySourceRun, Competitor, SHORTLIST_STATUSES
 from indicators import SRC_AIDA, fetch_indicator_defs
 from scoring import calculate_company_scores
 from utils import get_signal_display_status
@@ -1545,6 +1545,47 @@ def _render_tab1_content(db: Session):
                         st.rerun()
                     else:
                         st.error(where["problem"])
+
+        with st.expander(f"🥊 Named Competitors ({len(company.competitors)}/3)"):
+            st.caption(
+                "Recorded by hand, not auto-discovered — a search/LLM guess at who counts as a "
+                "competitor risks silently benchmarking against the wrong company (the same "
+                "risk review-crawler's own search-matching code exists to guard against). "
+                "Feeds **Competitor Digital Adoption Gap**: re-runs the Digital Maturity Crawler "
+                "(including its homepage vision assessment) against each one's own site and "
+                "compares it to this company's own score. Up to 3, matching that indicator's own "
+                "'2-3 named direct competitors' definition."
+            )
+            for comp in company.competitors:
+                cc1, cc2, cc3 = st.columns([3, 4, 1])
+                with cc1:
+                    st.write(comp.name)
+                with cc2:
+                    st.write(comp.homepage_url or "— (no homepage recorded, can't be benchmarked)")
+                with cc3:
+                    if st.button("🗑️", key=f"del_competitor_{comp.id}", help="Remove this competitor"):
+                        db.delete(comp)
+                        db.commit()
+                        st.rerun()
+            if len(company.competitors) < 3:
+                with st.form(f"add_competitor_{company.id}", clear_on_submit=True):
+                    fc1, fc2, fc3 = st.columns([3, 4, 1])
+                    with fc1:
+                        new_name = st.text_input("Competitor name", key="new_competitor_name", label_visibility="collapsed", placeholder="Competitor name")
+                    with fc2:
+                        new_url = st.text_input("Homepage URL", key="new_competitor_url", label_visibility="collapsed", placeholder="https://competitor-homepage.example (needed to benchmark)")
+                    with fc3:
+                        submitted = st.form_submit_button("➕ Add", use_container_width=True)
+                    if submitted:
+                        if not new_name.strip():
+                            st.warning("Enter a competitor name.")
+                        else:
+                            db.add(Competitor(company_id=company.id, name=new_name.strip(),
+                                              homepage_url=(new_url.strip() or None)))
+                            db.commit()
+                            st.rerun()
+            else:
+                st.caption("Maximum of 3 — remove one above to add another.")
 
         from company_service import eligible_phase7_sources
         eligible = eligible_phase7_sources(company)

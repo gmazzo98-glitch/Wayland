@@ -621,7 +621,7 @@ INDICATOR_SEED = [
          raw_min=0, raw_max=60, weight=3.0, phase=4, source_system="Company Website", freshness_days=180,
          proxy="Point gap between this company's Digital Maturity/Online Presence scores and 2-3 named direct competitors' same scores",
          rationale="A company falling visibly behind named competitors on digital adoption faces direct competitive pressure — a sharper, more specific NEED signal than an absolute digital-maturity score alone.",
-         comment="Explicitly a derived variable, not a new independent data source: re-runs Digital Maturity of Core Website and Online Market Presence against named competitors. No adapter built yet — needs a competitor-tracking data model extension first (which companies are whose competitors isn't captured anywhere today); record manually via Company Intelligence until then.",
+         comment="Explicitly a derived variable, not a new independent data source: re-runs Digital Maturity of Core Website and Online Market Presence against named competitors. scrapers/competitor_benchmark.py (2026-10-08) does exactly this, against models.Competitor rows recorded by hand in Company Intelligence (deliberately not auto-discovered — see that model's own docstring) — skips honestly when none are recorded, or when this company's own website_digital_maturity hasn't been measured yet.",
          source_description="Derived from Digital Maturity of Core Website and Online Market Presence rows, applied to named competitors",
          example_status="Peers ahead"),
     dict(key="board_innovation_statements", automation_tier="T2", redundancy_group="STATED_INTENT", label="Board/Management Public Statements on Innovation", category=CAT_OPENNESS, axis="readiness",

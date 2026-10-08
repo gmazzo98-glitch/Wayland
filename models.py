@@ -80,6 +80,7 @@ class Company(Base):
     # Relationships
     signals = relationship("SignalRecord", back_populates="company", cascade="all, delete-orphan")
     source_runs = relationship("CompanySourceRun", back_populates="company", cascade="all, delete-orphan")
+    competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
     parent = relationship("Company", remote_side=[id], backref="subsidiaries")
 
     def to_dict(self):
@@ -376,6 +377,31 @@ class CompanySourceRun(Base):
     company = relationship("Company", back_populates="source_runs")
 
     __table_args__ = (UniqueConstraint("company_id", "source_name", name="_company_source_run_uc"),)
+
+
+class Competitor(Base):
+    """
+    A named direct competitor of a company — recorded by hand, not auto-discovered by search
+    or an LLM. competitor_digital_gap's own definition in indicators.py says why: "which
+    companies are whose competitors isn't captured anywhere today" needs a data model, and a
+    search/LLM guess at who counts as a competitor risks silently benchmarking against the
+    wrong company entirely (the same "silent score corruption" risk review-crawler's own
+    search-matching code was built to guard against) — GG's team already knows their market,
+    so this stays a short, manually-curated list per company.
+
+    homepage_url is what scrapers/competitor_benchmark.py actually crawls (re-running
+    Digital Maturity Crawler against it) to compute competitor_digital_gap; a competitor
+    recorded without one still displays, just can't be benchmarked.
+    """
+    __tablename__ = "competitors"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    homepage_url = Column(String(500), nullable=True)
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    company = relationship("Company", back_populates="competitors")
 
 
 class PilotOutcome(Base):

@@ -27,7 +27,7 @@ from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
     directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler,
     linkedin_profile_crawler, product_catalog_crawler,
-    ted_awards_crawler, fda_recalls_crawler,
+    ted_awards_crawler, fda_recalls_crawler, competitor_benchmark,
 )
 
 SUPPORTED_COUNTRIES = ["Germany", "Italy"]
@@ -37,13 +37,16 @@ SUPPORTED_COUNTRIES = ["Germany", "Italy"]
 #   Exposure, Wappalyzer, Google News, Own-Site Scrape
 # - Germany only: Arbeitsagentur, Handelsregister Free Snapshot, Bundesanzeiger, Kununu Reseller
 # - Italy only: Italian national registers / ISTAT (future integration hooks)
-# Phase 7 has nine Node-based crawlers plus keyless TED and sector-specific FDA searches.
+# Phase 7 has nine Node-based crawlers plus keyless TED and sector-specific FDA searches, plus
+# Competitor Benchmark — a derived re-run of Digital Maturity Crawler against named competitors
+# (only eligible once at least one is recorded; see eligible_phase7_sources below).
 PHASE_7_SOURCES = [
     "Company Website Crawler", "Job Postings Crawler", "Review Crawler",
     "News Signals Crawler", "Directory Listing Crawler", "Innovation Participation Crawler",
     "Digital Maturity Crawler", "Product Catalog Crawler", "LinkedIn Profile Crawler",
     "TED Contract Awards Crawler",
     "FDA Recalls Crawler",
+    "Competitor Benchmark",
 ]
 
 
@@ -118,6 +121,8 @@ def eligible_phase7_sources(company: Company) -> set[str]:
             names.add(source)
     if has_credentials("LinkedIn Profile Crawler") and LINKEDIN_LI_AT and any(p.linkedin_url for p in company.people):
         names.add("LinkedIn Profile Crawler")
+    if any(comp.homepage_url for comp in company.competitors):
+        names.add("Competitor Benchmark")
     return names
 
 
@@ -197,6 +202,13 @@ class SourceStep:
 # other Phase 7 source) — placed third rather than guessed into the top two so it doesn't disturb
 # the measured ordering above it until it has its own real numbers.
 _SLOWEST_FIRST = (
+    # Competitor Benchmark goes first, not because it's measured slowest, but because it's a
+    # multiple of Digital Maturity Crawler's own runtime (one full call per named competitor) —
+    # submitting it earliest gives it the most headroom in a concurrent run. It still depends on
+    # this company's OWN Digital Maturity Crawler signal already being written from a PRIOR run
+    # (see competitor_benchmark.py's module docstring) — submission order here doesn't guarantee
+    # that; it only affects which thread starts first.
+    "Competitor Benchmark",
     "Company Website Crawler", "Digital Maturity Crawler", "Product Catalog Crawler", "Job Postings Crawler",
     "Directory Listing Crawler", "Review Crawler", "LinkedIn Profile Crawler", "News Signals Crawler",
     "Innovation Participation Crawler", "TED Contract Awards Crawler", "FDA Recalls Crawler",
@@ -275,6 +287,7 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
             SourceStep("LinkedIn Profile Crawler", linkedin_profile_crawler.sync_linkedin_profiles, 7),
             SourceStep("TED Contract Awards Crawler", ted_awards_crawler.sync_ted_awards, 7),
             SourceStep("FDA Recalls Crawler", fda_recalls_crawler.sync_fda_recalls, 7),
+            SourceStep("Competitor Benchmark", competitor_benchmark.sync_competitor_benchmark, 7),
         ]
     return steps, after
 

@@ -50,6 +50,39 @@ PHASE = 7
 # precision. Capped at 8, matching the existing Wayback-derived age's own cap just below.
 _VISION_SCORE_TO_AGE_YEARS = {5: 0.5, 4: 2.0, 3: 4.0, 2: 6.0, 1: 8.0}
 
+# Default run_timeout for one call to this crawler — Wayback's deliberately rate-limited CDX
+# calls plus (when configured) a browser launch + screenshot + vision call. Exported so
+# scrapers/competitor_benchmark.py's repeated calls (once per named competitor) budget the same.
+RUN_TIMEOUT_SECONDS = 250
+
+
+def build_crawler_env() -> dict:
+    """
+    The env_overrides every call to this crawler needs: Wayback's courtesy delay, plus
+    VISION_LLM_* (mirrors company_website_crawler.py's own LLM_* env-passthrough exactly — same
+    fallback-chain shape, separate namespace, see config.py) when a vision key is configured.
+    Pulled out so scrapers/competitor_benchmark.py's calls (run against named competitors'
+    homepages, not a tracked Company) stay configured identically to this crawler's own.
+    """
+    env = {"WAYBACK_DELAY_MS": "1500"}
+    if CRAWLER_VISION_LLM_API_KEY:
+        env.update({"VISION_LLM_API_KEY": CRAWLER_VISION_LLM_API_KEY,
+                    "VISION_LLM_BASE_URL": CRAWLER_VISION_LLM_BASE_URL,
+                    "VISION_LLM_MODEL": CRAWLER_VISION_LLM_MODEL})
+        if CRAWLER_VISION_LLM_FALLBACK_API_KEY:
+            env["VISION_LLM_FALLBACK_API_KEY"] = CRAWLER_VISION_LLM_FALLBACK_API_KEY
+            if CRAWLER_VISION_LLM_FALLBACK_BASE_URL:
+                env["VISION_LLM_FALLBACK_BASE_URL"] = CRAWLER_VISION_LLM_FALLBACK_BASE_URL
+            if CRAWLER_VISION_LLM_FALLBACK_MODEL:
+                env["VISION_LLM_FALLBACK_MODEL"] = CRAWLER_VISION_LLM_FALLBACK_MODEL
+            for extra in CRAWLER_VISION_LLM_EXTRA_FALLBACKS:
+                env[f"VISION_LLM_FALLBACK{extra['suffix']}_API_KEY"] = extra["api_key"]
+                if extra["base_url"]:
+                    env[f"VISION_LLM_FALLBACK{extra['suffix']}_BASE_URL"] = extra["base_url"]
+                if extra["model"]:
+                    env[f"VISION_LLM_FALLBACK{extra['suffix']}_MODEL"] = extra["model"]
+    return env
+
 
 def _derive_signals(row: dict) -> dict:
     """
@@ -189,33 +222,12 @@ def sync_digital_maturity(company, db_session: Session) -> dict:
         # 1.5s between Wayback calls (crawler default 0.8s): several companies now run in
         # parallel, and archive.org rate-limits per IP — in the 2026-09-18 batch 71% of
         # CDX calls came back 503/timeout. The crawler also retries each call with
-        # back-off, so the subprocess budget grows to match.
-        #
-        # VISION_LLM_* mirrors company_website_crawler.py's own env-passthrough exactly (same
-        # fallback-chain shape, separate namespace — see config.py). Added 80s to run_timeout for
-        # the browser launch + screenshot + vision call this phase adds on top of the existing
-        # Wayback/BuiltWith budget above; unset VISION_LLM_API_KEY means that phase is skipped
-        # inside the TS crawler itself (no browser launched at all), so this budget is headroom,
-        # not a cost paid on every run.
-        env = {"WAYBACK_DELAY_MS": "1500"}
-        if CRAWLER_VISION_LLM_API_KEY:
-            env.update({"VISION_LLM_API_KEY": CRAWLER_VISION_LLM_API_KEY,
-                        "VISION_LLM_BASE_URL": CRAWLER_VISION_LLM_BASE_URL,
-                        "VISION_LLM_MODEL": CRAWLER_VISION_LLM_MODEL})
-            if CRAWLER_VISION_LLM_FALLBACK_API_KEY:
-                env["VISION_LLM_FALLBACK_API_KEY"] = CRAWLER_VISION_LLM_FALLBACK_API_KEY
-                if CRAWLER_VISION_LLM_FALLBACK_BASE_URL:
-                    env["VISION_LLM_FALLBACK_BASE_URL"] = CRAWLER_VISION_LLM_FALLBACK_BASE_URL
-                if CRAWLER_VISION_LLM_FALLBACK_MODEL:
-                    env["VISION_LLM_FALLBACK_MODEL"] = CRAWLER_VISION_LLM_FALLBACK_MODEL
-                for extra in CRAWLER_VISION_LLM_EXTRA_FALLBACKS:
-                    env[f"VISION_LLM_FALLBACK{extra['suffix']}_API_KEY"] = extra["api_key"]
-                    if extra["base_url"]:
-                        env[f"VISION_LLM_FALLBACK{extra['suffix']}_BASE_URL"] = extra["base_url"]
-                    if extra["model"]:
-                        env[f"VISION_LLM_FALLBACK{extra['suffix']}_MODEL"] = extra["model"]
+        # back-off, so the subprocess budget grows to match. 80s of RUN_TIMEOUT_SECONDS is
+        # headroom for the browser launch + screenshot + vision call build_crawler_env() adds
+        # when configured; unset VISION_LLM_API_KEY means that phase is skipped inside the TS
+        # crawler itself (no browser launched at all), so it's headroom, not a cost paid on every run.
         rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}],
-                               env_overrides=env, run_timeout=250)
+                               env_overrides=build_crawler_env(), run_timeout=RUN_TIMEOUT_SECONDS)
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("digital-maturity-crawler returned no row for this company")

@@ -142,7 +142,7 @@ GAP_PLAN = {
                                          "commoditized) - deliberately not built as a website-LLM field for that reason, same posture as the "
                                          "declined regulatory_compliance_exposure inference", "needs a real competitor-landscape source"),
     "product_type_tag": ("BUILD", "website LLM classification of the home page (context, not scored - lowest priority)", "website LLM"),
-    "competitor_digital_gap": ("BUILD", "computed: a company's digital maturity vs its sector peers - needs website_digital_maturity filled first", "small compute, after RUN"),
+    "competitor_digital_gap": ("RUN", "competitor benchmark crawler (2026-10-08) - re-runs digital-maturity crawler against named competitors recorded in Company Intelligence; needs competitors recorded AND this company's own website_digital_maturity already filled", "run it"),
     "erp_systems_age": ("BUILD", "keyword scan of job-ad TEXT for ERP vendors (SAP, Navision, AS/400, Zucchetti, TeamSystem...) - the "
                                  "crawler only keeps titles today", "extend job crawler"),
     "regulatory_compliance_exposure": ("BUILD", "a curated, dated lookup table from EUR-Lex (NIS2, Machinery Regulation, Cyber Resilience Act, "

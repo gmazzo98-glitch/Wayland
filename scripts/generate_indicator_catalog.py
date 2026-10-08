@@ -41,6 +41,10 @@ OUT_PATH = Path(__file__).resolve().parent.parent / "docs" / "indicator_catalog.
 # Substring -> producer file, matched against each GAP_PLAN row's "where" text. Order matters
 # (first match wins) since some substrings nest (e.g. "AIDA" inside a longer phrase).
 PRODUCER_FILE_HINTS = [
+    # Checked before "digital-maturity crawler" below: this status_note's text names that
+    # crawler too (it's what gets re-run per competitor), which would otherwise shadow the
+    # actual producer for this indicator.
+    ("competitor benchmark", "scrapers/competitor_benchmark.py"),
     ("sync_management_composition_signals", "company_service.py"),
     ("sync_succession_signal", "company_service.py"),
     ("company_people roster", "company_service.py"),

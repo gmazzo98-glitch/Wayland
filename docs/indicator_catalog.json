@@ -2089,15 +2089,15 @@
       "source_system": "Company Website",
       "proxy": "Point gap between this company's Digital Maturity/Online Presence scores and 2-3 named direct competitors' same scores",
       "rationale": "A company falling visibly behind named competitors on digital adoption faces direct competitive pressure — a sharper, more specific NEED signal than an absolute digital-maturity score alone.",
-      "comment": "Explicitly a derived variable, not a new independent data source: re-runs Digital Maturity of Core Website and Online Market Presence against named competitors. No adapter built yet — needs a competitor-tracking data model extension first (which companies are whose competitors isn't captured anywhere today); record manually via Company Intelligence until then.",
+      "comment": "Explicitly a derived variable, not a new independent data source: re-runs Digital Maturity of Core Website and Online Market Presence against named competitors. scrapers/competitor_benchmark.py (2026-10-08) does exactly this, against models.Competitor rows recorded by hand in Company Intelligence (deliberately not auto-discovered — see that model's own docstring) — skips honestly when none are recorded, or when this company's own website_digital_maturity hasn't been measured yet.",
       "source_description": "Derived from Digital Maturity of Core Website and Online Market Presence rows, applied to named competitors",
       "freshness_days": 180,
       "raw_min": 0,
       "raw_max": 60,
-      "status": "BUILD",
-      "status_note": "computed: a company's digital maturity vs its sector peers - needs website_digital_maturity filled first",
-      "status_effort": "small compute, after RUN",
-      "producer_file": null
+      "status": "RUN",
+      "status_note": "competitor benchmark crawler (2026-10-08) - re-runs digital-maturity crawler against named competitors recorded in Company Intelligence; needs competitors recorded AND this company's own website_digital_maturity already filled",
+      "status_effort": "run it",
+      "producer_file": "scrapers/competitor_benchmark.py"
     },
     {
       "key": "board_innovation_statements",
