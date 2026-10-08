@@ -616,3 +616,67 @@ def test_digital_maturity_no_wayback_coverage_writes_nothing():
                           "social_presence_links": "not_found"},
     }
     assert digital_maturity_crawler._derive_signals(row) == {}
+
+
+def test_digital_maturity_vision_fills_in_when_wayback_has_no_coverage():
+    """The vision pass's whole reason to exist: Wayback found nothing, but a homepage
+    screenshot was successfully assessed, so website_digital_maturity should not be left
+    blank just because the archive never captured this site."""
+    row = {
+        "last_major_redesign_estimate": {"estimated_year": None, "comparisons": []},
+        "has_ecommerce": None,
+        "social_presence_links": [],
+        "snapshot_count_last_5_years": None,
+        "visual_assessment": {
+            "design_modernity_score": 2, "design_modernity_reasoning": "dense text, dated fonts",
+            "chatbot_or_ai_assistant_present": False, "personalization_signals_present": False,
+            "personalization_evidence": None, "ecommerce_ux_quality": "not_applicable",
+            "summary": "A dated-looking brochure site with no shop.",
+        },
+        "field_status": {"last_major_redesign_estimate": "not_found", "has_ecommerce": "not_found",
+                          "social_presence_links": "not_found", "visual_assessment": "value"},
+    }
+    signals = digital_maturity_crawler._derive_signals(row)
+    assert_signal(signals["website_digital_maturity"], 6.0, "present")
+    assert "vision" in signals["website_digital_maturity"]["summary"].lower()
+    assert signals["website_digital_maturity"]["evidence"]["design_modernity_score"] == 2
+    assert signals["website_digital_maturity"]["evidence"]["visual_assessment"]["summary"] == row["visual_assessment"]["summary"]
+    # No Wayback/ecommerce/social coverage at all, so the composite still correctly writes nothing.
+    assert "online_market_presence" not in signals
+
+
+def test_digital_maturity_vision_never_overrides_a_real_wayback_estimate():
+    """A real measured redesign year must win over a qualitative vision guess — vision is
+    attached as extra evidence on the same signal, not a competing value."""
+    row = {
+        "last_major_redesign_estimate": {"estimated_year": datetime.utcnow().year - 3},
+        "has_ecommerce": None,
+        "social_presence_links": [],
+        "snapshot_count_last_5_years": None,
+        "visual_assessment": {
+            "design_modernity_score": 1, "design_modernity_reasoning": "looks ancient",
+            "chatbot_or_ai_assistant_present": False, "personalization_signals_present": False,
+            "personalization_evidence": None, "ecommerce_ux_quality": "not_applicable",
+            "summary": "Looks dated.",
+        },
+        "field_status": {"last_major_redesign_estimate": "value", "has_ecommerce": "not_found",
+                          "social_presence_links": "not_found", "visual_assessment": "value"},
+    }
+    signals = digital_maturity_crawler._derive_signals(row)
+    assert_signal(signals["website_digital_maturity"], 3.0, "present")  # Wayback's 3 years, not vision's 8-year bucket
+    assert signals["website_digital_maturity"]["evidence"]["estimated_redesign_year"] == datetime.utcnow().year - 3
+    assert signals["website_digital_maturity"]["evidence"]["visual_assessment"]["design_modernity_score"] == 1
+
+
+def test_digital_maturity_vision_not_found_writes_nothing_extra():
+    """A skipped/failed vision pass (no key, robots disallow, blocked page, ...) must not be
+    mistaken for a checked absence — same not_found convention as every other field here."""
+    row = {
+        "last_major_redesign_estimate": {"estimated_year": None, "comparisons": []},
+        "has_ecommerce": None,
+        "social_presence_links": [],
+        "snapshot_count_last_5_years": None,
+        "field_status": {"last_major_redesign_estimate": "not_found", "has_ecommerce": "not_found",
+                          "social_presence_links": "not_found", "visual_assessment": "not_found"},
+    }
+    assert digital_maturity_crawler._derive_signals(row) == {}

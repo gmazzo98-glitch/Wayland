@@ -33,7 +33,11 @@ CRAWLER_RESOURCES: Dict[str, Tuple[str, ...]] = {
     "directory-listing-crawler": ("browser", "process"),
     "review-crawler": ("browser", "process"),
     "linkedin-profile-crawler": ("browser", "process"),
-    "digital-maturity-crawler": ("wayback", "process"),
+    # "browser" (its new visual-assessment phase screenshots the live homepage) and "vision_llm"
+    # (that phase's own LLM budget — kept separate from "llm" since it's a different provider/
+    # model than company-website-crawler's text extraction, see config.py) were added 2026-10-08
+    # alongside that phase; "wayback" stays for its original Wayback Machine lookups.
+    "digital-maturity-crawler": ("browser", "vision_llm", "wayback", "process"),
     "news-signals-crawler": ("process",),
     "innovation-participation-crawler": ("process",),
 }
@@ -41,7 +45,7 @@ CRAWLER_RESOURCES: Dict[str, Tuple[str, ...]] = {
 # Slots are always taken narrowest first. One fixed global order means two tasks can never each
 # hold what the other is waiting for, and the narrow resource (one LLM slot) is never held idle
 # while its owner queues for a broad one.
-ACQUIRE_ORDER = ("llm", "wayback", "browser", "process")
+ACQUIRE_ORDER = ("llm", "vision_llm", "wayback", "browser", "process")
 
 
 def _env_int(name: str, default: int) -> int:
@@ -64,6 +68,13 @@ def _configured_llm_provider_count() -> int:
     return 1 + sum(1 for s in _LLM_FALLBACK_SUFFIXES if os.getenv(f"CRAWLER_LLM_FALLBACK{s}_API_KEY"))
 
 
+def _configured_vision_llm_provider_count() -> int:
+    """Same idea as _configured_llm_provider_count(), for digital-maturity-crawler's own
+    CRAWLER_VISION_LLM_FALLBACK<N>_API_KEY namespace (config.py) — a separate provider/model
+    from the text crawlers' "llm" budget, so it gets its own resource pool here too."""
+    return 1 + sum(1 for s in _LLM_FALLBACK_SUFFIXES if os.getenv(f"CRAWLER_VISION_LLM_FALLBACK{s}_API_KEY"))
+
+
 def default_capacities(cpu_count: Optional[int] = None) -> Dict[str, int]:
     """Capacities for THIS machine. Every value is overridable from the environment."""
     cpus = cpu_count or os.cpu_count() or 4
@@ -76,6 +87,9 @@ def default_capacities(cpu_count: Optional[int] = None) -> Dict[str, int]:
         # limit, not concurrency, so this only rises with another real account (CRAWLER_LLM_FALLBACK_
         # API_KEY, CRAWLER_LLM_FALLBACK2_API_KEY, ...), never just by raising this number.
         "llm": _env_int("CRAWL_LLM_SLOTS", _configured_llm_provider_count()),
+        # digital-maturity-crawler's visual-assessment phase: its own provider budget, same
+        # "only another real account raises this" rule as "llm" above.
+        "vision_llm": _env_int("CRAWL_VISION_LLM_SLOTS", _configured_vision_llm_provider_count()),
         # archive.org rate-limits per IP.
         "wayback": _env_int("CRAWL_WAYBACK_SLOTS", 2),
     }

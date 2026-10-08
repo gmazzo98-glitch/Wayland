@@ -127,21 +127,43 @@ CRAWLER_LLM_FALLBACK_MODEL = os.getenv("CRAWLER_LLM_FALLBACK_MODEL")
 CRAWLER_LLM_EXTRA_FALLBACK_SUFFIXES = ("2", "3", "4", "5")
 
 
-def _numbered_llm_fallbacks(getenv=os.getenv) -> list:
+def _numbered_llm_fallbacks(prefix: str = "CRAWLER_LLM", getenv=os.getenv) -> list:
     """Pulled out as a function of `getenv` (defaults to os.getenv) purely so a test can pass a
-    fake env dict's .get instead of monkeypatching the real environment for a module-level constant."""
+    fake env dict's .get instead of monkeypatching the real environment for a module-level constant.
+    `prefix` lets the same numbered-fallback shape serve more than one crawler's own env
+    namespace (see CRAWLER_VISION_LLM_EXTRA_FALLBACKS below) without duplicating this loop."""
     fallbacks = []
     for s in CRAWLER_LLM_EXTRA_FALLBACK_SUFFIXES:
-        key = getenv(f"CRAWLER_LLM_FALLBACK{s}_API_KEY")
+        key = getenv(f"{prefix}_FALLBACK{s}_API_KEY")
         if not key:
             continue
         fallbacks.append({"suffix": s, "api_key": key,
-                            "base_url": getenv(f"CRAWLER_LLM_FALLBACK{s}_BASE_URL"),
-                            "model": getenv(f"CRAWLER_LLM_FALLBACK{s}_MODEL")})
+                            "base_url": getenv(f"{prefix}_FALLBACK{s}_BASE_URL"),
+                            "model": getenv(f"{prefix}_FALLBACK{s}_MODEL")})
     return fallbacks
 
 
 CRAWLER_LLM_EXTRA_FALLBACKS = _numbered_llm_fallbacks()
+
+# digital-maturity-crawler's visual-assessment phase (homepage screenshot -> vision LLM) — a
+# SEPARATE provider namespace from CRAWLER_LLM_* above, even though both commonly point at the
+# same Groq account: gpt-oss-120b (the text crawlers' default) is not vision-capable, so the two
+# phases need their own model names, which means their own env vars. Same optional-enhancement
+# posture as BUILTWITH_API_KEY: missing key just means visual_assessment is not_found for every
+# company (website_digital_maturity falls back to the Wayback structural diff alone), not a
+# failure — see scrapers/digital_maturity_crawler.py and that crawler's own README.
+CRAWLER_VISION_LLM_API_KEY = os.getenv("CRAWLER_VISION_LLM_API_KEY")
+CRAWLER_VISION_LLM_BASE_URL = os.getenv("CRAWLER_VISION_LLM_BASE_URL", "https://api.groq.com/openai/v1")
+# Groq's free tier currently serves llama-3.2-11b-vision-preview — see
+# Scraper/crawlers/digital-maturity-crawler/.env.example for current free alternatives
+# (Gemini, OpenRouter, local Ollama) and that crawler's visionLlm.ts for why a "preview" model
+# name needs re-checking against GET /v1/models if it ever 404s.
+CRAWLER_VISION_LLM_MODEL = os.getenv("CRAWLER_VISION_LLM_MODEL", "llama-3.2-11b-vision-preview")
+
+CRAWLER_VISION_LLM_FALLBACK_API_KEY = os.getenv("CRAWLER_VISION_LLM_FALLBACK_API_KEY")
+CRAWLER_VISION_LLM_FALLBACK_BASE_URL = os.getenv("CRAWLER_VISION_LLM_FALLBACK_BASE_URL")
+CRAWLER_VISION_LLM_FALLBACK_MODEL = os.getenv("CRAWLER_VISION_LLM_FALLBACK_MODEL")
+CRAWLER_VISION_LLM_EXTRA_FALLBACKS = _numbered_llm_fallbacks("CRAWLER_VISION_LLM")
 
 # news-signals-crawler / innovation-participation-crawler: without a real key
 # these default to SEARCH_PROVIDER=mock, which returns FIXED FAKE Wikipedia

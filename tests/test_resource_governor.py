@@ -163,10 +163,12 @@ def test_every_shipped_crawler_is_known_to_the_governor():
 
 
 def test_default_capacities_follow_the_machine_and_the_environment(monkeypatch):
-    for name in ("CRAWL_MAX_PROCESSES", "CRAWL_BROWSER_SLOTS", "CRAWL_LLM_SLOTS", "CRAWL_WAYBACK_SLOTS",
-                 "CRAWLER_LLM_FALLBACK_API_KEY", "CRAWLER_LLM_FALLBACK2_API_KEY", "CRAWLER_LLM_FALLBACK3_API_KEY"):
+    for name in ("CRAWL_MAX_PROCESSES", "CRAWL_BROWSER_SLOTS", "CRAWL_LLM_SLOTS", "CRAWL_VISION_LLM_SLOTS",
+                 "CRAWL_WAYBACK_SLOTS", "CRAWLER_LLM_FALLBACK_API_KEY", "CRAWLER_LLM_FALLBACK2_API_KEY",
+                 "CRAWLER_LLM_FALLBACK3_API_KEY", "CRAWLER_VISION_LLM_FALLBACK_API_KEY",
+                 "CRAWLER_VISION_LLM_FALLBACK2_API_KEY", "CRAWLER_VISION_LLM_FALLBACK3_API_KEY"):
         monkeypatch.delenv(name, raising=False)
-    assert rg.default_capacities(8) == {"process": 6, "browser": 4, "llm": 1, "wayback": 2}
+    assert rg.default_capacities(8) == {"process": 6, "browser": 4, "llm": 1, "vision_llm": 1, "wayback": 2}
     assert rg.default_capacities(2)["browser"] == 2 and rg.default_capacities(2)["process"] == 3
     monkeypatch.setenv("CRAWLER_LLM_FALLBACK_API_KEY", "k")
     assert rg.default_capacities(8)["llm"] == 2, "a second provider doubles the LLM budget"
