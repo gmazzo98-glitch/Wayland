@@ -177,6 +177,20 @@ def test_ensure_built_raises_for_missing_crawler_folder(monkeypatch, tmp_path):
         node_crawler_base.crawler_dir("does-not-exist")
 
 
+def test_scraper_crawler_names_counts_only_package_dirs(monkeypatch, tmp_path):
+    """T02: UI copy must count real Node crawler packages (package.json subfolders),
+    and return [] — never crash — when the Scraper checkout is absent (hosted deploys)."""
+    for name in ("digital-maturity-crawler", "ted-contract-awards-crawler"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "package.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "not-a-crawler").mkdir()  # no package.json -> not counted
+    monkeypatch.setattr(node_crawler_base, "SCRAPER_CRAWLERS_DIR", str(tmp_path))
+    assert node_crawler_base.scraper_crawler_names() == ["digital-maturity-crawler", "ted-contract-awards-crawler"]
+    missing = tmp_path / "no-such-root"
+    monkeypatch.setattr(node_crawler_base, "SCRAPER_CRAWLERS_DIR", str(missing))
+    assert node_crawler_base.scraper_crawler_names() == []
+
+
 def test_run_ts_crawler_raises_on_nonzero_exit(monkeypatch, tmp_path):
     crawler_root = tmp_path / "fake-crawler"
     (crawler_root / "dist").mkdir(parents=True)

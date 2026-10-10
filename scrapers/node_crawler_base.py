@@ -72,6 +72,21 @@ def _with_soft_deadline(env_overrides: Optional[Dict[str, str]], run_timeout: in
     return env
 
 
+def scraper_crawler_names() -> List[str]:
+    """Names of the Node crawler packages actually checked out under
+    SCRAPER_CRAWLERS_DIR (one entry per subfolder containing package.json),
+    sorted — the honest, self-updating count for UI copy (e.g. Pipeline
+    Health's Phase 7 caption). Returns [] when the Scraper folder isn't
+    checked out (hosted deployments; see worker_hub.crawler_env_available).
+    This deliberately counts Node crawler packages only, unlike
+    company_service.PHASE_7_SOURCES, which also lists the derived
+    Competitor Benchmark."""
+    root = Path(SCRAPER_CRAWLERS_DIR)
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.iterdir() if (p / "package.json").is_file())
+
+
 class CrawlerRunError(RuntimeError):
     """Raised for any failure to invoke or parse a Node crawler — always caught
     by the calling wrapper's fetch_live() and turned into a simulate() fallback

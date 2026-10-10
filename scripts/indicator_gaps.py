@@ -128,8 +128,9 @@ GAP_PLAN = {
     "logistics_cost": ("BUILD", "not separable: Italian statements fold freight into B7. Proxy or first-contact", "proxy / manual"),
     "energy_cost": ("BUILD", "not reported separately in Italian statements; sector-level ISTAT/Eurostat energy intensity is the only "
                              "external proxy - otherwise first-contact", "proxy / manual"),
-    "energy_transition_capex": ("BUILD", "not in statements. Signals: sustainability report (website crawler), GSE/Transizione 4.0-5.0 incentives, "
-                                         "press. Weak; consider first-contact", "hard"),
+    "energy_transition_capex": ("RUN", "company-website crawler (2026-10-08, commit ed30596): deep-reads sustainability report PDFs linked "
+                                     "from the site; a report rarely states a capex figure, so values are honest but sparse. Coded, 0% population "
+                                     "only because it has never been run at volume (T01)", "Phase 7"),
     "subsidiary_participations": ("IMPORT", "WAYLAND_STRUCTURE_LEGAL_OWNERSHIP export, 'Numero di partecipazioni disponibili' (622 companies have some) "
                                              "+ the 'Partecipate' list with %", "map columns"),
     "private_funding": ("IMPORT", "WAYLAND_SHAREHOLDERS_CONTROL export, 'Azionisti Tipo' (shareholder type, to detect PE / VC / financial holders) "
@@ -143,8 +144,8 @@ GAP_PLAN = {
                                          "declined regulatory_compliance_exposure inference", "needs a real competitor-landscape source"),
     "product_type_tag": ("BUILD", "website LLM classification of the home page (context, not scored - lowest priority)", "website LLM"),
     "competitor_digital_gap": ("RUN", "competitor benchmark crawler (2026-10-08) - re-runs digital-maturity crawler against named competitors recorded in Company Intelligence; needs competitors recorded AND this company's own website_digital_maturity already filled", "run it"),
-    "erp_systems_age": ("BUILD", "keyword scan of job-ad TEXT for ERP vendors (SAP, Navision, AS/400, Zucchetti, TeamSystem...) - the "
-                                 "crawler only keeps titles today", "extend job crawler"),
+    "erp_systems_age": ("RUN", "job-postings crawler (2026-10-08, commit 9d33037): keyword scan of job-ad TEXT for ERP vendors (SAP, Navision, "
+                               "AS/400, Zucchetti, TeamSystem...). Coded, 0% population only because it has never been run at volume (T01)", "Phase 7"),
     "regulatory_compliance_exposure": ("BUILD", "a curated, dated lookup table from EUR-Lex (NIS2, Machinery Regulation, Cyber Resilience Act, "
                                                 "AI Act, CBAM) keyed by NACE and size. For this cohort (all NACE C28, 50-99 staff) the sector/size part is "
                                                 "nearly constant - only the company-specific part discriminates. Deliberately not scraped: "
