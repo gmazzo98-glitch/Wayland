@@ -11,11 +11,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-Add-Type -AssemblyName System.Net.Http
-$script:WorkerInfo = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($WorkerInfoBase64)) | ConvertFrom-Json
-$script:WorkerConfig = Get-Content -LiteralPath (Join-Path $Dir 'worker.config.json') -Raw | ConvertFrom-Json
 
 $Dir = $Dir.TrimEnd('\')
 $parent = Split-Path $Dir -Parent
@@ -185,6 +180,17 @@ function Remove-TreeWithRetry([string]$Path) {
 
 try {
   Log "Updating $Dir to build $ExpectedBuild"
+  # Everything from here down used to run before this try block, so a bad environment (TLS
+  # setup, a missing assembly, or a WorkerInfoBase64 payload mangled on the way through the
+  # command line) killed the process before it ever logged a line or restarted the worker it
+  # had just replaced — the install looked merely "stuck", with no diagnosis and no recovery,
+  # until the app's own 20-minute grace period lapsed and it reported offline.
+  try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  Add-Type -AssemblyName System.Net.Http
+  $script:WorkerInfo = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($WorkerInfoBase64)) | ConvertFrom-Json
+  $script:WorkerConfig = Get-Content -LiteralPath (Join-Path $Dir 'worker.config.json') -Raw | ConvertFrom-Json
+
   Report-Progress 'preparing' 'Preparing crawler update' 32
   try { Wait-Process -Id $ParentPid -Timeout 60 -ErrorAction SilentlyContinue } catch { }
   Stop-Workers $Dir
