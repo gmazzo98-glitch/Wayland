@@ -1,43 +1,34 @@
 #!/usr/bin/env python3
-"""Wayland Morning Journal — daily generator.
+"""Wayland Morning Journal — daily generator (Google Drive edition).
 
 Fetches the latest commits of the Wayland repository and European/Italian
 startup & SME news feeds, has a Mistral model write the daily report, and
-emails it to the configured recipients through Zoho Mail (Verdantex address),
-mirroring the Email-Automatizer's zoho_service.py.
+saves it as a browsable HTML page into the shared Google Drive folder
+"Wayland Morning Journal" through a Google Apps Script web-app bridge.
 
 Environment variables (GitHub Actions secrets):
-  MISTRAL_API_KEY      - Mistral API key (console.mistral.ai)
-  ZOHO_APP_PASSWORD    - Zoho Mail app password for the Verdantex account
+  MISTRAL_API_KEY     - Mistral API key (console.mistral.ai)
+  JOURNAL_BRIDGE_URL  - deployed Apps Script web app URL
 
 Optional:
-  ZOHO_EMAIL           - sender (default: giorgio@verdantex.io)
-  JOURNAL_RECIPIENTS   - comma-separated (default: gmazzo98@gmail.com,giovannigatti.ita@gmail.com)
-  JOURNAL_REPO         - repo full name (default: gmazzo98-glitch/Wayland)
-  JOURNAL_MODEL        - Mistral model (default: mistral-small-latest)
+  JOURNAL_REPO        - repo full name (default: gmazzo98-glitch/Wayland)
+  JOURNAL_MODEL       - Mistral model (default: mistral-small-latest)
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import smtplib
 import sys
 import traceback
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from html import escape
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 ROME = ZoneInfo("Europe/Rome")
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
-
-# Same host candidates as Email-Automatizer's check_zoho_connection()
-ZOHO_SMTP_HOSTS = ["smtppro.zoho.eu", "smtp.zoho.eu", "smtppro.zoho.com", "smtp.zoho.com"]
-ZOHO_SMTP_PORTS = [587, 465]
 
 RSS_FEEDS = [
     ("EU-Startups", "https://www.eu-startups.com/feed/"),
@@ -59,9 +50,19 @@ def summary(text: str) -> None:
 
 
 def http_get(url: str, headers: dict | None = None, timeout: int = 30) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "wayland-morning-journal/1.2", **(headers or {})})
+    req = urllib.request.Request(url, headers={"User-Agent": "wayland-morning-journal/2.0", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
+
+
+def http_post_json(url: str, payload: dict, timeout: int = 120) -> dict:
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "User-Agent": "wayland-morning-journal/2.0",
+    }, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
 
 
 def strip_html(text: str) -> str:
@@ -120,7 +121,7 @@ def fetch_news(max_days_back: int = 5, max_items_per_feed: int = 12) -> list[dic
     return items
 
 
-def write_report(commits: list[dict], news: list[dict], model: str, recipients: list[str], api_key: str) -> dict:
+def write_report(commits: list[dict], news: list[dict], model: str, api_key: str) -> dict:
     now_rome = datetime.now(ROME)
     subject = f"The Wayland Morning Journal {now_rome:%d.%m.%y}"
 
@@ -131,9 +132,9 @@ def write_report(commits: list[dict], news: list[dict], model: str, recipients: 
         f"- [{n['date']}] ({n['source']}) {n['title']} — {n['description']} Link: {n['link']}" for n in news
     ) or "(no news items found)"
 
-    prompt = f"""Today is {now_rome:%d %B %Y}. You are writing "The Wayland Morning Journal", a daily email report about the Wayland repository (Project Vienna: a Streamlit company-screening dashboard that sources public signals, scores them into indicators, and surfaces pain points and valuations, focused on Italian SMEs) and about the Italian and European startup & SME ecosystem.
+    prompt = f"""Today is {now_rome:%d %B %Y}. You are writing "The Wayland Morning Journal", a daily report about the Wayland repository (Project Vienna: a Streamlit company-screening dashboard that sources public signals, scores them into indicators, and surfaces pain points and valuations, focused on Italian SMEs) and about the Italian and European startup & SME ecosystem.
 
-The email subject is exactly: "{subject}"
+The report title is exactly: "{subject}"
 
 Using the data below, write the report in English, structured in three sections:
 
@@ -151,8 +152,8 @@ GITHUB COMMITS (newest first):
 NEWS ITEMS:
 {news_text}
 
-The report will be emailed to {", ".join(recipients)}.
-Output ONLY the HTML for the email body: a single <div> container (no <html>/<head>/<body>), using <h2> for the three section titles, <h3> and <ul>/<li> for entries, <strong> for emphasis. No inline CSS styles, no <script>, no images."""
+The report will be saved to the shared "Wayland Morning Journal" Google Drive folder, where stakeholders read it every morning.
+Output ONLY the HTML for the report body: a single <div> container (no <html>/<head>/<body>), using <h2> for the three section titles, <h3> and <ul>/<li> for entries, <strong> for emphasis. No inline CSS styles, no <script>, no images."""
 
     body = json.dumps({
         "model": model,
@@ -179,66 +180,48 @@ Output ONLY the HTML for the email body: a single <div> container (no <html>/<he
     return {"html": html, "subject": subject}
 
 
-def send_via_zoho(report: dict, recipients: list[str], sender: str, password: str) -> dict:
-    """Send the report through Zoho Mail SMTP (same settings as Email-Automatizer)."""
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = report["subject"]
-    msg["From"] = f"Wayland Journal <{sender}>"
-    msg["To"] = ", ".join(recipients)
-    html = (
-        '<div style="font-family:Arial,Helvetica,sans-serif;max-width:760px;color:#1a1a1a;line-height:1.5">'
-        f'<h1 style="border-bottom:3px solid #2b6cb0;padding-bottom:8px">{escape(report["subject"])}</h1>'
-        f"{report['html']}"
-        "</div>"
-    )
-    msg.attach(MIMEText(re.sub(r"<[^>]+>", " ", html), "plain"))
-    msg.attach(MIMEText(html, "html"))
+def build_html_document(report: dict) -> str:
+    title = escape(report["subject"])
+    style = ("body{font-family:Arial,Helvetica,sans-serif;max-width:760px;"
+             "margin:24px auto;padding:0 16px;color:#1a1a1a;line-height:1.5}"
+             "h1{border-bottom:3px solid #2b6cb0;padding-bottom:8px}"
+             "h2{color:#2b6cb0}a{color:#2b6cb0}"
+             ".meta{color:#666;font-size:0.9em}")
+    return ("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+            f"<title>{title}</title>\n<style>{style}</style>\n</head>\n<body>\n"
+            f"<h1>{title}</h1>\n<p class=\"meta\">Generated {datetime.now(ROME):%d.%m.%Y %H:%M} Europe/Rome</p>\n"
+            f"{report['html']}\n</body>\n</html>\n")
 
-    password = password.replace(" ", "").strip()  # Zoho app passwords may contain spaces
-    last_error = None
-    for host in ZOHO_SMTP_HOSTS:
-        for port in ZOHO_SMTP_PORTS:
-            try:
-                if port == 465:
-                    with smtplib.SMTP_SSL(host, port, timeout=30) as server:
-                        server.login(sender, password)
-                        server.sendmail(sender, recipients, msg.as_string())
-                else:
-                    with smtplib.SMTP(host, port, timeout=30) as server:
-                        server.ehlo()
-                        server.starttls()
-                        server.ehlo()
-                        server.login(sender, password)
-                        server.sendmail(sender, recipients, msg.as_string())
-                return {"sent": True, "via": f"Zoho SMTP ({host}:{port})", "subject": report["subject"],
-                        "recipients": recipients}
-            except smtplib.SMTPAuthenticationError:
-                raise  # wrong password: no point trying other hosts
-            except Exception as exc:
-                last_error = f"{host}:{port} → {exc.__class__.__name__}: {exc}"
-                continue
-    raise RuntimeError(f"All Zoho SMTP hosts failed. Last error: {last_error}")
+
+def upload_to_drive(bridge_url: str, report: dict, document: str) -> dict:
+    filename = report["subject"] + ".html"
+    resp = http_post_json(bridge_url, {
+        "subject": report["subject"],
+        "filename": filename,
+        "html": document,
+    })
+    if not resp.get("ok"):
+        raise RuntimeError(f"Drive bridge rejected the report: {resp.get('error')}")
+    return {"filename": filename, "detail": resp}
 
 
 def main() -> int:
     api_key = os.environ.get("MISTRAL_API_KEY", "").strip()
-    zoho_password = os.environ.get("ZOHO_APP_PASSWORD", "").strip()
-    sender = os.environ.get("ZOHO_EMAIL", "giorgio@verdantex.io").strip()
-    recipients = [r.strip() for r in os.environ.get(
-        "JOURNAL_RECIPIENTS", "gmazzo98@gmail.com,giovannigatti.ita@gmail.com").split(",") if r.strip()]
+    bridge_url = os.environ.get("JOURNAL_BRIDGE_URL", "").strip()
+    github_token = os.environ.get("GITHUB_TOKEN", "").strip()
     repo = os.environ.get("JOURNAL_REPO", "gmazzo98-glitch/Wayland").strip()
     model = os.environ.get("JOURNAL_MODEL", "mistral-small-latest").strip()
-    github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+
     summary("- MISTRAL_API_KEY: " + ("present" if api_key else "MISSING"))
-    summary("- ZOHO_APP_PASSWORD: " + ("present" if zoho_password else "MISSING"))
+    summary("- JOURNAL_BRIDGE_URL: " + ("present" if bridge_url else "MISSING"))
 
     missing = [name for name, val in (("MISTRAL_API_KEY", api_key),
-                                      ("ZOHO_APP_PASSWORD", zoho_password)) if not val]
+                                       ("JOURNAL_BRIDGE_URL", bridge_url)) if not val]
     if missing:
-        print(f"ERROR: missing required secrets: {', '.join(missing)}. "
-              f"Add them under Settings > Secrets and variables > Actions.")
+        print(f"ERROR: missing required secrets: {', '.join(missing)}.")
+        print("::error::Missing secrets: " + ", ".join(missing) + ". Add them under Settings > Secrets and variables > Actions.")
         summary("**FAILED: missing secrets: " + ", ".join(missing) + "**")
-        print("::error::Missing secrets: " + ", ".join(missing) + ". Add them in Settings > Secrets and variables > Actions with the exact names MISTRAL_API_KEY and ZOHO_APP_PASSWORD.")
         return 1
 
     try:
@@ -246,16 +229,17 @@ def main() -> int:
         news = fetch_news()
         print(f"Fetched {len(commits)} commits and {len(news)} news items.")
         summary(f"- Fetched {len(commits)} commits and {len(news)} news items")
-        report = write_report(commits, news, model, recipients, api_key)
-        status = send_via_zoho(report, recipients, sender, zoho_password)
+        report = write_report(commits, news, model, api_key)
+        document = build_html_document(report)
+        saved = upload_to_drive(bridge_url, report, document)
     except Exception:
         tb_last = traceback.format_exc().strip().splitlines()[-1]
         print("::error::" + tb_last[:250])
-        summary("FAILED with unhandled error:\n\n```\n" + traceback.format_exc() + "\n```")
+        summary("FAILED with unhandled error:\n\n" + "```" + "\n" + traceback.format_exc() + "\n" + "```")
         raise
-    print(f"Email status: {status}")
-    print("::notice::Journal sent via " + status["via"])
-    summary(f"- **Sent via {status['via']} to {', '.join(status['recipients'])}**")
+    print(f"Drive status: {saved['filename']} -> {saved['detail']}")
+    print("::notice::Journal saved to Drive: " + saved["filename"])
+    summary(f"- **Saved to Drive**: {saved['filename']}")
     return 0
 
 
