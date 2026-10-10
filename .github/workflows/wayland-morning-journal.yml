@@ -7,11 +7,6 @@ on:
     paths:
       - "morning_journal/.trigger"
   workflow_dispatch:
-    inputs:
-      recipients:
-        description: "Comma-separated recipient addresses"
-        required: false
-        default: "gmazzo98@gmail.com,giovannigatti.ita@gmail.com"
 
 jobs:
   journal:
@@ -27,19 +22,16 @@ jobs:
         run: |
           FAIL=0
           if [ -z "$MISTRAL_API_KEY" ]; then echo "::error::MISTRAL_API_KEY is empty or missing in repo secrets"; FAIL=1; else echo "::notice::MISTRAL_API_KEY is set"; fi
-          if [ -z "$ZOHO_APP_PASSWORD" ]; then echo "::error::ZOHO_APP_PASSWORD is empty or missing in repo secrets"; FAIL=1; else echo "::notice::ZOHO_APP_PASSWORD is set"; fi
-          echo "::notice::stored secret lengths: MISTRAL_API_KEY=${#MISTRAL_API_KEY} chars, ZOHO_APP_PASSWORD=${#ZOHO_APP_PASSWORD} chars (Zoho app password is 16 chars + optional spaces)"
+          if [ -z "$JOURNAL_BRIDGE_URL" ]; then echo "::error::JOURNAL_BRIDGE_URL is empty or missing in repo secrets"; FAIL=1; else echo "::notice::JOURNAL_BRIDGE_URL is set"; fi
           if [ "$FAIL" = "1" ]; then exit 1; fi
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
-      - name: Generate and send the Wayland Morning Journal
+          JOURNAL_BRIDGE_URL: ${{ secrets.JOURNAL_BRIDGE_URL }}
+      - name: Generate and save the Wayland Morning Journal
         run: python morning_journal/generate_journal.py
         env:
           GITHUB_TOKEN: ${{ github.token }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
-          ZOHO_EMAIL: ${{ vars.ZOHO_EMAIL || 'giorgio@verdantex.io' }}
-          JOURNAL_RECIPIENTS: ${{ inputs.recipients || 'gmazzo98@gmail.com,giovannigatti.ita@gmail.com' }}
+          JOURNAL_BRIDGE_URL: ${{ secrets.JOURNAL_BRIDGE_URL }}
           JOURNAL_REPO: gmazzo98-glitch/Wayland
           JOURNAL_MODEL: ${{ vars.JOURNAL_MODEL || 'mistral-small-latest' }}
