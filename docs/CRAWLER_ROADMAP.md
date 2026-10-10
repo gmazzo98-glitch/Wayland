@@ -163,7 +163,7 @@ re-discover the same blocker.
 
 | ID | Title | Track | Priority | Status | Claimed by | Claimed at (UTC) | Branch |
 |----|-------|-------|----------|--------|------------|-------------------|--------|
-| T01 | Unattended Phase 1/4/7 coverage sweep | Ops | P0 | CLAIMED | Codex 01a127b4 | 2026-10-10 21:25:27 | crawler/T01-coverage-sweep |
+| T01 | Unattended Phase 1/4/7 coverage sweep | Ops | P0 | DONE | Codex 01a127b4 | 2026-10-10 21:25:27 | (merged) |
 | T02 | Fix stale crawler-count/category references | Ops | P0 | DONE | Vibe Code fd5055 | 2026-10-10 21:26:49 | (merged) |
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | CLAIMED | Claude Code 95d22c8c | 2026-10-10 21:28:17 | crawler/T03a-digital-maturity-reliability |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | OPEN | | | |
@@ -245,6 +245,26 @@ sources; `scripts/indicator_gaps.py`'s RUN-category percentages visibly
 improve on a before/after diff. Unit test the backlog-selection logic against
 a fixture DB (file-backed SQLite, not `:memory:` — see Ground rule 4 and
 `tests/test_phase7_batch.py`'s existing pattern for why).
+
+**Results**
+
+- 2026-10-11 (Codex 01a127b4, merged `crawler/T01-coverage-sweep` to
+  master, branch deleted): Added `scripts/coverage_sweep.py` to drain Phase
+  1/4/7 through the existing `CrawlJobManager` in bounded batches. It
+  prioritizes the faster phases, retries unresolved work after a delay,
+  includes Phase 7 runs older than 60 days, observes the queue's resource
+  limits and existing source gates, and exposes progress through
+  `SourceHealth`. Added `tests/test_coverage_sweep.py` outside the declared
+  file list because the acceptance criteria require file-backed SQLite
+  backlog-selection and batch tests; full pytest: 578 passed, 1 skipped.
+  Live verification: 118 Phase 4 and 15 Phase 7 company runs; Google News
+  RSS calls rose 1072→1190 and Digital Maturity, Job Postings, and Directory
+  Listing calls each rose 406→421 after correcting local Temp permissions.
+  `scripts/indicator_gaps.py` moved `tech_stack_intensity` 88%→89%,
+  `online_market_presence` 22%→23%, and
+  `website_digital_maturity` 9%→10%. The 953-company backlog still needs
+  a longer unattended run; some existing source errors from unreachable
+  sites remain. The optional Pipeline Health toggle was not added.
 
 ---
 
