@@ -1,0 +1,30 @@
+name: Wayland Morning Journal
+
+on:
+  schedule:
+    - cron: "30 5 * * *"  # 07:30 Europe/Rome (06:30 in winter)
+  workflow_dispatch:
+    inputs:
+      recipients:
+        description: "Comma-separated recipient addresses"
+        required: false
+        default: "gmazzo98@gmail.com,giovannigatti.ita@gmail.com"
+
+jobs:
+  journal:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate and send the Wayland Morning Journal
+        run: python morning_journal/generate_journal.py
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          JOURNAL_RECIPIENTS: ${{ inputs.recipients || 'gmazzo98@gmail.com,giovannigatti.ita@gmail.com' }}
+          JOURNAL_REPO: gmazzo98-glitch/Wayland
+          JOURNAL_MODEL: ${{ vars.JOURNAL_MODEL || 'mistral-small-latest' }}
