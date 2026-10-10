@@ -165,7 +165,7 @@ re-discover the same blocker.
 |----|-------|-------|----------|--------|------------|-------------------|--------|
 | T01 | Unattended Phase 1/4/7 coverage sweep | Ops | P0 | DONE | Codex 01a127b4 | 2026-10-10 21:25:27 | (merged) |
 | T02 | Fix stale crawler-count/category references | Ops | P0 | DONE | Vibe Code fd5055 | 2026-10-10 21:26:49 | (merged) |
-| T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | CLAIMED | Claude Code 95d22c8c | 2026-10-10 21:28:17 | crawler/T03a-digital-maturity-reliability |
+| T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-10 21:28:17 | (merged) |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | OPEN | | | |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | OPEN | | | |
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | OPEN | | | |
@@ -365,6 +365,66 @@ remember to commit/push there too, see note at the bottom of this file).
 
 **Acceptance criteria:** live-verified error rate materially lower than 33%
 on a real batch of ≥20 companies; existing unit tests still green.
+
+**Results (2026-10-11):** Diagnosed from real logs/live data first, per the
+ticket's own instruction, rather than re-guessing the old Wayback-503 theory.
+Two independent checks pointed away from the crawler's own Wayback/CDX logic:
+(1) a 25-company **sequential, uncontended** `scripts/crawler_bench.py --lanes
+digital` run succeeded on **25/25** companies (0 errors) — the retry/back-off
+logic itself is fine in isolation; (2) while another agent's concurrent
+Phase 7 coverage sweep ran against the live DB at the same time, `SourceHealth`
+for Digital Maturity (→36%), Job Postings (→26%), and Directory Listing
+(→28%) all spiked together — every crawler that shares the `browser`
+resource-governor pool — while Review Crawler (never attempts a live fetch;
+its modes are off by default) stayed at 0%. A captured live error read
+`"digital-maturity-crawler timed out after 250s"`.
+
+**Root cause:** `resource_governor.CRAWLER_RESOURCES` lists `"browser"` and
+`"vision_llm"` for `digital-maturity-crawler` unconditionally, but both are
+only actually used when a vision LLM key is configured (`main.ts`'s
+`hasVisionLlmConfigured()` guard skips the whole screenshot+vision phase
+otherwise) — unconfigured is this deployment's actual state. Since
+`vision_llm`'s default capacity is 1 regardless of configuration, **every**
+call serialized this crawler to one run at a time system-wide (confirmed with
+a synthetic 4-thread test: fully serialized, 0.3s apart) and held a `browser`
+slot for 50-200+s per run the other four browser-using crawlers (job-postings,
+directory-listing, review, company-website) needed, for a run that never
+opens a browser.
+
+**Fix:** `Governor.slot()` now accepts an optional `resources` override
+(defaults to the old static `CRAWLER_RESOURCES` lookup when omitted — fully
+backward compatible for every other crawler), threaded through
+`node_crawler_base.run_ts_crawler()`. Added `digital_maturity_crawler.
+crawler_resources()`, returning `("wayback", "process")` when no vision key
+is configured and the original full set otherwise; wired into both
+`sync_digital_maturity` and `competitor_benchmark.py`'s `_crawl_competitor`
+(same crawler, same fix needed in both callers).
+
+**Live-verified:** a controlled 8-company **concurrent** `--mode queue
+--workers 4` repro (real `CrawlJobManager` + resource-governor path, all
+Phase 7 sources at once) with the fix applied printed `peak slots in use
+{'process': 6, 'browser': 4, 'llm': 2, 'vision_llm': 0, 'wayback': 2}` —
+`vision_llm` never touched, `wayback` reached its intended cap of 2 (multiple
+digital-maturity-crawler runs genuinely concurrent, confirmed in the queue
+manager's own progress log), and **0/8 digital-maturity-crawler errors**.
+Full test suite: 583 passed, 1 skipped (pre-existing), 0 failures.
+
+**Files touched beyond the ticket's declared list** (Ground rule 5):
+`resource_governor.py` (added the `resources` override to `Governor.slot()` —
+additive, no other crawler's behavior changes) and `scrapers/node_crawler_base.py`
+(threaded the new parameter through `run_ts_crawler()`), plus
+`scrapers/competitor_benchmark.py` (T04's sibling caller, needed the same fix).
+
+**Open/out of scope:** this fix addresses the resource-contention mechanism;
+it doesn't rule out Wayback itself still erroring under heavier load than my
+8-company repro reached, so T03a's error rate is worth re-checking against
+`SourceHealth` after a larger real sweep accumulates. Separately noticed (not
+fixed here, different crawler entirely): every company in the concurrent
+repro hit `TED Contract Awards Crawler: ted-awards-crawler exited 1: ERROR
+Error: Invalid Record Length: columns length is 2, got 1 on line 6` —
+consistent across completely different company data, smells like a genuine
+CSV-generation bug in that crawler's input, not a data issue. Flagged
+separately; not in scope for any currently open ticket in this file.
 
 ---
 
