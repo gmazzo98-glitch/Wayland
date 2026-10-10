@@ -23,6 +23,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Report secret availability
+        run: |
+          FAIL=0
+          if [ -z "$MISTRAL_API_KEY" ]; then echo "::error::MISTRAL_API_KEY is empty or missing in repo secrets"; FAIL=1; else echo "::notice::MISTRAL_API_KEY is set"; fi
+          if [ -z "$ZOHO_APP_PASSWORD" ]; then echo "::error::ZOHO_APP_PASSWORD is empty or missing in repo secrets"; FAIL=1; else echo "::notice::ZOHO_APP_PASSWORD is set"; fi
+          [ "$FAIL" = "1" ] && exit 1
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
       - name: Generate and send the Wayland Morning Journal
         run: python morning_journal/generate_journal.py
         env:
