@@ -298,6 +298,10 @@ def worker_status(worker: CrawlerWorker, expected: Optional[Dict[str, Any]] = No
         return result(BROKEN, "Connected, but not working", "The installation's self-test failed.", problems)
     if expected and expected.get("build") and info.get("build") != expected["build"]:
         if info.get("auto_update"):
+            failure = info.get("update_error") or {}
+            if isinstance(failure, dict) and failure.get("message"):
+                return result(OUTDATED, "Automatic update failed",
+                              f"The worker will retry automatically. Last error: {failure['message']}")
             return result(OUTDATED, "Automatic update pending",
                           "A newer crawler set is available. This computer will replace its installation "
                           "automatically as soon as it is not running a crawl.")

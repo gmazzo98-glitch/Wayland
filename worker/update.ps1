@@ -239,7 +239,10 @@ try {
       $statusFile = Join-Path $Dir 'status.json'
       if (Test-Path $statusFile) {
         try { $status = Get-Content $statusFile -Raw | ConvertFrom-Json } catch { $status = $null }
-        if ($status -and $status.state -eq 'connected') { $connected = $true; break }
+        if ($status -and $status.state -eq 'connected' -and $status.selftest.ok) { $connected = $true; break }
+        if ($status -and $status.state -eq 'connected' -and $status.selftest -and -not $status.selftest.ok) {
+          throw 'The updated worker connected, but its self-test failed.'
+        }
         if ($status -and $status.state -eq 'revoked') { throw 'Vienna rejected the updated worker.' }
       }
     }
@@ -251,7 +254,6 @@ try {
     Stop-Workers $Dir
     if (Test-Path $Dir) { Remove-Item -LiteralPath $Dir -Recurse -Force }
     Move-Item -LiteralPath $backup -Destination $Dir
-    Start-InstalledWorker $Dir
     throw
   }
 
@@ -261,14 +263,21 @@ try {
   if (Remove-TreeWithRetry $backup) {
     Log 'Update completed and retired installation removed.'
   } else {
+    try { Set-Content -LiteralPath (Join-Path $backup '.vienna-update-complete') -Value $ExpectedBuild -Encoding ASCII }
+    catch { Log ('Could not mark retired folder for later cleanup: ' + $_.Exception.Message) }
     Log "Update completed; retired folder is locked and will be removed on the next worker start: $backup"
   }
   Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
 } catch {
-  Log ('Update failed: ' + $_.Exception.Message)
+  $failure = $_.Exception.Message
+  Log ('Update failed: ' + $failure)
   if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
   # A failure while preparing the staged copy must not leave the existing worker stopped.
-  if (Test-Path (Join-Path $Dir 'node\node.exe')) { Start-InstalledWorker $Dir }
+  if (Test-Path (Join-Path $Dir 'node\node.exe')) {
+    @{ message = $failure; at = (Get-Date).ToUniversalTime().ToString('o') } |
+      ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Dir 'update-failure.json') -Encoding UTF8
+    Start-InstalledWorker $Dir
+  }
   exit 1
 }
 exit 0

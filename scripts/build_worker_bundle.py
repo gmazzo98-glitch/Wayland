@@ -27,13 +27,14 @@ computer reports — so "is the installed scraper set the current one" needs no 
 """
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
+import uuid
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
@@ -57,6 +58,17 @@ ROOT_FILES = {
     "uninstall.bat": "Uninstall Vienna Crawlers.bat",
     "uninstall.ps1": "uninstall.ps1",
 }
+
+
+@contextmanager
+def build_workdir():
+    OUT_DIR.mkdir(exist_ok=True)
+    workdir = OUT_DIR / ("build-" + uuid.uuid4().hex)
+    workdir.mkdir()
+    try:
+        yield workdir
+    finally:
+        shutil.rmtree(workdir)
 
 
 def npm_cmd() -> str:
@@ -93,6 +105,19 @@ def make_lockfile(dependencies: dict, workdir: Path) -> None:
         encoding="utf-8")
     subprocess.run([npm_cmd(), "install", "--package-lock-only", "--omit=dev", "--ignore-scripts",
                     "--no-audit", "--no-fund"], cwd=workdir, check=True, capture_output=True)
+
+
+def reuse_runtime(dependencies: dict, workdir: Path) -> dict:
+    """Reuse the pinned Node and lockfile when only crawler code or worker code changed."""
+    if not OUT_ZIP.is_file():
+        sys.exit("No previous bundle to reuse; build once online without --reuse-runtime.")
+    with zipfile.ZipFile(OUT_ZIP) as previous:
+        old_package = json.loads(previous.read("crawlers/package.json"))
+        if old_package.get("dependencies") != dependencies:
+            sys.exit("Crawler dependencies changed; rebuild online without --reuse-runtime.")
+        (workdir / "package.json").write_bytes(previous.read("crawlers/package.json"))
+        (workdir / "package-lock.json").write_bytes(previous.read("crawlers/package-lock.json"))
+        return json.loads(previous.read("VERSION.json"))["node"]
 
 
 def pin_node() -> dict:
@@ -133,6 +158,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--crawlers-dir", default=None, help="defaults to config.SCRAPER_CRAWLERS_DIR")
     ap.add_argument("--no-build", action="store_true", help="skip 'npm run build' in the TypeScript crawlers")
+    ap.add_argument("--reuse-runtime", action="store_true",
+                    help="reuse the previous bundle's lockfile and pinned Node when dependencies are unchanged")
     args = ap.parse_args()
 
     from config import SCRAPER_CRAWLERS_DIR
@@ -150,11 +177,14 @@ def main() -> None:
         if not (c / "dist" / "main.js").is_file() and not (c / "src" / "main.mjs").is_file():
             sys.exit(f"{c.name} has neither dist/main.js nor src/main.mjs — build it first.")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
+    with build_workdir() as tmp:
         deps = merged_dependencies(crawlers)
         print(f"  merged dependencies: {', '.join(f'{k}@{v}' for k, v in deps.items())}")
-        make_lockfile(deps, tmp)
+        if args.reuse_runtime:
+            node_pin = reuse_runtime(deps, tmp)
+        else:
+            make_lockfile(deps, tmp)
+            node_pin = pin_node()
         entries = collect(crawlers_dir)
         entries.append(("crawlers/package.json", tmp / "package.json"))
         entries.append(("crawlers/package-lock.json", tmp / "package-lock.json"))
@@ -169,7 +199,7 @@ def main() -> None:
         info = {
             "version": version_text, "build": build, "protocol": PROTOCOL,
             "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "crawlers": [c.name for c in crawlers], "node": pin_node(),
+            "crawlers": [c.name for c in crawlers], "node": node_pin,
         }
 
         OUT_DIR.mkdir(exist_ok=True)
@@ -182,8 +212,10 @@ def main() -> None:
                     data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
                 z.writestr(arcname, data)
 
-        # The public relay serves this tiny manifest. Workers download the bundle directly
-        # from the repository, verify this hash, and only then hand it to the atomic updater.
+        # Ship the exact ZIP alongside its manifest in the worker shim deployment. A
+        # separate GitHub download can lag, be private, or be blocked on a helper PC.
+        shim_bundle = ROOT / "worker_shim" / "app" / "vienna-crawler-bundle.zip"
+        shutil.copyfile(OUT_ZIP, shim_bundle)
         manifest = {
             "version": info["version"],
             "build": build,

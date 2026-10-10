@@ -281,6 +281,7 @@ def _render_add_computer(db) -> None:
     name = st.text_input("Name of the computer", placeholder="e.g. Anna's laptop", key="setup_computer_name")
     if st.button("Prepare setup file", type="primary", disabled=not name.strip()):
         try:
+            worker_installer.verify_update_service(WORKER_SHIM_URL)
             worker, token = worker_hub.create_worker(db, name)
             config = worker_installer.make_config(worker.name, token, WORKER_SHIM_URL)
             st.session_state[SETUP_FILE_KEY] = {

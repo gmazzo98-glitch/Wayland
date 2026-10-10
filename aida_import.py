@@ -151,10 +151,15 @@ def series_columns(df: pd.DataFrame, name: str) -> Dict[str, str]:
 
 def read_export(path: Path) -> pd.DataFrame:
     df = pd.read_excel(path, sheet_name="Risultati")
+    original_headers = {normalize_header(c): str(c) for c in df.columns}
     df.columns = [normalize_header(c) for c in df.columns]
+    if len(original_headers) != len(df.columns):
+        raise ValueError(f"Normalizing headers in {path.name} produced duplicate column names")
     df = df.drop_duplicates("BvD ID number")
     df["BvD ID number"] = df["BvD ID number"].astype(str).str.strip()
-    return df.set_index("BvD ID number")
+    df = df.set_index("BvD ID number")
+    df.attrs["original_headers"] = original_headers
+    return df
 
 
 def load_exports(data_dir: Path) -> Dict[str, pd.DataFrame]:
@@ -488,7 +493,9 @@ def build_records(exports: Dict[str, pd.DataFrame]) -> Dict[str, dict]:
                 raw_field_meta[f"{base}_{suffix}"] = {
                     "field": f"{base}_{suffix}",
                     "source_file": exports[export].attrs.get("source_filename") or EXPORT_PATTERNS[export],
-                    "source_header": header,
+                    "source_header": exports[export].attrs.get("original_headers", {}).get(header),
+                    "source_header_is_verbatim": True,
+                    "normalized_header": header,
                     "raw_value": n.get(f"{base}_{suffix}"),
                 }
         for signal_key, draft in signals.items():

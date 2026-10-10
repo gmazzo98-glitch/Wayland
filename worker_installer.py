@@ -17,8 +17,12 @@ File layout, after the stub:
 """
 
 import base64
+import hashlib
 import io
 import json
+import urllib.parse
+import urllib.error
+import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -54,6 +58,32 @@ exit /b %RC%
 
 def bundle_available() -> bool:
     return BUNDLE_PATH.is_file()
+
+
+def verify_update_service(shim_url: str) -> None:
+    """Check the public update path before issuing a PC identity and installer."""
+    local_zip = BUNDLE_PATH.read_bytes()
+    base = shim_url.rstrip("/")
+    try:
+        with urllib.request.urlopen(base + "/update/latest", timeout=10) as response:
+            manifest = json.load(response)
+    except (urllib.error.URLError, ValueError) as exc:
+        raise RuntimeError("The worker update service is not publicly reachable. Check its production URL and deployment protection.") from exc
+    expected = bundle_info()
+    if manifest.get("build") != expected["build"] or manifest.get("sha256") != hashlib.sha256(local_zip).hexdigest():
+        raise RuntimeError("The worker update service has a different crawler build. Deploy the same bundle there first.")
+    download_url = manifest.get("download_url") or ""
+    source = urllib.parse.urlsplit(base)
+    download = urllib.parse.urlsplit(download_url)
+    if (download.scheme, download.netloc) != (source.scheme, source.netloc):
+        raise RuntimeError("The worker update service points to a different download host.")
+    try:
+        with urllib.request.urlopen(download_url, timeout=15) as response:
+            delivered = response.read(len(local_zip) + 1)
+    except urllib.error.URLError as exc:
+        raise RuntimeError("The worker update bundle cannot be downloaded from the public service.") from exc
+    if hashlib.sha256(delivered).hexdigest() != manifest["sha256"]:
+        raise RuntimeError("The worker update service is not delivering the advertised crawler bundle.")
 
 
 _info_cache: Dict[str, Any] = {}
