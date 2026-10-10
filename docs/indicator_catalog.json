@@ -1519,10 +1519,10 @@
       "freshness_days": 365,
       "raw_min": 0,
       "raw_max": 15,
-      "status": "BUILD",
-      "status_note": "keyword scan of job-ad TEXT for ERP vendors (SAP, Navision, AS/400, Zucchetti, TeamSystem...) - the crawler only keeps titles today",
-      "status_effort": "extend job crawler",
-      "producer_file": null
+      "status": "RUN",
+      "status_note": "job-postings crawler (2026-10-08, commit 9d33037): keyword scan of job-ad TEXT for ERP vendors (SAP, Navision, AS/400, Zucchetti, TeamSystem...). Coded, 0% population only because it has never been run at volume (T01)",
+      "status_effort": "Phase 7",
+      "producer_file": "scrapers/job_postings_crawler.py"
     },
     {
       "key": "supply_chain_digitization",
@@ -1794,9 +1794,9 @@
       "freshness_days": 365,
       "raw_min": 0,
       "raw_max": 3,
-      "status": "BUILD",
-      "status_note": "not in statements. Signals: sustainability report (website crawler), GSE/Transizione 4.0-5.0 incentives, press. Weak; consider first-contact",
-      "status_effort": "hard",
+      "status": "RUN",
+      "status_note": "company-website crawler (2026-10-08, commit ed30596): deep-reads sustainability report PDFs linked from the site; a report rarely states a capex figure, so values are honest but sparse. Coded, 0% population only because it has never been run at volume (T01)",
+      "status_effort": "Phase 7",
       "producer_file": "scrapers/company_website_crawler.py"
     },
     {

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from models import SourceHealth, Company
 from adapters import epo_ops, euipo, eu_funding, arbeitsagentur, google_news
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
+from scrapers.node_crawler_base import scraper_crawler_names
 from config import PHASE_CONFIG, SOURCE_CREDENTIAL_VARS, SOURCE_PAID_ENABLE_FLAGS, has_credentials
 
 MODE_BADGES = {"live": "🟢 Live", "simulated": "🧪 Simulated"}
@@ -138,7 +139,7 @@ def render_pipeline_health_page(db: Session):
     st.markdown("&nbsp;")
     st.markdown("**🕸️ Phase 7 — Crawler Deep Enrichment (Node-based, slower)**")
     st.caption(
-        "Each of the 9 crawlers under Scraper/crawlers/ spawns its own subprocess per company "
+        f"Each of the {len(scraper_crawler_names())} crawlers under Scraper/crawlers/ spawns its own subprocess per company "
         "(Node/Playwright startup, sometimes an LLM call). A company's crawlers run at the same time, so it "
         "takes as long as its slowest one (about 2 minutes) rather than the sum, and several companies run in "
         "parallel on top of that. What may really run together is capped per resource — 4 headless Chromium "
