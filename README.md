@@ -22,7 +22,7 @@ scores them into indicators, and surfaces pain points and valuations.
 | `aida_import.py`, `data_repairs.py`, `seed.py` | Data import, repair and demo seeding |
 | `scripts/` | Developer utilities (bundle builder, catalog generator, benchmark, repairs) |
 | `tests/` | Pytest suite (network-free) |
-| `docs/` | Reference docs, incl. `LinkedIn_Extraction_Gem_Prompt.md` (manual LinkedIn CSV-import pipeline) |
+| `docs/` | Reference docs, incl. `LinkedIn_Extraction_Gem_Prompt.md` (manual LinkedIn CSV-import pipeline) and [`CRAWLER_ROADMAP.md`](docs/CRAWLER_ROADMAP.md) — multi-agent work board for crawler/coverage tickets; claim a ticket there before starting crawler work |
 
 ## Running
 
