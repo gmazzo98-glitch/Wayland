@@ -28,6 +28,7 @@ jobs:
           FAIL=0
           if [ -z "$MISTRAL_API_KEY" ]; then echo "::error::MISTRAL_API_KEY is empty or missing in repo secrets"; FAIL=1; else echo "::notice::MISTRAL_API_KEY is set"; fi
           if [ -z "$ZOHO_APP_PASSWORD" ]; then echo "::error::ZOHO_APP_PASSWORD is empty or missing in repo secrets"; FAIL=1; else echo "::notice::ZOHO_APP_PASSWORD is set"; fi
+          echo "::notice::stored secret lengths: MISTRAL_API_KEY=${#MISTRAL_API_KEY} chars, ZOHO_APP_PASSWORD=${#ZOHO_APP_PASSWORD} chars (Zoho app password is 16 chars + optional spaces)"
           if [ "$FAIL" = "1" ]; then exit 1; fi
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
