@@ -23,6 +23,7 @@ import os
 import re
 import smtplib
 import sys
+import traceback
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -45,6 +46,18 @@ RSS_FEEDS = [
 ]
 
 
+def summary(text: str) -> None:
+    """Append a diagnostic line to the GitHub Actions step summary."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(text + "\n")
+    except Exception:
+        pass
+
+
 def http_get(url: str, headers: dict | None = None, timeout: int = 30) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "wayland-morning-journal/1.2", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -57,9 +70,12 @@ def strip_html(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def fetch_commits(repo_full_name: str, per_page: int = 30) -> list[dict]:
+def fetch_commits(repo_full_name: str, per_page: int = 30, token: str = "") -> list[dict]:
     url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page={per_page}"
-    data = json.loads(http_get(url, headers={"Accept": "application/vnd.github+json"}))
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    data = json.loads(http_get(url, headers=headers))
     commits = []
     for c in data:
         commits.append({
@@ -152,7 +168,14 @@ Output ONLY the HTML for the email body: a single <div> container (no <html>/<he
         resp = json.loads(r.read().decode("utf-8"))
     html = (resp["choices"][0]["message"]["content"] or "").strip()
     if html.startswith("```"):
-        html = re.sub(r"^```(html)?s*|s*```$", "", html, flags=re.S).strip()
+        fence = "```"
+        for prefix in (fence + "html\n", fence + "\n", fence + "html", fence):
+            if html.startswith(prefix):
+                html = html[len(prefix):]
+                break
+        if html.endswith(fence):
+            html = html[:-3]
+        html = html.strip()
     return {"html": html, "subject": subject}
 
 
@@ -205,20 +228,30 @@ def main() -> int:
         "JOURNAL_RECIPIENTS", "gmazzo98@gmail.com,giovannigatti.ita@gmail.com").split(",") if r.strip()]
     repo = os.environ.get("JOURNAL_REPO", "gmazzo98-glitch/Wayland").strip()
     model = os.environ.get("JOURNAL_MODEL", "mistral-small-latest").strip()
+    github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    summary("- MISTRAL_API_KEY: " + ("present" if api_key else "MISSING"))
+    summary("- ZOHO_APP_PASSWORD: " + ("present" if zoho_password else "MISSING"))
 
     missing = [name for name, val in (("MISTRAL_API_KEY", api_key),
                                       ("ZOHO_APP_PASSWORD", zoho_password)) if not val]
     if missing:
         print(f"ERROR: missing required secrets: {', '.join(missing)}. "
               f"Add them under Settings > Secrets and variables > Actions.")
+        summary("**FAILED: missing secrets: " + ", ".join(missing) + "**")
         return 1
 
-    commits = fetch_commits(repo)
-    news = fetch_news()
-    print(f"Fetched {len(commits)} commits and {len(news)} news items.")
-    report = write_report(commits, news, model, recipients, api_key)
-    status = send_via_zoho(report, recipients, sender, zoho_password)
+    try:
+        commits = fetch_commits(repo, token=github_token)
+        news = fetch_news()
+        print(f"Fetched {len(commits)} commits and {len(news)} news items.")
+        summary(f"- Fetched {len(commits)} commits and {len(news)} news items")
+        report = write_report(commits, news, model, recipients, api_key)
+        status = send_via_zoho(report, recipients, sender, zoho_password)
+    except Exception:
+        summary("FAILED with unhandled error:\n\n```\n" + traceback.format_exc() + "\n```")
+        raise
     print(f"Email status: {status}")
+    summary(f"- **Sent via {status['via']} to {', '.join(status['recipients'])}**")
     return 0
 
 
