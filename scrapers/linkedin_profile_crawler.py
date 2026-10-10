@@ -8,7 +8,7 @@ and ready, but nothing calls it live until that flag is deliberately flipped.
 Deliberately does NOT write any SignalRecord. The LinkedIn/Bios indicators
 (management_age, mgmt_national_diversity, mgmt_education_level, ...) already
 have a real producer: the manual CSV-import pipeline documented in
-LinkedIn_Extraction_Gem_Prompt.md, which has a human (or a Gemini prompt) read
+docs/LinkedIn_Extraction_Gem_Prompt.md, which has a human (or a Gemini prompt) read
 each exec's profile and infer age/nationality/education — an interpretive
 step this project has deliberately kept out of pure automation. Writing a
 second, automated producer for the same signal_keys here would silently race
