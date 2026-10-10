@@ -164,7 +164,7 @@ re-discover the same blocker.
 | ID | Title | Track | Priority | Status | Claimed by | Claimed at (UTC) | Branch |
 |----|-------|-------|----------|--------|------------|-------------------|--------|
 | T01 | Unattended Phase 1/4/7 coverage sweep | Ops | P0 | CLAIMED | Codex 01a127b4 | 2026-10-10 21:25:27 | crawler/T01-coverage-sweep |
-| T02 | Fix stale crawler-count/category references | Ops | P0 | CLAIMED | Vibe Code fd5055 | 2026-10-10 22:05:00 | crawler/T02-stale-references |
+| T02 | Fix stale crawler-count/category references | Ops | P0 | DONE | Vibe Code fd5055 | 2026-10-10 21:26:49 | (merged) |
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | CLAIMED | Claude Code 95d22c8c | 2026-10-10 21:28:17 | crawler/T03a-digital-maturity-reliability |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | OPEN | | | |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | OPEN | | | |
@@ -283,6 +283,36 @@ current percentage before writing the note.
 **Acceptance criteria:** `pytest tests/test_indicator_gaps.py` still passes;
 `scripts/indicator_gaps.py`'s printed categories match current code reality
 for both keys.
+
+**Results**
+
+- 2026-10-10 (Vibe Code fd5055, merged `crawler/T02-stale-references` →
+  master, branch deleted): Built #1 as a new helper
+  `scrapers/node_crawler_base.scraper_crawler_names()` (counts
+  `package.json`-bearing subfolders of `SCRAPER_CRAWLERS_DIR`, returns `[]`
+  when the sibling `Scraper/` checkout is absent — hosted-deploy posture,
+  same as `worker_hub.crawler_env_available`); `views/pipeline_health.py`'s
+  Phase 7 caption now interpolates it instead of the hardcoded "9". This is
+  a deliberate small addition outside the ticket's file list (the one-line
+  text fix needed a counting source and none existed) — noted here per the
+  claiming protocol. Moved #2: both `erp_systems_age` (producer
+  `scrapers/job_postings_crawler.py`, commit `9d33037`) and
+  `energy_transition_capex` (producer
+  `scrapers/company_website_crawler.py`, commit `ed30596`) confirmed coded in
+  `scrapers/` → moved BUILD → RUN with notes saying "coded, 0% population
+  only because never run at volume (T01)"; regenerated
+  `docs/indicator_catalog.json` via `scripts/generate_indicator_catalog.py`
+  (that generator's own test forces it — derived file, not hand-edited).
+  Added `test_scraper_crawler_names_counts_only_package_dirs` to
+  `tests/test_crawler_scrapers.py`. Verified: `pytest --capture=no`
+  full suite 577 tests, 576 pass, 1 skipped, 0 failures from my change —
+  the one failure (`tests/test_worker_hub.py::test_committed_bundle_contains_the_current_worker_source`,
+  stale `worker_dist` bundle, CRLF mismatch) pre-exists on a clean tree and
+  is outside this ticket's scope. Could not re-run
+  `scripts/indicator_gaps.py` against the live DB to confirm current
+  percentages before writing the notes: no `.env`/`DATABASE_URL` in this
+  environment (only `.env.example`); both producers' existence was verified
+  from code + git history instead.
 
 ---
 
