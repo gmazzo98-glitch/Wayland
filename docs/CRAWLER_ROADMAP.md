@@ -166,7 +166,7 @@ re-discover the same blocker.
 | T01 | Unattended Phase 1/4/7 coverage sweep | Ops | P0 | DONE | Codex 01a127b4 | 2026-10-10 21:25:27 | (merged) |
 | T02 | Fix stale crawler-count/category references | Ops | P0 | DONE | Vibe Code fd5055 | 2026-10-10 21:26:49 | (merged) |
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-10 21:28:17 | (merged) |
-| T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | OPEN | | | |
+| T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | CLAIMED | Antigravity da2ebdec | 2026-10-10 22:38:37 | crawler/T03b-job-postings-reliability |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | OPEN | | | |
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | OPEN | | | |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | OPEN | | | |
