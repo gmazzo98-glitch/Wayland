@@ -16,7 +16,8 @@ on:
 jobs:
   journal:
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +26,7 @@ jobs:
       - name: Generate and send the Wayland Morning Journal
         run: python morning_journal/generate_journal.py
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
           ZOHO_EMAIL: ${{ vars.ZOHO_EMAIL || 'giorgio@verdantex.io' }}
