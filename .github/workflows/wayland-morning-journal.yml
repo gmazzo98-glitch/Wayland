@@ -3,6 +3,9 @@ name: Wayland Morning Journal
 on:
   schedule:
     - cron: "30 5 * * *"  # 07:30 Europe/Rome (06:30 in winter)
+  push:
+    paths:
+      - "morning_journal/.trigger"
   workflow_dispatch:
     inputs:
       recipients:
