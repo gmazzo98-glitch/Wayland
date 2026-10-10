@@ -186,10 +186,21 @@ class Governor:
         return {n: {"capacity": p.capacity, "in_use": p.in_use, "waiting": p.waiting} for n, p in self._pools.items()}
 
     @contextmanager
-    def slot(self, crawler: str):
+    def slot(self, crawler: str, resources: Optional[Iterable[str]] = None):
         """Holds one slot of every resource `crawler` uses for the duration of the block, waiting
-        for them if need be. The wait is reported to the current WaitClock, if any."""
-        wanted = [r for r in ACQUIRE_ORDER if r in CRAWLER_RESOURCES.get(crawler, ()) and r in self._pools]
+        for them if need be. The wait is reported to the current WaitClock, if any.
+
+        `resources`, when given, replaces CRAWLER_RESOURCES's static list for this one call —
+        for a crawler whose real footprint depends on per-call configuration, not just its name.
+        digital-maturity-crawler is the motivating case: its visual-assessment phase (and the
+        "browser"/"vision_llm" slots it needs) only runs when a vision LLM key is configured, but
+        CRAWLER_RESOURCES always listed both, so every call — even the common unconfigured one
+        that never launches a browser — serialized to vision_llm's capacity-1 pool and sat on a
+        browser slot the real browser-using crawlers needed. See scrapers/digital_maturity_crawler.py's
+        crawler_resources().
+        """
+        pool_names = CRAWLER_RESOURCES.get(crawler, ()) if resources is None else resources
+        wanted = [r for r in ACQUIRE_ORDER if r in pool_names and r in self._pools]
         clock = _wait_clock.get()
         held = []
         if clock:

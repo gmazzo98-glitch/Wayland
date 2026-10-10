@@ -51,6 +51,7 @@ def _crawl_competitor(competitor: Competitor) -> dict:
         CRAWLER_DIR, [{"company_id": competitor.id, "homepage_url": competitor.homepage_url}],
         env_overrides=digital_maturity_crawler.build_crawler_env(),
         run_timeout=digital_maturity_crawler.RUN_TIMEOUT_SECONDS,
+        resources=digital_maturity_crawler.crawler_resources(),
     )
     matches = rows_for_company(rows, competitor.id)
     if not matches:

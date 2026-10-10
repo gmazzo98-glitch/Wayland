@@ -84,6 +84,27 @@ def build_crawler_env() -> dict:
     return env
 
 
+def crawler_resources() -> tuple:
+    """
+    The resource_governor slots this crawler actually needs for THIS call — "wayback" and
+    "process" always, plus "browser" and "vision_llm" only when a vision LLM key is configured.
+    Without a key, the TS crawler's whole visual-assessment phase is skipped (no
+    `chromium.launch()` call at all — see main.ts's `hasVisionLlmConfigured()` guard), so
+    claiming those two slots anyway was pure overhead: resource_governor.CRAWLER_RESOURCES
+    lists both unconditionally, and "vision_llm" defaults to capacity 1 regardless of whether
+    it's configured, which meant EVERY call — including the common unconfigured one — fully
+    serialized this crawler to one run at a time system-wide and sat on a "browser" slot the
+    real browser-using crawlers (job-postings, directory-listing, review, company-website)
+    needed, for a run that never opens a browser. Measured live: under Phase 7's concurrent
+    batch crawling, that contention tracked with this crawler's elevated SourceHealth error
+    rate (see docs/CRAWLER_ROADMAP.md ticket T03a). Pulled out so
+    scrapers/competitor_benchmark.py's calls stay governed identically to this crawler's own.
+    """
+    if CRAWLER_VISION_LLM_API_KEY:
+        return ("vision_llm", "wayback", "browser", "process")
+    return ("wayback", "process")
+
+
 def _derive_signals(row: dict) -> dict:
     """
     Same field_status-first rule as the other Phase 7 wrappers: Wayback coverage
@@ -227,7 +248,8 @@ def sync_digital_maturity(company, db_session: Session) -> dict:
         # when configured; unset VISION_LLM_API_KEY means that phase is skipped inside the TS
         # crawler itself (no browser launched at all), so it's headroom, not a cost paid on every run.
         rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}],
-                               env_overrides=build_crawler_env(), run_timeout=RUN_TIMEOUT_SECONDS)
+                               env_overrides=build_crawler_env(), run_timeout=RUN_TIMEOUT_SECONDS,
+                               resources=crawler_resources())
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("digital-maturity-crawler returned no row for this company")

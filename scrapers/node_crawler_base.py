@@ -214,6 +214,7 @@ def run_ts_crawler(
     env_overrides: Optional[Dict[str, str]] = None,
     run_timeout: int = DEFAULT_RUN_TIMEOUT,
     build_timeout: int = DEFAULT_BUILD_TIMEOUT,
+    resources: Optional[Iterable[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Writes input_rows to a temp CSV, runs `node dist/main.js <csv> [extra_args]`
@@ -228,12 +229,16 @@ def run_ts_crawler(
     When the crawl was queued for a Crawler Worker (a helper's own computer), the same
     call is executed there instead — the worker runs this exact command and posts the
     dataset rows back (worker_hub.run_remote); nothing else about the caller changes.
+
+    `resources` overrides resource_governor.CRAWLER_RESOURCES's static per-name list for
+    this one call — see Governor.slot()'s docstring for why (digital_maturity_crawler.py's
+    crawler_resources() is the motivating caller).
     """
     worker_id = _remote_target()
     overrides = _with_soft_deadline(env_overrides, run_timeout)
     if worker_id:
         from worker_hub import run_remote
-        with get_governor(worker_id).slot(name):
+        with get_governor(worker_id).slot(name, resources=resources):
             return run_remote(worker_id, name, "csv",
                               {"input_csv": _csv_text(input_rows), "extra_args": [str(a) for a in (extra_args or [])],
                                "env": overrides},
@@ -256,7 +261,7 @@ def run_ts_crawler(
 
         # The slot is held only while the process runs. Waiting for it is not counted against the
         # calling adapter's time budget (see resource_governor.WaitClock).
-        with get_governor(None).slot(name):
+        with get_governor(None).slot(name, resources=resources):
             try:
                 result = _run(args, cwd=d, env=env, timeout=run_timeout)
             except subprocess.TimeoutExpired as e:
