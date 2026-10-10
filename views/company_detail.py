@@ -1504,6 +1504,9 @@ def _render_tab1_content(db: Session):
             if subsidiaries:
                 st.write("**Subsidiaries:**", ", ".join(s.legal_name for s in subsidiaries))
 
+            from company_service import eligible_phase7_sources
+            eligible = eligible_phase7_sources(company)
+
             st.markdown("&nbsp;")
             col_s1, col_s2, col_s3, col_s4 = st.columns([2, 1, 1, 1])
             with col_s1:
@@ -1532,11 +1535,15 @@ def _render_tab1_content(db: Session):
             with col_s4:
                 st.markdown("&nbsp;")
                 if st.button("🕸️ Run Deep Crawlers", use_container_width=True,
-                             help="Phase 7 — 9 site/news crawlers plus TED public contracts and "
-                                  "sector-relevant FDA recalls "
-                                  "(company site, product catalog, jobs, reviews, news, directories, "
-                                  "innovation participation, digital maturity). Takes a few "
-                                  "minutes; runs in the background — follow it in the widget at the bottom right."):
+                             # Count, not a hand-maintained list of names: Phase 7 has grown twice already
+                             # (TED/FDA, then Competitor Benchmark) and this text went stale both times.
+                             # eligible_phase7_sources already reflects exactly what will run for THIS
+                             # company (e.g. no Job Postings/Digital Maturity without a website_url).
+                             help=f"Phase 7 — {len(eligible)} source(s) applicable to this company (site crawl, "
+                                  "product catalog, jobs, reviews, news, directories, innovation participation, "
+                                  "digital maturity incl. vision assessment, competitor benchmark, TED public "
+                                  "contracts, sector-relevant FDA recalls). Takes a few minutes; runs in the "
+                                  "background — follow it in the widget at the bottom right."):
                     from views.crawl_widget import queue_crawl
                     from views.crawler_setup import resolve_crawl_target
                     where = resolve_crawl_target(db)
@@ -1836,6 +1843,8 @@ def _render_tab1_content(db: Session):
                         "Gender": p.gender or "—",
                         "Nationality": p.nationality or "—",
                         "Status": p.current_or_former or "—",
+                        "Public profile headline": (p.raw_fields or {}).get("linkedin_profile", {}).get("headline") or "—",
+                        "Most recent public role": (p.raw_fields or {}).get("linkedin_profile", {}).get("recent_role") or "—",
                         "Dataset": p.dataset_name,
                     } for p in people]
                     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
