@@ -770,3 +770,15 @@ def test_digital_maturity_vision_not_found_writes_nothing_extra():
                           "social_presence_links": "not_found", "visual_assessment": "not_found"},
     }
     assert digital_maturity_crawler._derive_signals(row) == {}
+
+
+def test_digital_maturity_crawler_resources_match_whether_vision_is_configured(monkeypatch):
+    """The TS crawler only launches a browser and calls a vision LLM when a vision key is
+    configured (main.ts's hasVisionLlmConfigured() guard) — so the resource_governor slots this
+    wrapper claims for a call must track that, not claim "browser"/"vision_llm" unconditionally.
+    See T03a's Results note in docs/CRAWLER_ROADMAP.md for why this mattered live."""
+    monkeypatch.setattr(digital_maturity_crawler, "CRAWLER_VISION_LLM_API_KEY", "")
+    assert digital_maturity_crawler.crawler_resources() == ("wayback", "process")
+
+    monkeypatch.setattr(digital_maturity_crawler, "CRAWLER_VISION_LLM_API_KEY", "a-real-key")
+    assert digital_maturity_crawler.crawler_resources() == ("vision_llm", "wayback", "browser", "process")

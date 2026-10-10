@@ -129,6 +129,47 @@ def test_a_crawler_that_declares_no_resources_is_not_throttled():
         assert all(s["in_use"] == 0 for s in gov.stats().values())
 
 
+def test_slot_resources_override_replaces_the_static_list():
+    """digital-maturity-crawler's real motivation: when a caller knows this particular run won't
+    touch vision_llm/browser (no vision LLM key configured), it can ask for just the resources
+    it actually needs instead of CRAWLER_RESOURCES's static ("browser", "vision_llm", "wayback",
+    "process") — freeing the browser slot for crawlers that do need it, and letting two
+    digital-maturity runs share the wayback pool instead of fully serializing behind vision_llm's
+    capacity of 1."""
+    gov = Governor({"browser": 1, "process": 6, "vision_llm": 1, "wayback": 2})
+    running, peak, lock = [0], [0], threading.Lock()
+
+    def task(_):
+        with gov.slot("digital-maturity-crawler", resources=("wayback", "process")):
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            time.sleep(0.05)
+            with lock:
+                running[0] -= 1
+
+    _run_all(task, 8)
+    assert peak[0] == 2, "overriding to (wayback, process) should allow wayback's capacity of 2, not vision_llm's 1"
+    assert gov.stats()["browser"]["in_use"] == 0, "the override must not touch the browser pool at all"
+
+
+def test_slot_with_no_override_still_uses_the_static_crawler_resources():
+    gov = Governor({"browser": 1, "process": 6, "vision_llm": 1, "wayback": 2})
+    running, peak, lock = [0], [0], threading.Lock()
+
+    def task(_):
+        with gov.slot("digital-maturity-crawler"):  # no override: falls back to CRAWLER_RESOURCES
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            time.sleep(0.05)
+            with lock:
+                running[0] -= 1
+
+    _run_all(task, 4)
+    assert peak[0] == 1, "unconfigured default still includes vision_llm, so capacity stays 1"
+
+
 def test_capacity_can_be_raised_while_tasks_are_waiting():
     gov = Governor({"process": 1})
     started, lock = [], threading.Lock()
