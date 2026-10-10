@@ -164,7 +164,7 @@ re-discover the same blocker.
 | ID | Title | Track | Priority | Status | Claimed by | Claimed at (UTC) | Branch |
 |----|-------|-------|----------|--------|------------|-------------------|--------|
 | T01 | Unattended Phase 1/4/7 coverage sweep | Ops | P0 | CLAIMED | Codex 01a127b4 | 2026-10-10 21:25:27 | crawler/T01-coverage-sweep |
-| T02 | Fix stale crawler-count/category references | Ops | P0 | OPEN | | | |
+| T02 | Fix stale crawler-count/category references | Ops | P0 | CLAIMED | Vibe Code fd5055 | 2026-10-10 22:05:00 | crawler/T02-stale-references |
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | OPEN | | | |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | OPEN | | | |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | OPEN | | | |
