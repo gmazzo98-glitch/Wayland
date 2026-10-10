@@ -1594,8 +1594,8 @@ def _render_tab1_content(db: Session):
             else:
                 st.caption("Maximum of 3 — remove one above to add another.")
 
-        from company_service import eligible_phase7_sources
-        eligible = eligible_phase7_sources(company)
+        # `eligible` was already computed above, for the "Run Deep Crawlers" button's own
+        # help text — reused here rather than calling eligible_phase7_sources(company) twice.
         run_rows = {r.source_name: r for r in db.query(CompanySourceRun).filter_by(
             company_id=company.id, phase=7).all()}
         with st.expander(f"🕸️ Deep crawler coverage ({sum(run_rows.get(s) is not None and run_rows[s].status == 'live' for s in eligible)}/{len(eligible)} sources completed)"):
