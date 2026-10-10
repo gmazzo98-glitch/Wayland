@@ -3,33 +3,26 @@
 
 Fetches the latest commits of the Wayland repository and European/Italian
 startup & SME news feeds, has a Mistral model write the daily report, and
-emails it to the configured recipients.
-
-Sending uses the official Gmail API with OAuth (same approach as the
-Email-Automatizer repo) — no Google App Password required. One-time setup
-with gmail_oauth_setup.py produces a refresh token; see README.md.
+emails it to the configured recipients through Zoho Mail (Verdantex address),
+mirroring the Email-Automatizer's zoho_service.py.
 
 Environment variables (GitHub Actions secrets):
-  MISTRAL_API_KEY        - Mistral API key (console.mistral.ai)
-  GMAIL_CLIENT_ID        - Google Cloud OAuth client ID
-  GMAIL_CLIENT_SECRET    - Google Cloud OAuth client secret
-  GMAIL_REFRESH_TOKEN    - refresh token from gmail_oauth_setup.py
+  MISTRAL_API_KEY      - Mistral API key (console.mistral.ai)
+  ZOHO_APP_PASSWORD    - Zoho Mail app password for the Verdantex account
 
 Optional:
-  GMAIL_APP_PASSWORD     - legacy SMTP fallback (if you ever get one)
-  GMAIL_USER            - sending address (default: gmazzo98@gmail.com)
-  JOURNAL_RECIPIENTS    - comma-separated (default: gmazzo98@gmail.com,giovannigatti.ita@gmail.com)
-  JOURNAL_REPO          - repo full name (default: gmazzo98-glitch/Wayland)
-  JOURNAL_MODEL         - Mistral model (default: mistral-small-latest)
+  ZOHO_EMAIL           - sender (default: giorgio@verdantex.io)
+  JOURNAL_RECIPIENTS   - comma-separated (default: gmazzo98@gmail.com,giovannigatti.ita@gmail.com)
+  JOURNAL_REPO         - repo full name (default: gmazzo98-glitch/Wayland)
+  JOURNAL_MODEL        - Mistral model (default: mistral-small-latest)
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
 import re
+import smtplib
 import sys
-import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -40,8 +33,10 @@ from zoneinfo import ZoneInfo
 
 ROME = ZoneInfo("Europe/Rome")
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
-GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+
+# Same host candidates as Email-Automatizer's check_zoho_connection()
+ZOHO_SMTP_HOSTS = ["smtppro.zoho.eu", "smtp.zoho.eu", "smtppro.zoho.com", "smtp.zoho.com"]
+ZOHO_SMTP_PORTS = [587, 465]
 
 RSS_FEEDS = [
     ("EU-Startups", "https://www.eu-startups.com/feed/"),
@@ -51,7 +46,7 @@ RSS_FEEDS = [
 
 
 def http_get(url: str, headers: dict | None = None, timeout: int = 30) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "wayland-morning-journal/1.1", **(headers or {})})
+    req = urllib.request.Request(url, headers={"User-Agent": "wayland-morning-journal/1.2", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
@@ -161,7 +156,8 @@ Output ONLY the HTML for the email body: a single <div> container (no <html>/<he
     return {"html": html, "subject": subject}
 
 
-def build_mime(report: dict, recipients: list[str], sender: str) -> MIMEMultipart:
+def send_via_zoho(report: dict, recipients: list[str], sender: str, password: str) -> dict:
+    """Send the report through Zoho Mail SMTP (same settings as Email-Automatizer)."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = report["subject"]
     msg["From"] = f"Wayland Journal <{sender}>"
@@ -174,86 +170,56 @@ def build_mime(report: dict, recipients: list[str], sender: str) -> MIMEMultipar
     )
     msg.attach(MIMEText(re.sub(r"<[^>]+>", " ", html), "plain"))
     msg.attach(MIMEText(html, "html"))
-    return msg
 
-
-def gmail_api_access_token(client_id: str, client_secret: str, refresh_token: str) -> str:
-    body = urllib.parse.urlencode({
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "refresh_token": refresh_token,
-        "grant_type": "refresh_token",
-    }).encode("utf-8")
-    req = urllib.request.Request(GMAIL_TOKEN_URL, data=body,
-                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode("utf-8"))["access_token"]
-
-
-def send_via_gmail_api(msg: MIMEMultipart, client_id: str, client_secret: str, refresh_token: str) -> str:
-    token = gmail_api_access_token(client_id, client_secret, refresh_token)
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-    body = json.dumps({"raw": raw}).encode("utf-8")
-    req = urllib.request.Request(GMAIL_SEND_URL, data=body, headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=60) as r:
-        resp = json.loads(r.read().decode("utf-8"))
-    return resp.get("id", "")
-
-
-def send_via_smtp(msg: MIMEMultipart, user: str, password: str, recipients: list[str]) -> None:
-    import smtplib
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as server:
-        server.login(user, password)
-        server.sendmail(user, recipients, msg.as_string())
-
-
-def send_email(report: dict, recipients: list[str], sender: str, env: dict) -> dict:
-    msg = build_mime(report, recipients, sender)
-    if env.get("client_id") and env.get("client_secret") and env.get("refresh_token"):
-        message_id = send_via_gmail_api(msg, env["client_id"], env["client_secret"], env["refresh_token"])
-        return {"sent": True, "via": "gmail-api", "message_id": message_id,
-                "subject": report["subject"], "recipients": recipients}
-    if env.get("app_password"):
-        send_via_smtp(msg, sender, env["app_password"], recipients)
-        return {"sent": True, "via": "smtp", "subject": report["subject"], "recipients": recipients}
-    return {"sent": False, "reason": "No Gmail credentials configured. Add GMAIL_CLIENT_ID, "
-            "GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN (see morning_journal/README.md)."}
+    password = password.replace(" ", "").strip()  # Zoho app passwords may contain spaces
+    last_error = None
+    for host in ZOHO_SMTP_HOSTS:
+        for port in ZOHO_SMTP_PORTS:
+            try:
+                if port == 465:
+                    with smtplib.SMTP_SSL(host, port, timeout=30) as server:
+                        server.login(sender, password)
+                        server.sendmail(sender, recipients, msg.as_string())
+                else:
+                    with smtplib.SMTP(host, port, timeout=30) as server:
+                        server.ehlo()
+                        server.starttls()
+                        server.ehlo()
+                        server.login(sender, password)
+                        server.sendmail(sender, recipients, msg.as_string())
+                return {"sent": True, "via": f"Zoho SMTP ({host}:{port})", "subject": report["subject"],
+                        "recipients": recipients}
+            except smtplib.SMTPAuthenticationError:
+                raise  # wrong password: no point trying other hosts
+            except Exception as exc:
+                last_error = f"{host}:{port} → {exc.__class__.__name__}: {exc}"
+                continue
+    raise RuntimeError(f"All Zoho SMTP hosts failed. Last error: {last_error}")
 
 
 def main() -> int:
     api_key = os.environ.get("MISTRAL_API_KEY", "").strip()
-    sender = os.environ.get("GMAIL_USER", "gmazzo98@gmail.com").strip()
+    zoho_password = os.environ.get("ZOHO_APP_PASSWORD", "").strip()
+    sender = os.environ.get("ZOHO_EMAIL", "giorgio@verdantex.io").strip()
     recipients = [r.strip() for r in os.environ.get(
         "JOURNAL_RECIPIENTS", "gmazzo98@gmail.com,giovannigatti.ita@gmail.com").split(",") if r.strip()]
     repo = os.environ.get("JOURNAL_REPO", "gmazzo98-glitch/Wayland").strip()
     model = os.environ.get("JOURNAL_MODEL", "mistral-small-latest").strip()
 
-    env = {
-        "client_id": os.environ.get("GMAIL_CLIENT_ID", "").strip(),
-        "client_secret": os.environ.get("GMAIL_CLIENT_SECRET", "").strip(),
-        "refresh_token": os.environ.get("GMAIL_REFRESH_TOKEN", "").strip(),
-        "app_password": os.environ.get("GMAIL_APP_PASSWORD", "").strip(),
-    }
-
-    if not api_key:
-        print("ERROR: missing required secret MISTRAL_API_KEY. "
-              "Add it under Settings > Secrets and variables > Actions.")
-        return 1
-    if not ((env["client_id"] and env["client_secret"] and env["refresh_token"]) or env["app_password"]):
-        print("ERROR: no Gmail credentials. Add GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET and "
-              "GMAIL_REFRESH_TOKEN (one-time setup with morning_journal/gmail_oauth_setup.py).")
+    missing = [name for name, val in (("MISTRAL_API_KEY", api_key),
+                                      ("ZOHO_APP_PASSWORD", zoho_password)) if not val]
+    if missing:
+        print(f"ERROR: missing required secrets: {', '.join(missing)}. "
+              f"Add them under Settings > Secrets and variables > Actions.")
         return 1
 
     commits = fetch_commits(repo)
     news = fetch_news()
     print(f"Fetched {len(commits)} commits and {len(news)} news items.")
     report = write_report(commits, news, model, recipients, api_key)
-    status = send_email(report, recipients, sender, env)
+    status = send_via_zoho(report, recipients, sender, zoho_password)
     print(f"Email status: {status}")
-    return 0 if status.get("sent") else 1
+    return 0
 
 
 if __name__ == "__main__":

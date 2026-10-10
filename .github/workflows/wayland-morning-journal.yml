@@ -23,10 +23,8 @@ jobs:
         run: python morning_journal/generate_journal.py
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
-          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
-          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
+          ZOHO_EMAIL: ${{ vars.ZOHO_EMAIL || 'giorgio@verdantex.io' }}
           JOURNAL_RECIPIENTS: ${{ inputs.recipients || 'gmazzo98@gmail.com,giovannigatti.ita@gmail.com' }}
           JOURNAL_REPO: gmazzo98-glitch/Wayland
           JOURNAL_MODEL: ${{ vars.JOURNAL_MODEL || 'mistral-small-latest' }}
