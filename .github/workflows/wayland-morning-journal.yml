@@ -1,0 +1,37 @@
+name: Wayland Morning Journal
+
+on:
+  schedule:
+    - cron: "30 5 * * *"  # 07:30 Europe/Rome (06:30 in winter)
+  push:
+    paths:
+      - "morning_journal/.trigger"
+  workflow_dispatch:
+
+jobs:
+  journal:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Report secret availability
+        run: |
+          FAIL=0
+          if [ -z "$MISTRAL_API_KEY" ]; then echo "::error::MISTRAL_API_KEY is empty or missing in repo secrets"; FAIL=1; else echo "::notice::MISTRAL_API_KEY is set"; fi
+          if [ -z "$JOURNAL_BRIDGE_URL" ]; then echo "::error::JOURNAL_BRIDGE_URL is empty or missing in repo secrets"; FAIL=1; else echo "::notice::JOURNAL_BRIDGE_URL is set"; fi
+          if [ "$FAIL" = "1" ]; then exit 1; fi
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          JOURNAL_BRIDGE_URL: ${{ secrets.JOURNAL_BRIDGE_URL }}
+      - name: Generate and save the Wayland Morning Journal
+        run: python morning_journal/generate_journal.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          JOURNAL_BRIDGE_URL: ${{ secrets.JOURNAL_BRIDGE_URL }}
+          JOURNAL_REPO: gmazzo98-glitch/Wayland
+          JOURNAL_MODEL: ${{ vars.JOURNAL_MODEL || 'mistral-small-latest' }}
