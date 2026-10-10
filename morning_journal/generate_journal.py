@@ -238,6 +238,7 @@ def main() -> int:
         print(f"ERROR: missing required secrets: {', '.join(missing)}. "
               f"Add them under Settings > Secrets and variables > Actions.")
         summary("**FAILED: missing secrets: " + ", ".join(missing) + "**")
+        print("::error::Missing secrets: " + ", ".join(missing) + ". Add them in Settings > Secrets and variables > Actions with the exact names MISTRAL_API_KEY and ZOHO_APP_PASSWORD.")
         return 1
 
     try:
@@ -248,9 +249,12 @@ def main() -> int:
         report = write_report(commits, news, model, recipients, api_key)
         status = send_via_zoho(report, recipients, sender, zoho_password)
     except Exception:
+        tb_last = traceback.format_exc().strip().splitlines()[-1]
+        print("::error::" + tb_last[:250])
         summary("FAILED with unhandled error:\n\n```\n" + traceback.format_exc() + "\n```")
         raise
     print(f"Email status: {status}")
+    print("::notice::Journal sent via " + status["via"])
     summary(f"- **Sent via {status['via']} to {', '.join(status['recipients'])}**")
     return 0
 
