@@ -36,7 +36,24 @@ one is live. The Crawler Setup page won't hand out worker installers until that'
 
 ## Rolling out to already-installed workers
 
-Existing worker installs on friends' PCs still have the old Supabase URL/key baked into
-their `worker.config.json`. They'll fail (visible as 🔴 in Crawler Setup) until
-re-installed — there's no remote config push. Either wait for the "next add a computer"
-flow to naturally replace them, or ask each helper to re-run the setup file.
+Workers poll `/update/latest` on this service every five minutes while idle. The service
+serves both the manifest and the exact ZIP at `/update/bundle/<build>`. The build script
+copies the ZIP into `app/` and writes its SHA-256 manifest; the service refuses to advertise
+the update if those files disagree. The worker verifies the downloaded checksum, stages a
+fresh runtime, checks it, switches installations, and rolls back if the replacement fails.
+Update failures appear on the Crawler Setup page and are retried automatically.
+
+Run `python scripts/build_worker_bundle.py` whenever worker or crawler code changes, and
+commit both `worker_dist/vienna-crawler-bundle.zip` and the matching files in `app/`.
+`--reuse-runtime --no-build` can repackage already-built crawler code without fetching a new
+Node pin or lockfile, provided dependencies have not changed.
+
+The production `WORKER_SHIM_URL` must be reachable without a browser login or Vercel SSO:
+helpers connect from Node and cannot authenticate to Vercel. Protect preview deployments,
+and keep the production worker service public. The three RPC calls still require each PC's
+random token, checked by the database functions; the update manifest and bundle are public.
+After a deployment, the Crawler Setup page verifies the manifest and downloaded ZIP before
+it issues another personal setup file.
+
+Existing installs with the old Supabase URL in `worker.config.json` need one fresh setup
+file to switch to this service. Builds already using `WORKER_SHIM_URL` update automatically.

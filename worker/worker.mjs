@@ -27,6 +27,7 @@ const CRAWLERS_DIR = path.join(ROOT, 'crawlers');
 const BROWSERS_DIR = path.join(ROOT, 'browsers');
 const LOG_FILE = path.join(ROOT, 'worker.log');
 const STATUS_FILE = path.join(ROOT, 'status.json');
+const UPDATE_FAILURE_FILE = path.join(ROOT, 'update-failure.json');
 const LOCK_PORT_FILE = path.join(ROOT, 'worker.pid');
 
 const HEARTBEAT_MS = 15_000;
@@ -88,6 +89,9 @@ function removeRetiredInstallations() {
   try {
     for (const name of fs.readdirSync(parent)) {
       if (name.startsWith(prefix)) {
+        // The updater still needs an uncommitted backup for rollback. It marks a
+        // leftover folder only after the replacement has connected and passed tests.
+        if (!fs.existsSync(path.join(parent, name, '.vienna-update-complete'))) continue;
         try { fs.rmSync(path.join(parent, name), { recursive: true, force: true }); }
         catch (e) { log(`could not yet remove retired installation '${name}': ${e.message}`); }
       }
@@ -99,6 +103,16 @@ function writeStatus(patch) {
   let cur = {};
   try { cur = readJson(STATUS_FILE); } catch { /* first write */ }
   try { fs.writeFileSync(STATUS_FILE, JSON.stringify({ ...cur, ...patch }, null, 2)); } catch { /* best effort */ }
+}
+
+function updateFailure() {
+  try { return readJson(UPDATE_FAILURE_FILE); } catch { return null; }
+}
+
+function recordUpdateFailure(message) {
+  const failure = { message: String(message).slice(0, 300), at: new Date().toISOString() };
+  try { fs.writeFileSync(UPDATE_FAILURE_FILE, JSON.stringify(failure)); } catch { /* best effort */ }
+  writeStatus({ state: 'connected', updateError: failure.message });
 }
 
 // ---- talking to the server -----------------------------------------------------------------
@@ -177,6 +191,10 @@ async function startUpdate(manifest, workerInfo) {
     '-Dir', ROOT, '-ZipPath', zipPath, '-ExpectedBuild', manifest.build,
     '-ParentPid', String(process.pid), '-WorkerInfoBase64', Buffer.from(JSON.stringify(workerInfo)).toString('base64'),
   ], { detached: true, windowsHide: true, stdio: 'ignore' });
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
   child.unref();
   process.exit(0);
 }
@@ -349,12 +367,16 @@ async function main() {
   let selfTestAt = Date.now();
   log(`worker ${VERSION_INFO.version} (build ${VERSION_INFO.build}) starting as '${CONFIG.name}'; self-test ${selfTestReport.ok ? 'passed' : 'FAILED'}`);
 
-  const info = () => ({
-    protocol: PROTOCOL, version: VERSION_INFO.version, build: VERSION_INFO.build,
-    node: process.versions.node, os: `${os.platform()} ${os.release()}`, host: os.hostname(),
-    busy: running, max_parallel: maxParallel, checks: selfTestReport.checks, selftest_at: selfTestReport.at,
-    auto_update: true,
-  });
+  const info = () => {
+    const failure = updateFailure();
+    return {
+      protocol: PROTOCOL, version: VERSION_INFO.version, build: VERSION_INFO.build,
+      node: process.versions.node, os: `${os.platform()} ${os.release()}`, host: os.hostname(),
+      busy: running, max_parallel: maxParallel, checks: selfTestReport.checks, selftest_at: selfTestReport.at,
+      auto_update: true,
+      ...(failure ? { update_error: failure } : {}),
+    };
+  };
 
   let lastBeat = 0;
   let lastUpdateCheck = 0;
@@ -408,12 +430,17 @@ async function main() {
         try {
           const base = CONFIG.shimUrl.replace(/\/$/, '');
           const manifest = await fetchJson(`${base}/update/latest`);
+          if (!manifest.build || !manifest.sha256 || !manifest.download_url) {
+            throw new Error('update service returned an incomplete manifest');
+          }
+          if (manifest.build !== VERSION_INFO.build) await startUpdate(manifest, info());
+          fs.rmSync(UPDATE_FAILURE_FILE, { force: true });
           lastUpdateError = '';
-          if (manifest.build && manifest.build !== VERSION_INFO.build) await startUpdate(manifest, info());
         } catch (e) {
           const message = String(e.message).slice(0, 300);
           if (message !== lastUpdateError) log(`update check failed (normal work continues): ${message}`);
           lastUpdateError = message;
+          recordUpdateFailure(message);
         }
       }
       while (running < maxParallel) {

@@ -112,6 +112,7 @@ try {
   foreach ($old in @($info.crawlers)) { Remove-Item (Join-Path $Dir "crawlers\$old") -Recurse -Force -ErrorAction SilentlyContinue }
   Remove-Item (Join-Path $Dir 'worker') -Recurse -Force -ErrorAction SilentlyContinue
   Copy-Item -Path (Join-Path $stage '*') -Destination $Dir -Recurse -Force
+  Remove-Item (Join-Path $Dir 'update-failure.json') -Force -ErrorAction SilentlyContinue
   Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
   Say ("  Unpacked version " + $info.version + " (build " + $info.build + ").")
 

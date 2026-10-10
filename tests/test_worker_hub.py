@@ -12,6 +12,7 @@ import io
 import json
 import threading
 import time
+import urllib.request
 import zipfile
 from datetime import datetime, timedelta
 
@@ -94,6 +95,11 @@ def test_status_walks_through_every_state(db):
     s = worker_hub.worker_status(auto, EXPECTED)
     assert (s["state"], s["usable"]) == (worker_hub.OUTDATED, True)
     assert "Automatic update" in s["label"]
+
+    failed, _ = _live_worker(db, "failed", build="oldbuild", auto_update=True,
+                             update_error={"message": "HTTP 503", "at": "2026-10-10T10:00:00Z"})
+    s = worker_hub.worker_status(failed, EXPECTED)
+    assert s["state"] == worker_hub.OUTDATED and "HTTP 503" in s["detail"]
 
     updating, _ = _live_worker(db, "updating", build="oldbuild", auto_update=True,
                                update_state="updating", target_build=EXPECTED["build"],
@@ -377,6 +383,29 @@ def test_update_manifest_identifies_the_exact_committed_bundle():
     assert manifest["build"] == worker_installer.bundle_info()["build"]
     assert manifest["sha256"] == hashlib.sha256(worker_installer.BUNDLE_PATH.read_bytes()).hexdigest()
     assert manifest["size_bytes"] == worker_installer.BUNDLE_PATH.stat().st_size
+    assert (worker_installer.ROOT / "worker_shim" / "app" / "vienna-crawler-bundle.zip").read_bytes() == worker_installer.BUNDLE_PATH.read_bytes()
+
+
+def test_setup_checks_that_update_service_delivers_the_same_build(monkeypatch):
+    bundle = worker_installer.BUNDLE_PATH.read_bytes()
+    manifest = {
+        "build": worker_installer.bundle_info()["build"],
+        "sha256": hashlib.sha256(bundle).hexdigest(),
+        "download_url": "https://shim.example.com/update/bundle/current",
+    }
+    seen = []
+
+    def open_url(url, timeout):
+        seen.append(url)
+        return io.BytesIO(json.dumps(manifest).encode() if url.endswith("/latest") else bundle)
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_url)
+    worker_installer.verify_update_service("https://shim.example.com")
+    assert seen == ["https://shim.example.com/update/latest", manifest["download_url"]]
+
+    manifest["download_url"] = "https://different.example.com/bundle"
+    with pytest.raises(RuntimeError, match="different download host"):
+        worker_installer.verify_update_service("https://shim.example.com")
 
 
 def test_the_installer_script_is_plain_ascii():

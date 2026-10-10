@@ -17,10 +17,12 @@ cold start.
 
 import os
 import json
+import hashlib
 from pathlib import Path
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from psycopg2.extras import Json
 from psycopg2.pool import SimpleConnectionPool
 
@@ -43,10 +45,18 @@ pool = SimpleConnectionPool(1, 10, DATABASE_URL)
 app = FastAPI()
 
 UPDATE_MANIFEST = json.loads((Path(__file__).with_name("update_manifest.json")).read_text(encoding="utf-8"))
-DEFAULT_BUNDLE_URL = (
-    "https://raw.githubusercontent.com/gmazzo98-glitch/Wayland/master/"
-    "worker_dist/vienna-crawler-bundle.zip"
-)
+UPDATE_BUNDLE = Path(__file__).with_name("vienna-crawler-bundle.zip")
+
+
+def checked_update_bundle() -> Path:
+    """Never offer an update unless the deployed bytes match the deployed manifest."""
+    if not UPDATE_BUNDLE.is_file():
+        raise HTTPException(503, "crawler update bundle is missing from this deployment")
+    if UPDATE_BUNDLE.stat().st_size != UPDATE_MANIFEST["size_bytes"]:
+        raise HTTPException(503, "crawler update bundle size does not match its manifest")
+    if hashlib.sha256(UPDATE_BUNDLE.read_bytes()).hexdigest() != UPDATE_MANIFEST["sha256"]:
+        raise HTTPException(503, "crawler update bundle checksum does not match its manifest")
+    return UPDATE_BUNDLE
 
 
 @app.post("/rpc/{fn}")
@@ -92,14 +102,18 @@ async def healthz():
 
 
 @app.get("/update/latest")
-async def latest_update():
-    """Public metadata for a public, secret-free bundle; workers verify its SHA-256.
-
-    The build query prevents intermediary caches from handing a worker the previous ZIP
-    immediately after a deployment.
-    """
+async def latest_update(request: Request):
+    """Manifest and ZIP come from the same deployed release."""
+    checked_update_bundle()
     manifest = dict(UPDATE_MANIFEST)
-    base_url = os.getenv("WORKER_BUNDLE_URL", DEFAULT_BUNDLE_URL)
-    separator = "&" if "?" in base_url else "?"
-    manifest["download_url"] = f"{base_url}{separator}build={manifest['build']}"
-    return manifest
+    manifest["download_url"] = str(request.url_for("download_update", build=manifest["build"]))
+    return JSONResponse(manifest, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/update/bundle/{build}", name="download_update")
+async def download_update(build: str):
+    if build != UPDATE_MANIFEST["build"]:
+        raise HTTPException(404, "unknown crawler build")
+    return FileResponse(checked_update_bundle(), media_type="application/zip",
+                        filename="vienna-crawler-bundle.zip",
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
