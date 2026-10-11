@@ -29,6 +29,18 @@ PHASE = 7
 # Add more here as new directory plugins are registered there.
 DEFAULT_DIRECTORY_URLS = ["https://www.mecspe.com/portale/it/espositori"]
 
+# A single MECSPE search completes in 10-17s against an uncontended machine (25/25 real
+# companies succeeded that way, 2026-10-11 — see docs/CRAWLER_ROADMAP.md ticket T03c). The old
+# 75s budget was the tightest of any browser-using Phase 7 wrapper (company-website gets 170s,
+# job-postings/linkedin-profile get 100s) despite sharing the exact same scarce "browser"
+# resource-governor slot as all of them — so a real concurrent Phase 7 batch (several of those
+# crawlers' Chromium instances competing for the machine at once) starved it first. Live-verified:
+# a controlled 8-company concurrent repro killed 2/8 at exactly the old 75s mark
+# ("directory-listing-crawler timed out after 75s") while the same two companies' other sources
+# (company-website's own 170s budget, in one case) were still running — this crawler's own
+# MECSPE-search logic was never the problem, only its budget relative to its peers.
+RUN_TIMEOUT_SECONDS = 150
+
 
 def _derive_signals(rows: list) -> dict:
     signals = {}
@@ -68,7 +80,7 @@ def sync_directory_listing(company, db_session: Session) -> dict:
         rows = run_ts_crawler(CRAWLER_DIR, [{
             "company_id": c.id, "company_name": c.legal_name,
             "directory_urls": "|".join(DEFAULT_DIRECTORY_URLS),
-        }], run_timeout=75)
+        }], run_timeout=RUN_TIMEOUT_SECONDS)
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("directory-listing-crawler returned no rows for this company")
@@ -91,10 +103,10 @@ def sync_directory_listing(company, db_session: Session) -> dict:
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=True,
-        # The subprocess is killed at run_timeout (75s); the adapter's wall-clock budget
-        # must stay above that so the kill (and its error message) is what ends a hung
-        # run, not a silent hard-timeout in run_adapter with the process still alive.
-        fetch_live=_fetch_live, simulate=_simulate, timeout=100,
+        # The subprocess is killed at run_timeout; the adapter's wall-clock budget must
+        # stay above that so the kill (and its error message) is what ends a hung run,
+        # not a silent hard-timeout in run_adapter with the process still alive.
+        fetch_live=_fetch_live, simulate=_simulate, timeout=RUN_TIMEOUT_SECONDS + 30,
     )
 
     for row in captured.get("rows", []):

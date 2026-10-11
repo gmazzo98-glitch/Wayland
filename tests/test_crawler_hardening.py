@@ -99,6 +99,39 @@ def test_directory_exact_match_is_still_a_hit():
     assert sig["value"] == 1.0 and sig["status"] == "present"
 
 
+def test_directory_listing_budget_was_widened_past_its_old_75s(monkeypatch):
+    """T03a/T03c (docs/CRAWLER_ROADMAP.md): directory-listing-crawler's old 75s run_timeout was
+    the tightest of any browser-using Phase 7 wrapper despite sharing the same scarce "browser"
+    resource-governor slot as all of them (company-website 170s, job-postings/linkedin 100s) —
+    live-verified to get killed first under real concurrent load even though its own MECSPE
+    search logic completes in 10-17s when uncontended. Asserts the widened budget actually
+    reaches both the Node subprocess timeout and the adapter's own wall-clock budget, not just
+    the module constant."""
+    assert directory_listing_crawler.RUN_TIMEOUT_SECONDS > 75
+
+    captured = {}
+
+    def fake_run_ts_crawler(name, rows, **kw):
+        captured["run_timeout"] = kw.get("run_timeout")
+        return [{"company_id": rows[0]["company_id"], "status": "ok", "directory_url": "https://m",
+                  "appears_in_directory": False, "possible_match": False}]
+    monkeypatch.setattr(directory_listing_crawler, "run_ts_crawler", fake_run_ts_crawler)
+    monkeypatch.setattr(directory_listing_crawler, "save_crawler_blob", lambda *a, **k: None)
+
+    def fake_run_adapter(db, company, source, phase, credentials_ok, fetch_live, simulate, **kw):
+        captured["adapter_timeout"] = kw.get("timeout")
+        return {"status": "success", "mode": "live", "signals": fetch_live(company)["signals"]}
+    monkeypatch.setattr(directory_listing_crawler, "run_adapter", fake_run_adapter)
+
+    company = type("C", (), {"id": "c1", "legal_name": "Test Co"})()
+    directory_listing_crawler.sync_directory_listing(company, None)
+
+    assert captured["run_timeout"] == directory_listing_crawler.RUN_TIMEOUT_SECONDS
+    # The adapter's own budget must stay comfortably above the subprocess kill, per the kill
+    # (and its error message), not a silent hard-timeout in run_adapter with the process alive.
+    assert captured["adapter_timeout"] > directory_listing_crawler.RUN_TIMEOUT_SECONDS
+
+
 # ---------------------------------------------------------------- review crawler
 
 def test_review_crawler_refuses_an_unconfident_search_match():
