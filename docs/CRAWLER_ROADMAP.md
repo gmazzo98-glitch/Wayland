@@ -178,7 +178,7 @@ re-discover the same blocker.
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | OPEN | | | |
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
-| T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | CLAIMED | Codex 01a12a10 | 2026-10-11 15:37:33 | crawler/T14-ted-awards-reliability |
+| T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | OPEN | | | |
 
 Adding a new ticket yourself (T16+)? Append a row here and a matching
@@ -988,6 +988,28 @@ on a real batch of ≥20 companies; existing unit tests still green; Results
 note states clearly which side (CSV generation vs. CSV parsing) was the
 actual bug, with the real log evidence — same discipline T03c used to settle
 its own either/or diagnosis.
+
+**Results**
+
+- 2026-10-11 (Codex 01a12a10; Scraper main merge 60cee11, Vienna master
+  merge 07e14a0; both T14 branches deleted): Reproduced the reported
+  two-column CSV parse failure on real company AIR TORQUE S.P.A. and captured
+  the exact Invalid Record Length error in VIENNA_CRAWLER_LOG_DIR. Diagnosis:
+  Python-side CSV generation is the actual bug: _csv_text emits CRLF, then
+  Windows _write_input_csv text mode turns each line ending into CR-CR-LF
+  (confirmed from the emitted file bytes). The Node parser's strict column
+  validation was correct. Within the declared TED Node source scope, added
+  targeted normalization of that sequence before parsing, plus two Node
+  regression tests that retain rejection of genuinely malformed records.
+  Rebuilt and committed the tracked dist/main.js outside the declared src/*
+  list because production runs that compiled file without rebuilding it.
+  Air Torque then reached the live TED API successfully. A sequential batch
+  of 20 real Italian companies had 20 successful TED searches and 0 crawler
+  errors (0% versus the prior live SourceHealth 34/38, 89%); verification
+  used read-only live company data and did not write the production DB.
+  npm run build passed; Node regression tests 2/2 passed; full pytest
+  --capture=no: 598 passed, 1 skipped (JUnit XML). No signal keys or
+  scoring weights changed.
 
 ---
 
