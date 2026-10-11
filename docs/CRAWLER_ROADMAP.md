@@ -172,7 +172,7 @@ re-discover the same blocker.
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | OPEN | | | |
-| T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | OPEN | | | |
+| T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 08:37:30 | crawler/T08-anima-directory-plugin |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | OPEN | | | |
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | OPEN | | | |
