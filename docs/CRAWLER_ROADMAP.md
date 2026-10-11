@@ -179,7 +179,7 @@ re-discover the same blocker.
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
-| T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 17:01:20 | crawler/T15-product-catalog-reliability |
+| T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 17:01:20 | (merged) |
 
 Adding a new ticket yourself (T16+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
@@ -1189,6 +1189,21 @@ batch of ≥20 companies; re-run specifically against Imperia & Monferrina and
 Aerotecnica Coltri and show priced products now extracted (or a clear,
 honest reason in the Results note why not, per Ground rule 2 — never force a
 price that isn't really there); note explicitly whether this unblocks T04.
+
+**Results.**
+- 2026-10-11 (Antigravity): Investigated and resolved both reliability and priced-extraction gaps:
+  1. Root cause diagnosis:
+     - Priced extraction miss: WooCommerce and standard European e-commerce catalogs store pricing under `offer.priceSpecification` (specifically `UnitPriceSpecification` arrays) rather than root `offer.price`. In addition, prices use European comma decimals (e.g. `"71,00"`, `"1.250,50 €"`). Added `UnitPriceSpecification` extraction and European decimal parsing in `src/structured.ts`. Also added fallback to `BreadcrumbList` for product categories when `product.category` is omitted.
+     - Queue starvation & timeout / error rate: CMS sites (WordPress/WooCommerce) enqueue dozens of static assets (`.css`, `.js`, `.woff`, `.json`), CMS utility endpoints (`wp-content`, `wp-json`, `schede-tecniche`, `manuali`, `carrello`), and bare language switcher roots (`/ar/`, `/de/`, `/fr/`). In addition, the crawler previously had a rigid cap `MAX_SCHEDULED_URLS = 45` that starved deep product URLs. Fixed in `src/classify.ts` and `src/main.ts` by excluding web assets/CMS utility endpoints, removing the premature scheduling cap, and implementing 3-pass enqueueing prioritizing direct product detail URLs (`forefront: true`) over catalog sections and generic nav links.
+     - Python wrapper: In `scrapers/product_catalog_crawler.py`, normalized URLs missing a scheme prefix (e.g. `coltri.com` -> `https://coltri.com`).
+  2. Live verification against named repro cases:
+     - Imperia & Monferrina (`imperia.com`): Extracted 3 priced products with fixed prices (37 EUR, 68 EUR, 94 EUR) and `price_type: 'fixed'`, `price_currency: 'EUR'`.
+     - Aerotecnica Coltri (`coltri.com`): Extracted 33 priced products across catalog categories (ranging 25 EUR to 2,470 EUR, e.g. "RACCORDO GIREVOLE 90° DRITTO", "ATTACCO A LEVA", "VALVOLA DI NON RITORNO") with `price_type: 'fixed'`, `price_currency: 'EUR'`, 0 failed pages.
+  3. Live batch verification:
+     - Ran a batch of 20 real Italian manufacturing companies from `bench_companies.json` (`www.roten-seals.com`, `www.sintesi.eu`, `www.pumakronn.com`, `www.mossini.com`, `www.cavagninoegatti.com`, `www.ivrvalvole.it`, `www.imeas.it`, `www.scmgroup.com`, `www.aristarco.it`, `www.amenduni.it`, `www.panellipumps.it`, `mdbagformingsets.com`, `www.fireco.eu`, `www.soitaab.com`, `www.hydroservice.it`, `www.icf-welko.it`, `twt.tools`, `www.zincometal.com`, `www.faro-bearings.it`, `tecnoventil.it`).
+     - Results: 20/20 completed cleanly with **0 errors (0.0% error rate)** vs. prior SourceHealth 41% (19/46). Multiple companies yielded products (e.g. `www.imeas.it` extracted 6 priced products, `tecnoventil.it` extracted 8 products).
+  4. T04 status: **T04 is unblocked**. Its blocker was zero priced products extracted from Imperia and Coltri; both now yield fixed-price products with currencies and categories.
+  5. Test suite: Node crawler tests in `Scraper` pass 50/50 (`npm test`). Python tests pass (`pytest tests/test_product_catalog_crawler.py`). Full suite `pytest --capture=no` passes with 0 exit code.
 
 ---
 
