@@ -168,7 +168,7 @@ re-discover the same blocker.
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-10 21:28:17 | (merged) |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | DONE | Antigravity da2ebdec + Claude Code gio3maz | 2026-10-10 22:38:37 | (merged) |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-11 08:25:04 | (merged) |
-| T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
+| T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 19:24:00 | crawler/T04-competitor-catalog-benchmark |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | BLOCKED (job crawler counts navigation as vacancies) | Codex 01a12a10 | 2026-10-11 08:53:03 | (merged; inactive prototype) |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | DONE | Claude Code gio3maz | 2026-10-11 15:39:21 | (merged) |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | BLOCKED (both review modes disabled; no live rating extraction) | Codex 01a12a10 | 2026-10-11 16:15:25 | (merged; gated) |
