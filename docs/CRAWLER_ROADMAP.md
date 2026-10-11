@@ -179,7 +179,7 @@ re-discover the same blocker.
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
-| T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | OPEN | | | |
+| T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 17:01:20 | crawler/T15-product-catalog-reliability |
 
 Adding a new ticket yourself (T16+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
