@@ -1574,6 +1574,19 @@ def _render_tab1_content(db: Session):
                         db.delete(comp)
                         db.commit()
                         st.rerun()
+                with st.form(f"review_profile_{comp.id}"):
+                    profile_url = st.text_input(
+                        f"{comp.name} review profile URL (optional; Google Maps, Kununu, or Glassdoor)",
+                        value=comp.review_profile_url or "",
+                    )
+                    if st.form_submit_button("Save review profile"):
+                        from scrapers.competitor_review_benchmark import profile_source
+                        if profile_url.strip() and not profile_source(profile_url):
+                            st.warning("Enter a direct HTTPS Google Maps, Kununu, or Glassdoor profile URL.")
+                        else:
+                            comp.review_profile_url = profile_url.strip() or None
+                            db.commit()
+                            st.rerun()
             if len(company.competitors) < 3:
                 with st.form(f"add_competitor_{company.id}", clear_on_submit=True):
                     fc1, fc2, fc3 = st.columns([3, 4, 1])
@@ -1583,14 +1596,21 @@ def _render_tab1_content(db: Session):
                         new_url = st.text_input("Homepage URL", key="new_competitor_url", label_visibility="collapsed", placeholder="https://competitor-homepage.example (needed to benchmark)")
                     with fc3:
                         submitted = st.form_submit_button("➕ Add", use_container_width=True)
+                    new_review_url = st.text_input("Review profile URL (optional)",
+                                                   placeholder="Direct Google Maps, Kununu, or Glassdoor profile")
                     if submitted:
                         if not new_name.strip():
                             st.warning("Enter a competitor name.")
                         else:
-                            db.add(Competitor(company_id=company.id, name=new_name.strip(),
-                                              homepage_url=(new_url.strip() or None)))
-                            db.commit()
-                            st.rerun()
+                            from scrapers.competitor_review_benchmark import profile_source
+                            if new_review_url.strip() and not profile_source(new_review_url):
+                                st.warning("Enter a direct HTTPS Google Maps, Kununu, or Glassdoor profile URL.")
+                            else:
+                                db.add(Competitor(company_id=company.id, name=new_name.strip(),
+                                                  homepage_url=(new_url.strip() or None),
+                                                  review_profile_url=(new_review_url.strip() or None)))
+                                db.commit()
+                                st.rerun()
             else:
                 st.caption("Maximum of 3 — remove one above to add another.")
 

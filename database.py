@@ -49,6 +49,27 @@ def _migrate_sqlite_schema(target_engine):
                         col_type = col.type.compile(target_engine.dialect)
                         conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}"))
 
+
+def _migrate_competitor_review_profile(target_engine):
+    """Add the optional profile URL to existing Postgres deployments once.
+
+    SQLite's general additive-column migration above already handles this column.
+    The earlier company_people.linkedin_url precedent used an external Supabase
+    migration; this targeted bootstrap keeps the new nullable field available on
+    existing Postgres databases without relying on an untracked manual step.
+    """
+    if target_engine.dialect.name != "postgresql":
+        return
+    inspector = inspect(target_engine)
+    if not inspector.has_table("competitors"):
+        return
+    if "review_profile_url" in {col["name"] for col in inspector.get_columns("competitors")}:
+        return
+    with target_engine.begin() as conn:
+        conn.execute(text("SET LOCAL lock_timeout = '4s'"))
+        conn.execute(text("ALTER TABLE competitors ADD COLUMN IF NOT EXISTS review_profile_url VARCHAR(500)"))
+
+
 def get_db_session():
     """Get a database session for query execution."""
     return ScopedSession()
@@ -76,6 +97,7 @@ def init_db():
     """Initialize database tables, the indicator catalog, and default source health entries."""
     Base.metadata.create_all(bind=engine)
     _migrate_sqlite_schema(engine)
+    _migrate_competitor_review_profile(engine)
     # The crawler-worker RPC functions + row-level security (Postgres only; never raises).
     from worker_hub import ensure_rpc
     ensure_rpc(engine)
