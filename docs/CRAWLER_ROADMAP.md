@@ -168,7 +168,7 @@ re-discover the same blocker.
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-10 21:28:17 | (merged) |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | CLAIMED | Antigravity da2ebdec | 2026-10-10 22:38:37 | crawler/T03b-job-postings-reliability |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | CLAIMED | Claude Code 95d22c8c | 2026-10-11 08:25:04 | crawler/T03c-directory-listing-reliability |
-| T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | OPEN | | | |
+| T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | CLAIMED | Codex 01a12a10 | 2026-10-11 08:26:20 | crawler/T04-competitor-catalog-benchmark |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | OPEN | | | |
