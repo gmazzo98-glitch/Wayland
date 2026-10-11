@@ -169,7 +169,7 @@ re-discover the same blocker.
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | CLAIMED | Antigravity da2ebdec | 2026-10-10 22:38:37 | crawler/T03b-job-postings-reliability |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-11 08:25:04 | (merged) |
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
-| T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | CLAIMED | Codex 01a12a10 | 2026-10-11 08:53:03 | crawler/T05-competitor-hiring-benchmark |
+| T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | BLOCKED (job crawler counts navigation as vacancies) | Codex 01a12a10 | 2026-10-11 08:53:03 | (merged; inactive prototype) |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
@@ -618,6 +618,27 @@ competitors; explicitly note in your Results section that this is
 intentionally unscored and flag it to GG as an open decision (which signal
 key it should become, if any, and what weight) — don't silently leave that
 decision implicit.
+
+**Results**
+
+- 2026-10-11 (Codex 01a12a10; merged inactive prototype, branch deleted):
+  Added scrapers/competitor_hiring_benchmark.py and 6 tests for named-peer
+  careers discovery, field-status-aware raw role counts, and blob-only storage.
+  No Phase 7 registration or UI change was shipped, no SignalRecord was
+  written, and no named-competitor row was inserted in the live DB (which
+  had zero such rows). Live crawls of documented actuator peers found Rotork's
+  careers page but miscounted 10 navigation/news links as 10 digital jobs
+  (https://www.rotork.com/en/careers); Bray's careers page returned zero
+  despite linking to external job postings (https://www.bray.com/careers).
+  Valbia had no discovered careers page; Prisma's CV form returned zero.
+  Air Torque's existing own-job blob had four plausible role titles, but its
+  four-of-four digital count was not independently corroborated. Full
+  pytest --capture=no: 597 passed, 1 skipped (JUnit XML). **BLOCKED:**
+  T03b must fix/verify the job crawler's false vacancy counts and external
+  job-link handling before this raw comparison can be activated and verified
+  against a real company with a recorded peer. This is intentionally
+  unscored; GG must decide whether it becomes a signal, its key, and its
+  weight, if any.
 
 ---
 
