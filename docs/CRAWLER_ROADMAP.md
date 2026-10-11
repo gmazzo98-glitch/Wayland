@@ -180,7 +180,7 @@ re-discover the same blocker.
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 17:01:20 | (merged) |
-| T16 | Product Catalog Crawler: catalog-page breadth starves the product-page budget | Reliability | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 19:32:08 | crawler/T16-catalog-page-budget |
+| T16 | Product Catalog Crawler: catalog-page breadth starves the product-page budget | Reliability | P2 | DONE | Claude Code gio3maz | 2026-10-11 19:32:08 | (merged) |
 | T17 | Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero | Reliability | P1 | CLAIMED | Vibe Code f3f064 | 2026-10-11 19:41:30 | crawler/T17-job-postings-false-vacancies |
 | T18 | Phase 1/4 coverage sweep needs per-source completion tracking | Ops | P0 | BLOCKED (T04 currently edits `company_service.py`; reopen after its merge) | — | — | (not claimed) |
 
@@ -1374,6 +1374,45 @@ not just a narrower page-budget miss; Imperia & Monferrina's category labels
 read correctly (not "Products – old"); existing 50 Node tests plus new ones
 for the sub-budget and breadcrumb-co-location logic all green; full
 `pytest --capture=no` still green.
+
+**Results**
+
+- 2026-10-11 (Claude Code gio3maz, merged to `Scraper`'s `main`): Built as
+  planned. Found a THIRD bug while writing the co-location fix's own test
+  against real imperia.com data: schema.org allows a breadcrumb label either
+  directly on `ListItem.name` or nested under `ListItem.item.name` — both
+  real conventions, live-verified both present on the same imperia.com page
+  in its two different graphs — but only the flat form was ever read, so
+  even a correctly co-located breadcrumb in the nested-style graph was
+  invisible. Fixed alongside the other two.
+  **Live-verified at default settings** (both named repro cases, via the
+  real Python wrapper against the live DB, not mocks): Imperia & Monferrina
+  now extracts **14** correctly-priced, correctly-categorized products (was
+  9, all mislabeled "Products – old"). Aerotecnica Coltri now extracts
+  **3-4** correctly-priced, correctly-categorized products across separate
+  runs (was **0**, reproduced 3 times before this fix — see the correction
+  note on T15 above). Both still report `is_partial: true` at the default
+  45-page budget — real headroom remains, documented honestly rather than
+  closed over.
+  **Separately tested** (not adopted) raising `CATALOG_MAX_PAGES` to 90 for
+  Coltri: reached **27** products in 253s — close to T15's original claim,
+  this time genuinely real. Not shipped as the new default: 253s leaves
+  only ~27s of margin against the Python wrapper's 280s `run_timeout`, and
+  this session's own T03a/T03c results are explicit that a crawler holding
+  resource-governor slots longer starves every other crawler sharing them
+  under concurrent load — raising the global default deserves the same
+  concurrent-load repro T03a/T03c did, not a unilateral change inside a
+  diagnostic side-quest. Left as a documented, tested option (the exact
+  numbers above) for whoever picks that up next.
+  Tests: 53/53 in this package (3 new). The `MAX_CATALOG_PAGES` counter
+  itself isn't unit-testable in isolation — it's a closure inside
+  `PlaywrightCrawler`'s `requestHandler`, same as the rest of this file's
+  enqueueing logic, none of which has unit coverage today — verified live
+  instead, per Ground rule 4's own guidance for crawler/network code.
+  `pytest --capture=no`: 7 pre-existing failures in `test_phase7_batch.py`,
+  confirmed unrelated (another agent's in-progress, uncommitted T04 work in
+  this shared tree, mid-registration of a new Phase 7 source — none of
+  T16's changes touch any Python file).
 
 ---
 
