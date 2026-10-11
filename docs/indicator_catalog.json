@@ -2169,9 +2169,9 @@
       "freshness_days": 365,
       "raw_min": null,
       "raw_max": null,
-      "status": "GATED",
-      "status_note": "news-signals-crawler needs NEWSAPI_KEY (paid). Free route: extend the RSS adapter",
-      "status_effort": "key or small build",
+      "status": "RUN",
+      "status_note": "Google News RSS (context, not scored)",
+      "status_effort": "Phase 4",
       "producer_file": "adapters/google_news_rss.py"
     },
     {

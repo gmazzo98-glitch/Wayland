@@ -81,6 +81,7 @@ GAP_PLAN = {
     "partnership_news_count": ("RUN", "Google News RSS", "Phase 4"),
     "board_innovation_statements": ("RUN", "Google News RSS", "Phase 4"),
     "recent_ma_activity": ("RUN", "Google News RSS (context, not scored)", "Phase 4"),
+    "sector_pilot_precedent": ("RUN", "Google News RSS (context, not scored)", "Phase 4"),
     "website_digital_maturity": ("RUN", "digital-maturity crawler (Wayback structural diff) - timed out on 89% of runs; now still returns the homepage fields when Wayback is down", "Phase 7"),
     "online_market_presence": ("RUN", "digital-maturity crawler (e-commerce + socials + archive activity)", "Phase 7"),
     "digital_job_postings": ("RUN", "job-postings crawler (careers page)", "Phase 7"),
@@ -104,7 +105,6 @@ GAP_PLAN = {
                                           "states an explicit percentage ('esportiamo il 70%')", "Phase 7"),
 
     # ---- GATED: built, blocked ------------------------------------------------------------------------
-    "sector_pilot_precedent": ("GATED", "news-signals-crawler needs NEWSAPI_KEY (paid). Free route: extend the RSS adapter", "key or small build"),
     "product_quality_trend": ("GATED", "Google Maps reviews - off by policy (Maps ToS). No free compliant source", "policy decision"),
     "kununu_rating": ("GATED", "Kununu direct scrape off by policy; reseller not bought", "policy / budget"),
     "employee_turnover": ("GATED", "LinkedIn headcount history (reseller) or Kununu/Glassdoor tenure signals", "policy / budget"),
