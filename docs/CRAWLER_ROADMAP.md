@@ -177,8 +177,11 @@ re-discover the same blocker.
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | OPEN | | | |
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
+| T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | OPEN | | | |
+| T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | OPEN | | | |
+| T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | OPEN | | | |
 
-Adding a new ticket yourself (T13+)? Append a row here and a matching
+Adding a new ticket yourself (T16+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
 renumber existing tickets.
 
@@ -731,6 +734,22 @@ that repo being separate from this one).
     - Non-member **"NonExistent Mech Srl"** correctly returned `appears_in_directory: false`, `possible_match: false`, `listing_url: null`.
   - Documented verified ANIMA plugin and results in `directory-listing-crawler/README.md`.
 
+**Review note (2026-10-11, human-requested audit of completed tickets):**
+Independently re-verified the above — `npm test` in `directory-listing-crawler`
+passes 8/8 including both new ANIMA tests, and the live search mechanics
+described are real. **But the plugin cannot run against any real company
+yet.** `main.ts` only ever checks whichever `directory_urls` a company record
+is given (`findDirectoryConfig(directoryUrl)` per URL in
+`company.directory_urls` — it never scans `DIRECTORY_CONFIGS` on its own
+looking for a match), and Project Vienna's own wrapper,
+`scrapers/directory_listing_crawler.py`'s `DEFAULT_DIRECTORY_URLS`, still
+hardcodes only MECSPE's URL — ANIMA's was never added there. This ticket's
+own "Files to touch" said *"Nothing in Project Vienna's own repo needs to
+change"* — that was wrong when this ticket was written (my error, not this
+bot's; it correctly followed its stated scope). The plugin is correct and
+registered but **dead in production** until that one-line addition lands.
+Tracked as T13.
+
 ---
 
 ### T09 — Directory plugin: Kompass Italia
@@ -742,9 +761,20 @@ lower sector-specificity than ANIMA but broader company coverage.
 
 **Files to touch:** new
 `Scraper/crawlers/directory-listing-crawler/src/directories/kompass.ts`;
-one-line addition to `index.ts`.
+one-line addition to `index.ts`; **plus** one-line addition of Kompass's URL
+to `scrapers/directory_listing_crawler.py`'s `DEFAULT_DIRECTORY_URLS` in the
+**Project Vienna** repo (a second commit, second repo — see the "two repos"
+note at the end of this file).
 
-**Acceptance criteria:** same as T08.
+**Correction (2026-10-11, review):** T08 shipped without that second step and
+turned out to be dead in production as a result — `main.ts` only ever checks
+whichever `directory_urls` a company is given; it never scans
+`DIRECTORY_CONFIGS` on its own. Don't repeat that gap here (see T08's Results
+note and T13).
+
+**Acceptance criteria:** same as T08, plus: live-verified that the crawler
+actually invokes the Kompass plugin for a real company (not just that the
+plugin passes its own isolated tests).
 
 ---
 
@@ -758,9 +788,17 @@ German companies re-enter scope).
 
 **Files to touch:** new
 `Scraper/crawlers/directory-listing-crawler/src/directories/europages.ts`;
-one-line addition to `index.ts`.
+one-line addition to `index.ts`; **plus** one-line addition of Europages's
+URL to `scrapers/directory_listing_crawler.py`'s `DEFAULT_DIRECTORY_URLS` in
+the **Project Vienna** repo (a second commit, second repo — see the "two
+repos" note at the end of this file).
 
-**Acceptance criteria:** same as T08.
+**Correction (2026-10-11, review):** same gap as T09/T08 — don't register
+the plugin without also adding its URL to the Python-side list, or it will
+never actually run against a real company.
+
+**Acceptance criteria:** same as T08, plus: live-verified that the crawler
+actually invokes the Europages plugin for a real company.
 
 ---
 
@@ -838,6 +876,121 @@ be updated without a code review each time.
 source; unit tests cover the NACE×headcount lookup logic; the legal-review
 flag from step 3 is visible in both the Results note and a code comment at
 the top of the data file itself.
+
+---
+
+### T13 — Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`)
+**Track:** New directories · **Priority:** P0 (tiny fix; it's the only thing
+stopping T08's already-shipped, already-tested plugin from producing a
+single real signal)
+
+**Problem.** Found during a 2026-10-11 review of completed tickets: T08
+built and correctly registered `anima.ts` in the **Scraper** repo
+(`Scraper/crawlers/directory-listing-crawler/src/directories/index.ts`), and
+`npm test` there passes 8/8 including a real live-search verification. But
+`main.ts` only checks whichever `directory_urls` a company record is
+actually given — it never scans `DIRECTORY_CONFIGS` on its own — and
+Project Vienna's own wrapper, `scrapers/directory_listing_crawler.py:30`,
+still hardcodes:
+```python
+DEFAULT_DIRECTORY_URLS = ["https://www.mecspe.com/portale/it/espositori"]
+```
+So ANIMA's plugin is correct but **unreachable**: every one of the 953
+companies is still only ever checked against MECSPE. The comment directly
+above that line already anticipated this exact step ("Add more here as new
+directory plugins are registered there") — it just never happened for
+ANIMA.
+
+**Implementation plan.** Add ANIMA's member-directory URL
+(`https://www.anima.it/aziende/` — the same URL `animaConfig.matchesUrl`'s
+hostname check and `search()`'s own navigation already assume; confirm the
+exact string `main.ts` needs by reading how it threads a configured
+`directory_url` into `findDirectoryConfig`/`search()` before assuming) to
+`DEFAULT_DIRECTORY_URLS`, and update that line's explanatory comment so it
+no longer says "Only directory with a registered plugin."
+
+**Files to touch:** `scrapers/directory_listing_crawler.py` (one line + its
+comment).
+
+**Acceptance criteria:** live-verified against ≥5 real companies that the
+crawler now actually invokes the ANIMA plugin — check the saved raw crawler
+blob (`RawImportRecord`, dataset `crawler_directory_anima` per
+`sync_directory_listing`'s `directory_id`-keyed save) or
+`VIENNA_CRAWLER_LOG_DIR` logs show a real ANIMA row, not just MECSPE; ideally
+find at least one real ANIMA member among the 953 companies and show
+`trade_fair_participation`'s evidence trail crediting it.
+
+---
+
+### T14 — TED Contract Awards Crawler reliability (89% error rate)
+**Track:** Reliability · **Priority:** P1
+
+**Problem.** Found during the same review: live `SourceHealth` shows **34 of
+38 calls erroring (89%)** for this source — the worst error rate of any
+Phase 7 crawler by far. T03a's own Results note already surfaced the exact
+error from an unrelated repro: `"TED Contract Awards Crawler:
+ted-awards-crawler exited 1: ERROR Error: Invalid Record Length: columns
+length is 2, got 1 on line 6"`, consistent across completely different
+companies' data — smells like a genuine CSV-generation/parsing bug in how
+this crawler reads its input, not a per-company data problem. Nobody has
+claimed this; it wasn't in scope for T03a, which only flagged it in passing.
+
+**Implementation plan.** Diagnose from real logs first (Ground rule 4 — turn
+on `VIENNA_CRAWLER_LOG_DIR`, reproduce with `scripts/crawler_bench.py` on a
+small sample), same method T03a-c already used successfully. "Invalid
+Record Length: columns length is 2, got 1 on line 6" smells like either (a)
+a value in the Python-side input row (`scrapers/ted_awards_crawler.py`,
+built via `node_crawler_base._write_input_csv`/`_csv_text`) containing an
+unescaped delimiter, newline, or quote that breaks the Node side's CSV
+parser's assumed column count, or (b) the Node CSV reader's own parsing
+logic being too strict about a legitimately variable field. Reproduce with
+the actual company data that triggers it before guessing which.
+
+**Files to touch:** `scrapers/ted_awards_crawler.py`, and/or
+`Scraper/crawlers/ted-awards-crawler/src/*`.
+
+**Acceptance criteria:** live-verified error rate materially lower than 89%
+on a real batch of ≥20 companies; existing unit tests still green; Results
+note states clearly which side (CSV generation vs. CSV parsing) was the
+actual bug, with the real log evidence — same discipline T03c used to settle
+its own either/or diagnosis.
+
+---
+
+### T15 — Product Catalog Crawler reliability & priced-extraction gap (41% error rate)
+**Track:** Reliability · **Priority:** P2
+
+**Problem.** Found during the same review: live `SourceHealth` shows 19 of
+46 calls erroring (41%). Separately — a different kind of problem on calls
+that *don't* error — T04's own live verification (see its Results note)
+found this crawler returning partial or zero **priced** products on real
+sites that visibly have fixed prices: 3 unpriced/uncategorized names
+(partial) for Imperia & Monferrina despite visible fixed prices on
+`imperia.com/products/`, and zero products (partial) for Aerotecnica Coltri
+despite visible fixed prices on
+`coltri.com/en/category-product/accessories/compressor-accessories/`. That
+extraction gap is what's currently blocking T04 from shipping
+`product_differentiation`.
+
+**Implementation plan.** Two related but distinct halves — don't conflate
+them in your diagnosis:
+1. The raw error rate: diagnose from real logs first, same triage as
+   T03a/T03b/T03c (timeout vs. LLM rate-limit vs. a genuine crash).
+2. The priced-extraction miss: reproduce against the two named real sites
+   above (already-confirmed repro cases, no need to re-discover them) and
+   find why a visibly fixed price isn't making it into `price_type: "fixed"`
+   with a numeric `price_value` — likely either the JSON-LD path missing a
+   schema variant these sites use, or the LLM fallback path's prompt/schema
+   not being confident enough to assert a price it can see.
+
+**Files to touch:** `scrapers/product_catalog_crawler.py`, and/or
+`Scraper/crawlers/product-catalog-crawler/src/*`.
+
+**Acceptance criteria:** live-verified error rate materially lower on a real
+batch of ≥20 companies; re-run specifically against Imperia & Monferrina and
+Aerotecnica Coltri and show priced products now extracted (or a clear,
+honest reason in the Results note why not, per Ground rule 2 — never force a
+price that isn't really there); note explicitly whether this unblocks T04.
 
 ---
 
