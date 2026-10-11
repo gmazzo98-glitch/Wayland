@@ -782,3 +782,50 @@ def test_digital_maturity_crawler_resources_match_whether_vision_is_configured(m
 
     monkeypatch.setattr(digital_maturity_crawler, "CRAWLER_VISION_LLM_API_KEY", "a-real-key")
     assert digital_maturity_crawler.crawler_resources() == ("vision_llm", "wayback", "browser", "process")
+
+
+def test_job_postings_crawler_resources():
+    """Job postings crawler only launches Playwright when a careers URL is present."""
+    assert job_postings_crawler.crawler_resources("https://example.com/careers") == ("browser", "process")
+    assert job_postings_crawler.crawler_resources(None) == ("process",)
+    assert job_postings_crawler.crawler_resources("") == ("process",)
+
+
+def test_job_postings_no_careers_url_skips_subprocess(tmp_path, monkeypatch):
+    """When no careers URL is discovered, sync_job_postings must NOT spawn node or claim browser slots,
+    and must persist an honest empty crawler blob with field_status='not_found'."""
+    engine = create_engine(f"sqlite:///{(tmp_path / 'test.db').as_posix()}",
+                            connect_args={"check_same_thread": False, "timeout": 30})
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    comp = Company(legal_name="Test GmbH", registration_number="TESTREG-1", website_url="https://example.com")
+    session.add(comp)
+    session.commit()
+    monkeypatch.setattr(job_postings_crawler, "_discover_careers_page", lambda url: None)
+    called_ts = []
+
+    def fake_ts(*args, **kwargs):
+        called_ts.append(args)
+        return []
+
+    monkeypatch.setattr(job_postings_crawler, "run_ts_crawler", fake_ts)
+
+    result = job_postings_crawler.sync_job_postings(comp, session)
+    assert called_ts == [], "run_ts_crawler must not be called when no careers page was found"
+    assert result["status"] == "success"
+    assert result["signals"] == {}
+
+    blob = session.query(RawImportRecord).filter_by(
+        company_id=comp.id, dataset_name="crawler_job_postings"
+    ).first()
+    assert blob is not None
+    assert blob.raw_row["field_status"]["total_open_roles"] == "not_found"
+    assert blob.raw_row["sources_used"] == []
+
+
+def test_job_postings_same_url_or_home():
+    """Soft-404 redirects back to the homepage must be recognized even across www additions/removals."""
+    assert job_postings_crawler._same_url_or_home("https://www.example.com", "https://example.com")
+    assert job_postings_crawler._same_url_or_home("https://example.com/", "https://www.example.com/")
+    assert job_postings_crawler._same_url_or_home("https://www.example.com/careers", "https://www.example.com") is False
+    assert job_postings_crawler._same_url_or_home("https://other.com", "https://example.com") is False

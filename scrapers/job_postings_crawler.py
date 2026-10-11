@@ -30,10 +30,14 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from html.parser import HTMLParser
+from typing import Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import requests
+import urllib3
 from sqlalchemy.orm import Session
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from adapters.base import run_adapter
 from scrapers.node_crawler_base import (
@@ -145,13 +149,20 @@ def _fetch_homepage(website_url: str):
     base = website_url if re.match(r"^https?://", website_url, re.I) else f"https://{website_url}"
     try:
         return _get(base)
+    except requests.exceptions.SSLError:
+        try:
+            return requests.get(base, timeout=_PROBE_TIMEOUT, headers=_PROBE_HEADERS, allow_redirects=True, verify=False)
+        except requests.RequestException:
+            pass
     except requests.RequestException:
-        if not base.lower().startswith("https://"):
-            return None
+        pass
+
+    if base.lower().startswith("https://"):
         try:
             return _get("http://" + base[len("https://"):])
         except requests.RequestException:
             return None
+    return None
 
 
 def _same_site(url: str, home: str) -> bool:
@@ -159,6 +170,21 @@ def _same_site(url: str, home: str) -> bool:
     b = urlparse(home).netloc.lower().split(":")[0]
     a, b = a[4:] if a.startswith("www.") else a, b[4:] if b.startswith("www.") else b
     return bool(a) and (a == b or a.endswith("." + b) or b.endswith("." + a))
+
+
+def _same_url_or_home(url: str, home_url: str) -> bool:
+    norm_u = _normalized(url)
+    norm_h = _normalized(home_url)
+    if norm_u == norm_h:
+        return True
+    try:
+        p_u = urlparse(norm_u)
+        p_h = urlparse(norm_h)
+        host_u = p_u.netloc[4:] if p_u.netloc.startswith("www.") else p_u.netloc
+        host_h = p_h.netloc[4:] if p_h.netloc.startswith("www.") else p_h.netloc
+        return host_u == host_h and p_u.path.rstrip("/") == p_h.path.rstrip("/")
+    except Exception:
+        return False
 
 
 def _page_title(html: str) -> str:
@@ -169,7 +195,7 @@ def _page_title(html: str) -> str:
 def _looks_like_careers_page(resp, home_url: str) -> bool:
     if resp.status_code != 200:
         return False
-    if _normalized(resp.url) == home_url:
+    if _same_url_or_home(resp.url, home_url):
         return False  # soft-404 / catch-all redirect back to the homepage
     text = resp.text or ""
     if _NOT_FOUND_TITLE_RE.search(_page_title(text)):
@@ -214,7 +240,7 @@ def _apex_homepage(website_url: str):
     return "https://www." + ".".join(labels[-2:])
 
 
-_PROBE_WORKERS = 10
+_PROBE_WORKERS = 20
 
 
 def _first_careers_page(candidates: list, home_norm: str, deadline: float):
@@ -232,11 +258,10 @@ def _first_careers_page(candidates: list, home_norm: str, deadline: float):
         futures = [pool.submit(_get, url) for url, _ in candidates]
         try:
             for (url, via), fut in zip(candidates, futures):
+                remaining = max(0.0, deadline - time.monotonic())
                 try:
-                    resp = fut.result(timeout=max(0.1, deadline - time.monotonic()))
-                except FutureTimeoutError:
-                    break
-                except requests.RequestException:
+                    resp = fut.result(timeout=remaining if remaining > 0 else 0.0)
+                except (FutureTimeoutError, requests.RequestException):
                     continue
                 if _looks_like_careers_page(resp, home_norm):
                     return {"url": resp.url, "found_via": via}
@@ -568,25 +593,85 @@ def _derive_signals(row: dict, country: str = None) -> dict:
     return signals
 
 
+def crawler_resources(careers_url: Optional[str] = None) -> Tuple[str, ...]:
+    """The resources job-postings-crawler actually needs. When a careers URL is
+    provided, Playwright runs so browser + process slots are required; when no
+    careers URL exists, no browser is used."""
+    return ("browser", "process") if careers_url else ("process",)
+
+
+def _empty_crawler_row(company, found: Optional[dict] = None) -> dict:
+    """Deterministic crawler result when no careers page was found or no website exists,
+    matching the schema Crawlee's job-postings-crawler writes when seedRequests is empty."""
+    note = (
+        "no careers page found via homepage links, sitemap.xml, common paths or the main www. domain"
+        if getattr(company, "website_url", None)
+        else "no website URL configured"
+    )
+    return {
+        "company_id": company.id,
+        "company_name": company.legal_name,
+        "careers_url": None,
+        "total_open_roles": 0,
+        "technical_digital_roles_count": 0,
+        "technical_qualification_share": None,
+        "roles_sample": [],
+        "erp_systems_mentioned": [],
+        "field_status": {
+            "total_open_roles": "not_found",
+            "technical_digital_roles_count": "not_found",
+            "technical_qualification_share": "not_found",
+            "roles_sample": "not_found",
+            "erp_systems_mentioned": "not_found",
+        },
+        "sources_used": [],
+        "sources_skipped": [
+            {"id": "careers", "url": None, "reason": "no careers_url provided"},
+            {"id": "job_boards", "url": None, "reason": "job-board mode disabled (careers-page-only default); would use: indeed, stepstone"},
+        ],
+        "crawled_pages_count": 0,
+        "failed_pages": [],
+        "careers_discovery": {
+            "careers_url": None,
+            "note": note,
+        },
+        "site_nav_urls": found.get("site_nav_urls", []) if found else [],
+    }
+
+
 def sync_job_postings(company, db_session: Session) -> dict:
     captured = {}
 
     def _fetch_live(c):
         found = _discover_careers_page(c.website_url)
         careers_url = found["url"] if found else None
+        if not careers_url:
+            row = _empty_crawler_row(c, found)
+            captured["row"] = row
+            return {
+                "signals": {},
+                "raw_payload": {
+                    "total_open_roles": 0,
+                    "sources_used": [],
+                    "careers_discovery": row["careers_discovery"],
+                },
+                "confidence": 0.7,
+            }
+
         # 100s for the subprocess (killed at that point, Chromium included), inside the
         # adapter's 160s budget together with up to 45s of careers-page discovery.
-        rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "company_name": c.legal_name,
-                                              "careers_url": careers_url or ""}], run_timeout=100)
+        rows = run_ts_crawler(
+            CRAWLER_DIR,
+            [{"company_id": c.id, "company_name": c.legal_name, "careers_url": careers_url}],
+            env_overrides={"MAX_DETAIL_PAGES": "25"},
+            run_timeout=100,
+            resources=crawler_resources(careers_url),
+        )
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("job-postings-crawler returned no row for this company")
         row = matches[0]
-        row["careers_discovery"] = (
-            {"careers_url": careers_url, "found_via": found["found_via"]} if found
-            else {"careers_url": None, "note": "no careers page found via homepage links, sitemap.xml, common paths "
-                                                "or the main www. domain"}
-        )
+        row["careers_discovery"] = {"careers_url": careers_url, "found_via": found["found_via"]}
         row["site_nav_urls"] = found.get("site_nav_urls", []) if found else []
         captured["row"] = row
         if row.get("error"):
