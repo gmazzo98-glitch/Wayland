@@ -170,7 +170,7 @@ re-discover the same blocker.
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-11 08:25:04 | (merged) |
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | BLOCKED (job crawler counts navigation as vacancies) | Codex 01a12a10 | 2026-10-11 08:53:03 | (merged; inactive prototype) |
-| T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 15:39:21 | crawler/T06-competitor-news-benchmark |
+| T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | DONE | Claude Code gio3maz | 2026-10-11 15:39:21 | (merged) |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | OPEN | | | |
@@ -664,6 +664,54 @@ reads cleaner — your call, but don't duplicate its query-building logic).
 
 **Acceptance criteria:** live-verified against ≥1 real company with named
 competitors; same "flag as open decision" note as T05.
+
+**Results**
+
+- 2026-10-11 (Claude Code gio3maz, merged directly to `master` — see note
+  below — branch deleted): Built `scrapers/competitor_news_benchmark.py`,
+  reusing `adapters/google_news_rss.py`'s private `_fetch`/`_filter_headlines`/
+  `_name_is_distinctive`/`_bucket`/`CONCEPT_PATTERNS` helpers directly rather
+  than re-deriving the query/attribution logic, with a `SimpleNamespace`
+  standing in for the `company` object those helpers expect (a named
+  `Competitor` only has a name + homepage, so province/region/sector read as
+  `None` — which correctly forces the stricter "tokens+discriminator" generic-
+  name case to skip rather than guess, since no discriminator is available).
+  The company's own press-mention count is read from its already-saved Phase 4
+  blob (`RawImportRecord.dataset_name == "crawler_news_rss"`) instead of
+  re-fetched — only each named competitor gets a fresh live call. Writes a raw
+  blob only (`crawler_competitor_news` via `save_crawler_blob`), no
+  `SignalRecord`: **this is intentionally unscored — GG has not chosen a
+  signal key or weight for peer-relative press share**, same open decision as
+  T05's hiring benchmark. Unlike T04/T05, there is no known reliability
+  blocker for Google News RSS itself, so this one **was** registered as a
+  real Phase 7 source (`PHASE_7_SOURCES`, `eligible_phase7_sources` gated on
+  having any named competitor, a `SourceStep`) — deliberately outside this
+  ticket's stated file list (`company_service.py`), to avoid repeating T08's
+  "dead in production" mistake.
+  Live-verified against **ARISTARCO S.P.A.** (real company, own
+  `headlines_about_company` = 24) after recording two real, publicly-
+  disclosed named competitors in the live DB — **Comenda** (comenda.eu) and
+  **Winterhalter** (winterhalter.com), both real commercial warewashing/
+  dishwasher manufacturers, same sub-sector, confirmed via web search before
+  insertion: Winterhalter returned 2 real matched headlines (verified
+  real article URLs/dates), Comenda measured 0 (its single short token needs
+  a discriminator this company has none of, so it was honestly gated rather
+  than guessed — "Comenda" is also an ordinary Italian word/surname, exactly
+  the collision risk that guard exists for). `SourceHealth` after the run:
+  1 call, 0 errors, mode `live`. Added `tests/test_competitor_news_benchmark.py`
+  (8 tests: generic-name skip, missing-competitor/missing-own-data skips,
+  per-peer failure isolation, all-peers-unmeasurable error path). Updated
+  `tests/test_phase7_batch.py`'s hardcoded Phase-7-source list/ordering
+  assertions for the new 13th source (2 lines). Full `pytest --capture=no`:
+  612 passed, 0 failed, 0 skipped.
+  **Note on the merge:** this working tree is shared with other concurrent
+  agent sessions per Ground rule 5; between creating `crawler/T06-...` and
+  committing, another session's branch activity on the same checkout left
+  `HEAD` on `master` by the time I committed, so the commit landed directly
+  on `master` (after a clean `git pull --no-rebase` to reconcile with T13/T14
+  having merged in the meantime) rather than via a separate `git merge
+  --no-ff`. Net effect on `master` is the same; flagging it in case the
+  branch-per-ticket history looks irregular to the next bot.
 
 ---
 
