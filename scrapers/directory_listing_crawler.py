@@ -25,11 +25,16 @@ CRAWLER_DIR = "directory-listing-crawler"
 PHASE = 7
 
 # Registered directory plugins in Scraper/crawlers/directory-listing-crawler/src/directories/index.ts:
-# MECSPE (trade fair exhibitor search) and ANIMA (industry association member directory).
+# MECSPE (trade fair exhibitor search), ANIMA (industry association member directory), and
+# Kompass (general B2B company directory — broader, less sector-specific coverage than ANIMA;
+# its own search() actually runs against b2bstars.com, not this URL — see kompass.ts's header
+# comment, and note it.kompass.com's own robots.txt disallows /search* and any "?" URL, which is
+# exactly why this registers the bare homepage here rather than a search URL on this host).
 # Add more here as new directory plugins are registered there.
 DEFAULT_DIRECTORY_URLS = [
     "https://www.mecspe.com/portale/it/espositori",
     "https://www.anima.it/aziende/",
+    "https://it.kompass.com/",
 ]
 
 # A single MECSPE search completes in 10-17s against an uncontended machine (25/25 real

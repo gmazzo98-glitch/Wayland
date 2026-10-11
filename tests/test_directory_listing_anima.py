@@ -7,13 +7,23 @@ def test_directory_listing_default_urls_includes_mecspe_and_anima():
     assert "https://www.anima.it/aziende/" in directory_listing_crawler.DEFAULT_DIRECTORY_URLS
 
 
+def test_directory_listing_default_urls_includes_kompass():
+    # T13's own lesson: a registered-but-unwired plugin produces nothing — see
+    # docs/CRAWLER_ROADMAP.md T13. This is the Python-side half of T09's "actually invoked"
+    # acceptance criteria; the TS-side half is Scraper/crawlers/directory-listing-crawler's
+    # own npm test + live verification (see that repo's README).
+    assert "https://it.kompass.com/" in directory_listing_crawler.DEFAULT_DIRECTORY_URLS
+
+
 def test_directory_listing_derive_signals_multiple_hits():
     hit_rows = [
         {"appears_in_directory": True, "possible_match": False, "status": "ok", "directory_name": "MECSPE", "directory_id": "mecspe"},
         {"appears_in_directory": True, "possible_match": False, "status": "ok", "directory_name": "ANIMA", "directory_id": "anima", "membership_or_exhibitor_since": "settembre 2019"},
+        {"appears_in_directory": True, "possible_match": False, "status": "ok", "directory_name": "Kompass", "directory_id": "kompass"},
     ]
     sig = directory_listing_crawler._derive_signals(hit_rows)["trade_fair_participation"]
-    assert sig["value"] == 2.0
+    assert sig["value"] == 3.0
     assert "MECSPE" in sig["summary"]
     assert "ANIMA" in sig["summary"]
+    assert "Kompass" in sig["summary"]
     assert "member/exhibitor since settembre 2019" in sig["summary"]
