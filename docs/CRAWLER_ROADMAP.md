@@ -171,7 +171,7 @@ re-discover the same blocker.
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | BLOCKED (job crawler counts navigation as vacancies) | Codex 01a12a10 | 2026-10-11 08:53:03 | (merged; inactive prototype) |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | DONE | Claude Code gio3maz | 2026-10-11 15:39:21 | (merged) |
-| T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | CLAIMED | Codex 01a12a10 | 2026-10-11 16:15:25 | crawler/T07-competitor-review |
+| T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | BLOCKED (both review modes disabled; no live rating extraction) | Codex 01a12a10 | 2026-10-11 16:15:25 | (merged; gated) |
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 16:20:18 | crawler/T09-kompass-directory |
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
@@ -749,6 +749,34 @@ migration path matches this project's existing migration pattern in
 the 2026-09-16 `company_people.linkedin_url` column was added, per project
 history, for precedent) and that it's additive/nullable so it never breaks
 existing rows.
+
+**Results**
+
+- 2026-10-11 (Codex 01a12a10; merged `crawler/T07-competitor-review` as a
+  gated implementation, branch deleted): Added a raw-only competitor review
+  benchmark that accepts a hand-entered direct Google Maps, Kununu, or
+  Glassdoor profile URL, respects the existing review-mode flags and per-field
+  `field_status`, preserves measured zero versus unknown, and writes no
+  `SignalRecord`. Added the optional, nullable `Competitor.review_profile_url`
+  field and Named Competitors UI. SQLite's existing additive migration covers
+  the field; a targeted Postgres bootstrap handles existing deployments.
+  Applied that migration to the live Postgres DB: the column exists and both
+  pre-existing competitor rows remain valid with NULL profiles. Added
+  conditional Phase 7 registration only when a supported profile and its mode
+  are enabled. `company_service.py`, `database.py`, and the new test file are
+  outside the ticket's declared file list; the first two are required for
+  production reachability and the Postgres migration, respectively. Full
+  `pytest --capture=no`: 622 passed, 1 skipped. Live DB verification used
+  ARISTARCO S.P.A.'s recorded Winterhalter peer and Winterhalter Gastronom's
+  publicly identifiable Kununu profile
+  (`https://www.kununu.com/de/winterhalter-gastronom`) without saving a
+  speculative profile match: both review modes were false, so the source
+  correctly stayed ineligible and skipped without a crawler call. **BLOCKED:**
+  no live peer rating was extracted because both existing review modes are
+  disabled; enabling one requires the project's separate deliberate mode
+  decision, then a real profile crawl and same-platform own/peer comparison.
+  This remains intentionally unscored: GG must decide whether peer-relative
+  reviews warrant a signal key and weight at all.
 
 ---
 
