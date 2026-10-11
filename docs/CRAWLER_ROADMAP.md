@@ -175,7 +175,7 @@ re-discover the same blocker.
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | OPEN | | | |
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
-| T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | OPEN | | | |
+| T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 16:18:00 | crawler/T11-sector-pilot-rss |
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
