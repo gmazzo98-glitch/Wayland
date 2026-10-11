@@ -170,7 +170,7 @@ re-discover the same blocker.
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-11 08:25:04 | (merged) |
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | BLOCKED (job crawler counts navigation as vacancies) | Codex 01a12a10 | 2026-10-11 08:53:03 | (merged; inactive prototype) |
-| T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | OPEN | | | |
+| T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 15:39:21 | crawler/T06-competitor-news-benchmark |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | OPEN | | | |
