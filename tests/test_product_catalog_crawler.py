@@ -170,3 +170,18 @@ def test_no_matching_row_for_company_id_raises_and_falls_back(monkeypatch, memor
     result = product_catalog_crawler.sync_product_catalog(company, memory_session)
     assert result["status"] == "error"
     assert "no row for this company" in result["error"]
+
+
+def test_url_without_scheme_normalized_to_https(monkeypatch, memory_session, company):
+    company.website_url = "coltri.com"
+    captured_inputs = []
+
+    def fake_run(crawler_dir, inputs, **kwargs):
+        captured_inputs.extend(inputs)
+        return [_row(company_id=company.id)]
+
+    monkeypatch.setattr(product_catalog_crawler, "run_ts_crawler", fake_run)
+    result = product_catalog_crawler.sync_product_catalog(company, memory_session)
+    assert result["status"] == "success"
+    assert captured_inputs[0]["homepage_url"] == "https://coltri.com"
+
