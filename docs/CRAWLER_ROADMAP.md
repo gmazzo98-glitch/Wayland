@@ -171,7 +171,7 @@ re-discover the same blocker.
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | BLOCKED (job crawler counts navigation as vacancies) | Codex 01a12a10 | 2026-10-11 08:53:03 | (merged; inactive prototype) |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | DONE | Claude Code gio3maz | 2026-10-11 15:39:21 | (merged) |
-| T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | OPEN | | | |
+| T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | CLAIMED | Codex 01a12a10 | 2026-10-11 16:15:25 | crawler/T07-competitor-review |
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | OPEN | | | |
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
