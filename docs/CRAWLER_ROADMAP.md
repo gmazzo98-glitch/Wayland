@@ -174,7 +174,7 @@ re-discover the same blocker.
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | BLOCKED (both review modes disabled; no live rating extraction) | Codex 01a12a10 | 2026-10-11 16:15:25 | (merged; gated) |
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | DONE | Claude Code gio3maz | 2026-10-11 16:20:18 | (merged) |
-| T10 | Directory plugin: Europages | New directories | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 17:00:52 | crawler/T10-europages-directory |
+| T10 | Directory plugin: Europages | New directories | P2 | BLOCKED (robots.txt disallows all generic crawlers + all query-string URLs) | Claude Code gio3maz | 2026-10-11 17:00:52 | (no branch — blocked before any code) |
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 16:18:00 | (merged) |
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | CLAIMED | Codex 01a12a10 | 2026-10-11 17:01:55 | crawler/T12-regulatory-lookup |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
@@ -949,6 +949,40 @@ never actually run against a real company.
 
 **Acceptance criteria:** same as T08, plus: live-verified that the crawler
 actually invokes the Europages plugin for a real company.
+
+**Results**
+
+- 2026-10-11 (Claude Code gio3maz): Diagnosed before writing any code, per
+  this repo's own stated lesson ("check whether it's already built/possible
+  before writing new code"). Inspected Europages' real company search live
+  (`https://www.europages.co.uk/en/search?q=<name>`, a plain GET — `Brembo
+  S.p.A.` correctly found `BREMBO S.P.A.` as the #1 of 30 results, full
+  legal suffix included; result cards carry stable `data-test="company-name"`
+  anchors with real, directly-readable `href`s, no click-to-resolve dance
+  needed unlike Kompass) — mechanically this would have been the simplest
+  of the three directory plugins built this session.
+  **BLOCKED before any code, by `https://www.europages.co.uk/robots.txt`
+  itself**, read in full:
+  - `User-agent: * / Disallow: /` — the default rule for any crawler not
+    individually named blocks the entire site. Crawlee's `PlaywrightCrawler`
+    (this project's own Node crawler engine) presents a generic Chromium
+    user agent, matching this catch-all, not any of the named exceptions.
+  - Even the explicitly named bots that DO get broader access (Googlebot,
+    bingbot, ChatGPT-User, etc.) still have `Disallow: *?*` (every
+    query-string URL — i.e. every `?q=...` search) and `Disallow: /*/search/`
+    and `Disallow: /it/` (the Italian-language subsite entirely).
+  - There is no compliant path from "find a company by name" to a result:
+    the search itself is disallowed for everyone, named bots included.
+  `main.ts`'s `PlaywrightCrawler` sets `respectRobotsTxtFile: true` —
+  a deliberate project convention (see T03c's own `test/regression.test.mjs`
+  case, "robots exclusions retain an error row for each company using that
+  directory"), not a bug to route around. Registering an `europages.ts`
+  plugin under this robots.txt would not silently degrade — it would
+  produce a hard `error` row for every single company, every single run,
+  forever. Not attempted. If Europages' robots.txt policy changes in the
+  future (unlikely but checkable in under a minute), the mechanics above
+  are already live-verified and ready to implement near-identically to
+  `mecspe.ts` (simpler than `kompass.ts` — real hrefs, no clicking).
 
 ---
 
