@@ -364,6 +364,96 @@ def test_select_option_listings_survive_the_self_link_filter():
     assert [r["title"] for r in kept] == ["SOFTWARISTA C# E PLC SIEMENS", "Progettista Meccanico"]
 
 
+def test_careers_page_nav_links_are_not_vacancies():
+    """rotork.com/en/careers is a careers *landing* page: every link on it is site nav,
+    products, brands or employee stories — T05 counted 10 of them as digital jobs. The
+    careers page's own non-job links are collected as careers_nav_urls and dropped."""
+    page = "https://www.rotork.com/en/careers"
+    roles = [
+        {"title": "About us", "url": "https://www.rotork.com/en/about-us"},
+        {"title": "Investors", "url": "https://www.rotork.com/en/investors"},
+        {"title": "News", "url": "https://www.rotork.com/en/news"},
+        {"title": "Bifold", "url": "https://www.rotork.com/en/about-us/our-brands/bifold"},
+        {"title": "Click here to explore our current opportunities", "url": "https://www.rotork.com/en/careers/opportunities"},
+        {"title": "Career opportunities", "url": "https://www.rotork.com/en/careers/opportunities"},
+        {"title": "Employee stories", "url": "https://www.rotork.com/en/careers/employee-stories"},
+    ]
+    careers_nav = job_postings_crawler._careers_page_context(
+        "<html>" + "".join(f'<a href="{r["url"]}">{r["title"]}</a>' for r in roles) + "</html>", page
+    )["careers_nav_urls"]
+    kept = job_postings_crawler._plausible_listings(roles, [page], [], careers_nav)
+    assert kept == []   # nothing on this page is a vacancy: no count may be derived from it
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 10, "total_open_roles": 96,
+        "roles_sample": roles, "careers_nav_urls": careers_nav, "site_nav_urls": [],
+        "sources_used": [{"url": page}],
+        "field_status": {"technical_digital_roles_count": "value"},
+    })
+    assert signals == {}   # the whole sample was chrome — no fabricated count
+
+
+def test_external_job_board_links_are_not_a_confirmed_zero():
+    """bray.com/careers lists nothing itself but links to LinkedIn jobs and an Ultipro
+    board: the zero is a coverage gap, not a confirmed absence — no count signal may be
+    written, and the boards must be recorded for a human to follow."""
+    page = "https://www.bray.com/careers"
+    ctx = job_postings_crawler._careers_page_context(
+        '<a href="https://www.linkedin.com/company/bray-controls/jobs">International Job Postings on LinkedIn</a>'
+        '<a href="https://recruiting2.ultipro.com/BRA1009BRAY/JobBoard/ac09ec7f">Job Postings in the USA</a>'
+        '<a href="https://www.linkedin.com/company/bray-controls/">Follow Us LinkedIn</a>', page)
+    boards = ctx["external_job_boards"]
+    assert any("linkedin.com/company/bray-controls/jobs" in u for u in boards)
+    assert any("ultipro.com" in u for u in boards)
+    signals = job_postings_crawler._derive_signals({
+        "technical_digital_roles_count": 0, "total_open_roles": 0,
+        "roles_sample": [], "external_job_boards": boards,
+        "sources_used": [{"url": page}],
+        "field_status": {"technical_digital_roles_count": "not_applicable"},
+    })
+    assert "digital_job_postings" not in signals
+    assert "job_posting_velocity" not in signals   # not a real established zero
+
+
+def test_zero_listings_without_external_boards_is_still_a_confirmed_zero():
+    row = {
+        "technical_digital_roles_count": 0, "total_open_roles": 0,
+        "roles_sample": [], "external_job_boards": {},
+        "sources_used": [{"id": "careers", "kind": "careers_page", "url": "https://x/careers"}],
+        "field_status": {"technical_digital_roles_count": "not_applicable"},
+    }
+    signals = job_postings_crawler._derive_signals(row)
+    assert signals["job_posting_velocity"]["value"] == 0.0
+    assert signals["job_posting_velocity"]["status"] == "absent"
+
+
+def test_offsite_links_are_never_counted_as_listings():
+    """An offsite link is an external board or a social profile at best — the crawler
+    never verified a vacancy behind it, so it is not a listing."""
+    page = "https://www.example.com/careers/"
+    roles = [
+        {"title": "Service Engineer", "url": "https://www.example.com/careers/service-engineer/"},
+        {"title": "International Job Postings on LinkedIn", "url": "https://www.linkedin.com/company/example/jobs"},
+    ]
+    kept = job_postings_crawler._plausible_listings(roles, [page], [])
+    assert [r["title"] for r in kept] == ["Service Engineer"]
+
+
+def test_real_postings_under_a_careers_tree_survive_the_careers_nav_filter():
+    """The careers-nav rule is 'same-site link with no job-ish path segment' — a real
+    posting under /careers/<role>/ or /jobs/<id> must survive it."""
+    page = "https://www.example.com/en/careers"
+    roles = [
+        {"title": "Service Engineer", "url": "https://www.example.com/en/careers/service-engineer/"},
+        {"title": "Warehouse Assistant", "url": "https://www.example.com/jobs/2"},
+        {"title": "Progettista Meccanico", "url": "https://www.example.com/it/lavora-con-noi/progettista"},
+        {"title": "Products", "url": "https://www.example.com/en/products"},
+    ]
+    ctx = job_postings_crawler._careers_page_context(
+        "<html>" + "".join(f'<a href="{r["url"]}">{r["title"]}</a>' for r in roles) + "</html>", page)
+    kept = job_postings_crawler._plausible_listings(roles, [page], [], ctx["careers_nav_urls"])
+    assert [r["title"] for r in kept] == ["Service Engineer", "Warehouse Assistant", "Progettista Meccanico"]
+
+
 def test_fetch_homepage_falls_back_to_plain_http(monkeypatch):
     def fake_get(url, **kw):
         if url.startswith("https://"):

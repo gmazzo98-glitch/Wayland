@@ -264,7 +264,9 @@ def _first_careers_page(candidates: list, home_norm: str, deadline: float):
                 except (FutureTimeoutError, requests.RequestException):
                     continue
                 if _looks_like_careers_page(resp, home_norm):
-                    return {"url": resp.url, "found_via": via}
+                    found = {"url": resp.url, "found_via": via}
+                    found.update(_careers_page_context(resp.text, resp.url))
+                    return found
         finally:
             for fut in futures:
                 fut.cancel()
@@ -367,7 +369,11 @@ def _find_careers_url(website_url: str):
 _CTA_TITLE_RE = re.compile(
     # no word boundaries: the crawler concatenates a link's child text ("Candidatialla posizione")
     r"carica il tuo|curriculum|invia (la tua )?candidatura|upload (your )?cv|^candidat|^apply|^submit|"
-    r"privacy|cookie|newsletter|scarica|download|contatt|contact us|vedi tutt|view all",
+    r"privacy|cookie|newsletter|scarica|download|contatt|contact us|vedi tutt|view all|"
+    # careers-landing CTAs that point at more listings, not at a vacancy (rotork.com/en/careers:
+    # "Click here to explore our current opportunities", "View", "View more about Energy Transition")
+    r"^view\b|^vedi\b|click here|explore our|explore the|find out more|learn more|read more|"
+    r"see (all |our |more )|browse (jobs|roles|positions|openings|vacanc)|search (jobs|roles|positions|vacanc)",
     re.I,
 )
 # Site chrome that the crawler's generic extractor can mistake for a list of roles
@@ -378,6 +384,10 @@ _SITE_CHROME_TITLE_RE = re.compile(
     r"^(home|homepage|company|azienda|chi siamo|about( us)?|products?( ?& ?services)?|prodotti|servizi|services?|"
     r"news|magazine|blog|media|gallery|galleria|downloads?|contacts?|contatti|request a quote|richiedi (un )?preventivo|"
     r"careers?|lavora con noi|jobs?|login|area riservata|it|en|de|fr|es|pt|ru|zh|ar|pl|"
+    # careers-section landing chrome (rotork.com/en/careers yielded these as open roles)
+    r"career opportunities|career journeys|employee stories|our brands?|our story|our people|"
+    r"benefits?|perks|why (join|work)|working (with|at) us|meet (our|the) (people|team)|values|mission|"
+    r"who we are|life at|talent community|graduate (program|scheme)|apprenticeships?|"
     # language switchers (www.adue.it/career/ yielded five of these as open roles)
     r"italiano|english|deutsch|fran[cç]ais|espa[nñ]ol|portugu[eê]s|русский|中文|日本語|한국어|العربية|polski|türkçe|nederlands)$",
     re.I,
@@ -386,14 +396,79 @@ _SITE_CHROME_TITLE_RE = re.compile(
 # (sources/generic.ts heuristic 3): its URL is the form itself plus this fragment.
 _SELECT_OPTION_FRAGMENT = "#posizione="
 
+# Offsite boards a careers page hands its vacancies to (bray.com/careers lists none itself but
+# links to "International Job Postings on LinkedIn" and an Ultipro board for the USA). A measured
+# zero on such a page is NOT a confirmed absence — the real listings live behind a link the
+# crawler was never going to follow (LinkedIn login walls, ATS portals), so the wrapper must
+# not write the not_applicable "advertises no open roles at all" outcome for it.
+_EXTERNAL_JOB_BOARD_RE = re.compile(
+    r"linkedin\.com/(company|jobs|mhcompanies)|smartrecruiters\.com|ultipro\.com|"
+    r"myworkdayjobs?\.com|workaday\.com|greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|"
+    r"bamboohr\.com|jobvite\.com|icims\.com|taleo\.net|successfactors\.com|eightfold\.ai|"
+    r"phenom(?:people)?\.com|recruitee\.com|teamtailor\.com|personio\.(?:de|com)|softgarden\.de|"
+    r"indeed\.com|stepstone\.[a-z.]+|monster\.com|glassdoor\.com|jobs\.oracle\.com|"
+    r"careers\.sap\.com|jobs\.siemens\.com", re.I)
+_JOB_LINK_TEXT_RE = re.compile(
+    r"job|position|vacanc|stellenangebot|offerte di lavoro|opportunit|opening|career", re.I)
+# Board *names* as they appear in link text ("International Job Postings on LinkedIn") —
+# only trusted when the label also says jobs/careers, so a footer "Follow Us LinkedIn"
+# social link is not mistaken for a job board.
+_JOB_BOARD_NAME_RE = re.compile(
+    r"linkedin|smartrecruiters|ultipro|workday|greenhouse|lever|workable|indeed|stepstone|"
+    r"monster|glassdoor|taleo|icims|jobvite|successfactors|bamboohr|recruitee|teamtailor|"
+    r"personio|softgarden|eightfold|phenom|jobtorious|karriere", re.I)
 
-def _plausible_listings(roles_sample: list, source_urls: list, site_nav_urls: list = None) -> list:
+# Whole URL-path SEGMENTS that identify a site's own chrome — a vacancy link never lives under
+# /products/ or /about-us/ (rotork.com/en/careers: its links are the site's products, industries,
+# brands and news). Segment-precise on purpose: "/careers/service-engineer" has no segment equal to
+# "service", so real postings under a /careers/ tree are never caught by chrome paths.
+
+
+
+def _careers_page_context(html: str, base_url: str) -> dict:
+    """Same-site chrome links and offsite job-board links found ON the careers page
+    itself. rotork.com/en/careers is a careers *landing* page: every same-site link on
+    it is the site's own nav/products/news (which the generic extractor then counted as
+    10 "digital jobs"), while the actual vacancies sit behind a SmartRecruiters widget.
+    bray.com/careers links to LinkedIn/Ultipro boards instead of listing anything.
+    Returns {"careers_nav_urls": [...], "external_job_boards": [...]}.
+    """
+    parser = _LinkCollector()
+    try:
+        parser.feed(html or "")
+    except Exception:
+        pass
+    nav, boards = set(), {}
+    for href, label in parser.links:
+        if not href or href.lower().startswith(("mailto:", "tel:", "javascript:", "#")):
+            continue
+        full = urljoin(base_url, href)
+        if not full.lower().startswith(("http://", "https://")):
+            continue
+        if _same_site(full, base_url):
+            # A vacancy link lives under a job-ish path (/jobs/..., /careers/<role>/,
+            # /lavora-con-noi/...); everything else on the careers page is site chrome —
+            # its nav, products, news, employee-story landers. rotork.com/en/careers is
+            # the extreme case: EVERY same-site link on it is chrome.
+            if not _CAREERS_PATH_RE.search(urlparse(full).path):
+                nav.add(_normalized(full))
+        elif _EXTERNAL_JOB_BOARD_RE.search(full) or (
+            _JOB_BOARD_NAME_RE.search(label) and _JOB_LINK_TEXT_RE.search(label)
+        ):
+            boards[_normalized(full)] = label.strip()[:80]
+    return {"careers_nav_urls": sorted(nav)[:300], "external_job_boards": boards}
+
+
+def _plausible_listings(roles_sample: list, source_urls: list, site_nav_urls: list = None,
+                        careers_nav_urls: list = None) -> list:
     """Drops CTA buttons, javascript:/anchor hrefs, links back to the careers page
     itself, the site's own navigation links, and chrome-word titles — none of which
-    are job postings. site_nav_urls are the homepage's same-site links, collected by
+    are job postings. site_nav_urls are the homepage's same-site links and
+    careers_nav_urls the careers page's own chrome links, both collected by
     _discover_careers_page."""
     source_norms = {_normalized(u) for u in source_urls}
     nav_norms = {_normalized(u) for u in (site_nav_urls or [])}
+    nav_norms |= {_normalized(u) for u in (careers_nav_urls or [])}
     keep = []
     for r in roles_sample or []:
         title = (r.get("title") or "").strip()
@@ -411,6 +486,8 @@ def _plausible_listings(roles_sample: list, source_urls: list, site_nav_urls: li
             continue
         if _CTA_TITLE_RE.search(title):
             continue
+        if source_urls and not _same_site(url, source_urls[0]):
+            continue  # offsite: an external board/social link, not a verified vacancy on this site
         keep.append(r)
     return keep
 
@@ -447,7 +524,9 @@ def _derive_signals(row: dict, country: str = None) -> dict:
         return signals  # no source reached — every field below would be a fabricated zero
 
     source_urls = list(dict.fromkeys(s.get("url") for s in sources_used if s.get("url")))
-    roles_sample = _plausible_listings(row.get("roles_sample"), source_urls, row.get("site_nav_urls"))
+    roles_sample = _plausible_listings(row.get("roles_sample"), source_urls, row.get("site_nav_urls"),
+                                       row.get("careers_nav_urls"))
+    external_boards = row.get("external_job_boards") or {}
     total_roles = row.get("total_open_roles")
     sampled = [{"label": r.get("title"), "url": r.get("url")} for r in roles_sample if r.get("title")]
 
@@ -498,7 +577,12 @@ def _derive_signals(row: dict, country: str = None) -> dict:
                 "note": None if recount else "sample may be partial; matches can also come from description text not shown here",
             },
         }
-    elif roles_status == "not_applicable":
+    elif roles_status == "not_applicable" and not external_boards:
+        # Zero listings on the page is only a confirmed absence when the page itself is
+        # the whole board. When it hands vacancies to an offsite board (bray.com/careers ->
+        # LinkedIn jobs + Ultipro), the zero is a coverage gap, not an absence: the real
+        # listings were never in view, so no count is asserted and the boards are recorded
+        # in the raw blob for a human (or a future ticket) to follow.
         # A source was crawled and it advertises no open roles at all — a real,
         # established zero for a hiring-velocity signal, not a failed lookup.
         signals["digital_job_postings"] = {
@@ -525,7 +609,7 @@ def _derive_signals(row: dict, country: str = None) -> dict:
                                     if recount else "count of open-role listings (crawler's own total)",
                           "considered": considered, "source_urls": source_urls},
         }
-    elif country != "Germany" and roles_status == "not_applicable":
+    elif country != "Germany" and roles_status == "not_applicable" and not external_boards:
         signals["job_posting_velocity"] = {
             "value": 0.0, "status": "absent",
             "summary": "careers page crawled, advertises no open roles at all",
@@ -625,6 +709,8 @@ def _empty_crawler_row(company, found: Optional[dict] = None) -> dict:
             "erp_systems_mentioned": "not_found",
         },
         "sources_used": [],
+        "careers_nav_urls": [],
+        "external_job_boards": {},
         "sources_skipped": [
             {"id": "careers", "url": None, "reason": "no careers_url provided"},
             {"id": "job_boards", "url": None, "reason": "job-board mode disabled (careers-page-only default); would use: indeed, stepstone"},
@@ -673,13 +759,16 @@ def sync_job_postings(company, db_session: Session) -> dict:
         row = matches[0]
         row["careers_discovery"] = {"careers_url": careers_url, "found_via": found["found_via"]}
         row["site_nav_urls"] = found.get("site_nav_urls", []) if found else []
+        row["careers_nav_urls"] = found.get("careers_nav_urls", []) if found else []
+        row["external_job_boards"] = found.get("external_job_boards", {}) if found else {}
         captured["row"] = row
         if row.get("error"):
             raise CrawlerRunError(row["error"])
         return {
             "signals": _derive_signals(row, country=c.country),
             "raw_payload": {"total_open_roles": row.get("total_open_roles"), "sources_used": row.get("sources_used"),
-                             "careers_discovery": row["careers_discovery"]},
+                             "careers_discovery": row["careers_discovery"],
+                             "external_job_boards": row.get("external_job_boards") or {}},
             "confidence": 0.7,
         }
 
