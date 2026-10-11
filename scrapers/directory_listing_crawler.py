@@ -24,10 +24,13 @@ SOURCE_NAME = "Directory Listing Crawler"
 CRAWLER_DIR = "directory-listing-crawler"
 PHASE = 7
 
-# Only directory with a registered plugin as of the 2026-09-16 crawler audit —
-# see Scraper/crawlers/directory-listing-crawler/src/directories/index.ts.
+# Registered directory plugins in Scraper/crawlers/directory-listing-crawler/src/directories/index.ts:
+# MECSPE (trade fair exhibitor search) and ANIMA (industry association member directory).
 # Add more here as new directory plugins are registered there.
-DEFAULT_DIRECTORY_URLS = ["https://www.mecspe.com/portale/it/espositori"]
+DEFAULT_DIRECTORY_URLS = [
+    "https://www.mecspe.com/portale/it/espositori",
+    "https://www.anima.it/aziende/",
+]
 
 # A single MECSPE search completes in 10-17s against an uncontended machine (25/25 real
 # companies succeeded that way, 2026-10-11 — see docs/CRAWLER_ROADMAP.md ticket T03c). The old
@@ -67,7 +70,7 @@ def _derive_signals(rows: list) -> dict:
             "evidence": {"method": "exact name match in each directory's own exhibitor/member search",
                           "found": listed, "directories_checked": directories_checked},
         }
-    # A miss in the sole configured directory (MECSPE) cannot establish
+    # A miss in the configured directories (MECSPE, ANIMA) cannot establish
     # absence from trade fairs or associations. Fuzzy candidates remain in
     # the saved raw crawler record for manual inspection.
     return signals
