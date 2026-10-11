@@ -167,7 +167,7 @@ re-discover the same blocker.
 | T02 | Fix stale crawler-count/category references | Ops | P0 | DONE | Vibe Code fd5055 | 2026-10-10 21:26:49 | (merged) |
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-10 21:28:17 | (merged) |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | CLAIMED | Antigravity da2ebdec | 2026-10-10 22:38:37 | crawler/T03b-job-postings-reliability |
-| T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | CLAIMED | Claude Code 95d22c8c | 2026-10-11 08:25:04 | crawler/T03c-directory-listing-reliability |
+| T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-11 08:25:04 | (merged) |
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | CLAIMED | Codex 01a12a10 | 2026-10-11 08:53:03 | crawler/T05-competitor-hiring-benchmark |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | OPEN | | | |
@@ -472,6 +472,44 @@ error accounting, fix the counting, not the crawler.
 
 **Acceptance criteria:** state clearly in your Results note which of the two
 causes it was, with the real log evidence, and show the corrected error rate.
+
+**Results (2026-10-11):** Checked the ticket's own `no_config` hypothesis
+first and ruled it out: `scrapers/directory_listing_crawler.py`'s
+`DEFAULT_DIRECTORY_URLS` has only ever contained MECSPE's own URL (checked
+its full git history), and MECSPE's `matchesUrl` correctly matches it — a
+25-company live run confirmed every single row came back `status: "ok"`,
+never `no_config`. So: **genuine errors**, not miscounting — the ticket's
+second branch.
+
+Diagnosed the same way as T03a: a 25-company **sequential, uncontended**
+`crawler_bench.py --lanes directory` run succeeded on **25/25** (0 errors,
+10-17s each) — the crawler's own MECSPE search/consent/matching logic isn't
+the problem. A controlled 8-company **concurrent** `--mode queue --workers 4`
+repro (real `CrawlJobManager` + resource-governor path, all Phase 7 sources
+at once) killed 2/8 at exactly `"directory-listing-crawler timed out after
+75s"`. Comparing `run_timeout` across every browser-using Phase 7 wrapper:
+company-website 170s, job-postings/linkedin-profile 100s each,
+**directory-listing 75s** — the tightest of all of them despite sharing the
+exact same scarce `"browser"` resource-governor slot (capacity 4) as every
+one of those. Under real concurrent load (several of those crawlers'
+Chromium instances competing for the same machine), this crawler's own
+budget ran out first even though its actual work is lighter than its peers'.
+
+**Fix:** widened `run_timeout` from 75s to 150s (`directory_listing_crawler.
+RUN_TIMEOUT_SECONDS`) and raised the adapter's own wall-clock budget to
+match (`RUN_TIMEOUT_SECONDS + 30`), same pattern every other wrapper already
+uses. No change needed in the TS crawler itself or the MECSPE plugin — the
+25/25 clean isolated run is why.
+
+**Live-verified:** re-ran the identical 8-company concurrent repro with the
+fix. **0/8 directory-listing-crawler errors** (down from 2/8), and the two
+previously-killed companies (COMEC GROUP, SITMA) each went from 0-2 real
+signals to 4 — the timeouts weren't isolated to this one source; they were
+part of the same contention hurting everything sharing that machine, and the
+whole 8-company batch finished in roughly half the wall time (325s vs 648s)
+once this crawler stopped burning a full browser slot for 75s before giving
+up. Full test suite: 596 passed, 0 failures. New regression test:
+`tests/test_crawler_hardening.py::test_directory_listing_budget_was_widened_past_its_old_75s`.
 
 ---
 
