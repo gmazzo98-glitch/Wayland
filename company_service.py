@@ -27,7 +27,7 @@ from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
     directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler,
     linkedin_profile_crawler, product_catalog_crawler,
-    ted_awards_crawler, fda_recalls_crawler, competitor_benchmark,
+    ted_awards_crawler, fda_recalls_crawler, competitor_benchmark, competitor_news_benchmark,
 )
 
 SUPPORTED_COUNTRIES = ["Germany", "Italy"]
@@ -38,8 +38,9 @@ SUPPORTED_COUNTRIES = ["Germany", "Italy"]
 # - Germany only: Arbeitsagentur, Handelsregister Free Snapshot, Bundesanzeiger, Kununu Reseller
 # - Italy only: Italian national registers / ISTAT (future integration hooks)
 # Phase 7 has nine Node-based crawlers plus keyless TED and sector-specific FDA searches, plus
-# Competitor Benchmark — a derived re-run of Digital Maturity Crawler against named competitors
-# (only eligible once at least one is recorded; see eligible_phase7_sources below).
+# two derived re-runs against named competitors (only eligible once at least one is recorded;
+# see eligible_phase7_sources below): Competitor Benchmark (Digital Maturity Crawler) and
+# Competitor News Benchmark (Google News RSS press-mention counts, raw/unscored).
 PHASE_7_SOURCES = [
     "Company Website Crawler", "Job Postings Crawler", "Review Crawler",
     "News Signals Crawler", "Directory Listing Crawler", "Innovation Participation Crawler",
@@ -47,6 +48,7 @@ PHASE_7_SOURCES = [
     "TED Contract Awards Crawler",
     "FDA Recalls Crawler",
     "Competitor Benchmark",
+    "Competitor News Benchmark",
 ]
 
 
@@ -123,6 +125,8 @@ def eligible_phase7_sources(company: Company) -> set[str]:
         names.add("LinkedIn Profile Crawler")
     if any(comp.homepage_url for comp in company.competitors):
         names.add("Competitor Benchmark")
+    if company.competitors:
+        names.add("Competitor News Benchmark")
     return names
 
 
@@ -300,6 +304,7 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
             SourceStep("TED Contract Awards Crawler", ted_awards_crawler.sync_ted_awards, 7),
             SourceStep("FDA Recalls Crawler", fda_recalls_crawler.sync_fda_recalls, 7),
             SourceStep("Competitor Benchmark", competitor_benchmark.sync_competitor_benchmark, 7),
+            SourceStep("Competitor News Benchmark", competitor_news_benchmark.sync_competitor_news_benchmark, 7),
         ]
     return steps, after
 
