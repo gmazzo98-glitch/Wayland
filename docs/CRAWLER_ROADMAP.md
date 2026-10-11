@@ -178,7 +178,7 @@ re-discover the same blocker.
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | OPEN | | | |
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 15:36:20 | crawler/T13-wire-anima-directory |
-| T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | OPEN | | | |
+| T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | CLAIMED | Codex 01a12a10 | 2026-10-11 15:37:33 | crawler/T14-ted-awards-reliability |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | OPEN | | | |
 
 Adding a new ticket yourself (T16+)? Append a row here and a matching
