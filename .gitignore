@@ -27,3 +27,13 @@ Thumbs.db
 
 # Throwaway ad-hoc test scripts, not part of the app
 scratch/
+
+# scripts/crawler_bench.py's own ad-hoc output (filenames are whatever --db/--out an
+# invocation chose, e.g. bench_5.db, report_live.json) and pytest's --junitxml output —
+# scratch artifacts from live-verifying a crawler ticket, not part of the app.
+bench_*.db
+bench_*.json
+report_*.json
+junit*.xml
+logs_bench/
+test_logs/

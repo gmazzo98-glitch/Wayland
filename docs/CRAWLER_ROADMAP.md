@@ -182,7 +182,7 @@ re-discover the same blocker.
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 17:01:20 | (merged) |
 | T16 | Product Catalog Crawler: catalog-page breadth starves the product-page budget | Reliability | P2 | DONE | Claude Code gio3maz | 2026-10-11 19:32:08 | (merged) |
 | T17 | Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero | Reliability | P1 | DONE | Vibe Code f3f064 | 2026-10-11 19:41:30 | (merged) |
-| T18 | Phase 1/4 coverage sweep needs per-source completion tracking | Ops | P0 | BLOCKED (T04 currently edits `company_service.py`; reopen after its merge) | — | — | (not claimed) |
+| T18 | Phase 1/4 coverage sweep needs per-source completion tracking | Ops | P0 | OPEN (T04 merged 2026-10-11 19:24 — no longer blocked) | | | |
 
 Adding a new ticket yourself (T16+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
@@ -1547,7 +1547,7 @@ not touch:
 2. Change `companies_not_yet_crawled()` for Phases 1/4 to require a `live` completion for **each eligible source** for that company, using the actual `plan_source_steps()` choice (RNA versus EU Funding Portal; paid Google News versus RSS). Keep Phase 7's existing per-source behavior. Real historical signals may establish a source's completion only where their provenance is unambiguous; older successful-empty calls without a per-company record must be retried rather than assumed complete.
 3. Let the existing bounded sweep pick up the newly visible backlog without bypassing EPO OPS's rate limiter or any resource/policy gate. Diagnose fresh errors before changing adapter retry logic; the single live EPO probe above succeeded.
 
-**Files to touch:** `company_service.py`, `scripts/coverage_sweep.py`, and focused tests in `tests/test_coverage_sweep.py`, `tests/test_bulk_crawl_filter.py`, and/or `tests/test_phase7_batch.py`. **Dependency:** T04 is currently CLAIMED and edits `company_service.py`; keep T18 BLOCKED until T04 merges, then reopen and claim it under the normal protocol. Do not modify T04's in-progress checkout.
+**Files to touch:** `company_service.py`, `scripts/coverage_sweep.py`, and focused tests in `tests/test_coverage_sweep.py`, `tests/test_bulk_crawl_filter.py`, and/or `tests/test_phase7_batch.py`. **Dependency (resolved 2026-10-11, review):** T04 was CLAIMED and editing `company_service.py` when this ticket was written; T04 merged at 19:24 the same day, so this is no longer blocked — open for claiming under the normal protocol.
 
 **Acceptance criteria:** tests prove one live Phase 1/4 source cannot mask another source's error, simulated result, or missing attempt; a successful empty live search counts as completed without a fabricated signal; source selection respects the conditional providers above; Phase 7 behavior is unchanged. Run `pytest --capture=no`. Live-verify a bounded real-company batch (at least 20), show before/after per-source `CompanySourceRun` and `SourceHealth` counts, and report real indicator coverage separately from successful empty searches. Do not run an unbounded 953-company EPO batch as a first verification step.
 
