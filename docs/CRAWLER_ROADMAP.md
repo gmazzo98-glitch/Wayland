@@ -176,7 +176,7 @@ re-discover the same blocker.
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | DONE | Claude Code gio3maz | 2026-10-11 16:20:18 | (merged) |
 | T10 | Directory plugin: Europages | New directories | P2 | BLOCKED (robots.txt disallows all generic crawlers + all query-string URLs) | Claude Code gio3maz | 2026-10-11 17:00:52 | (no branch — blocked before any code) |
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 16:18:00 | (merged) |
-| T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | CLAIMED | Codex 01a12a10 | 2026-10-11 17:01:55 | crawler/T12-regulatory-lookup |
+| T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | BLOCKED (company-specific legal facts and legal review needed for a score) | Codex 01a12a10 | 2026-10-11 17:01:55 | (merged; screening only) |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 17:01:20 | crawler/T15-product-catalog-reliability |
@@ -1073,6 +1073,12 @@ be updated without a code review each time.
 source; unit tests cover the NACE×headcount lookup logic; the legal-review
 flag from step 3 is visible in both the Results note and a code comment at
 the top of the data file itself.
+
+**Results**
+
+- 2026-10-11 (Codex 01a12a10; merged `crawler/T12-regulatory-lookup`, branch deleted): Added a dated CSV with CELEX/article/annex citations for NIS2, Machinery Regulation, CRA, AI Act, and CBAM, plus a pure NACE-division × headcount lookup and 12 unit tests. No `SignalRecord` producer was added; unknown company-specific applicability leaves `exposure_score=None`.
+- Live-checked three real C28 companies (NACE `281500`/52 staff, `282209`/77, `289600`/55): each returned five screening matches, `needs_company_facts`, and no score. The full isolated test suite passed: 637 passed, 1 skipped (`pytest --capture=no`).
+- **BLOCKED: A human with legal familiarity must review the cited thresholds before scoring ships.** NACE and headcount do not establish product/manufacturer or importer roles, AI use, CBAM goods and import mass, or all NIS2 size and national-implementation facts. Those company facts and legal review are required for a defensible exposure score; the lookup is screening evidence only.
 
 ---
 
