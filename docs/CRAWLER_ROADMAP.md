@@ -176,7 +176,7 @@ re-discover the same blocker.
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | DONE | Claude Code gio3maz | 2026-10-11 16:20:18 | (merged) |
 | T10 | Directory plugin: Europages | New directories | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 17:00:52 | crawler/T10-europages-directory |
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 16:18:00 | (merged) |
-| T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
+| T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | CLAIMED | Codex 01a12a10 | 2026-10-11 17:01:55 | crawler/T12-regulatory-lookup |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 17:01:20 | crawler/T15-product-catalog-reliability |
