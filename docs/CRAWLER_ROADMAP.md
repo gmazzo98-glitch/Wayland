@@ -180,6 +180,7 @@ re-discover the same blocker.
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 17:01:20 | (merged) |
+| T16 | Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero | Reliability | P1 | CLAIMED | Vibe Code f3f064 | 2026-10-11 19:40:00 | crawler/T16-job-postings-false-vacancies |
 
 Adding a new ticket yourself (T16+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
@@ -1292,6 +1293,63 @@ price that isn't really there); note explicitly whether this unblocks T04.
      - Results: 20/20 completed cleanly with **0 errors (0.0% error rate)** vs. prior SourceHealth 41% (19/46). Multiple companies yielded products (e.g. `www.imeas.it` extracted 6 priced products, `tecnoventil.it` extracted 8 products).
   4. T04 status: **T04 is unblocked**. Its blocker was zero priced products extracted from Imperia and Coltri; both now yield fixed-price products with currencies and categories.
   5. Test suite: Node crawler tests in `Scraper` pass 50/50 (`npm test`). Python tests pass (`pytest tests/test_product_catalog_crawler.py`). Full suite `pytest --capture=no` passes with 0 exit code.
+
+---
+
+### T16 — Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero
+
+**Track:** Reliability · **Priority:** P1 (unblocks T05)
+
+**Problem.** T03b fixed the resource-contention error rate, but T05's live findings
+exposed two honest-measurement bugs in the job-postings wrapper that T03b's fix did
+not touch:
+
+1. **Careers-page-local navigation/news links counted as vacancies.** Live-verified
+   against https://www.rotork.com/en/careers (2026-10-11): that page is a careers
+   *landing* page whose links are all site nav (About us, Investors, product
+   families, News, brands, employee stories). `_plausible_listings` filters the
+   homepage's nav links (`site_nav_urls`) and a fixed chrome-word title list, but
+   (a) `site_nav_urls` only covers the *homepage's* links, not the careers page's
+   own repeated nav, and (b) the fixed chrome list misses careers-section chrome
+   like employee stories, career journeys, our brands, industry/product links, and
+   language switchers. Result: 10 nav/news links were counted as 10 digital jobs.
+2. **External job-board links reported as a confirmed zero.** Live-verified against
+   https://www.bray.com/careers: the page itself lists no roles but links to
+   external boards ("International Job Postings on LinkedIn", "Job Postings in the
+   USA" on Ultipro). A measured zero on the page became a fabricated "this company
+   has no open roles" (`not_applicable`), when the site explicitly points elsewhere —
+   exactly the not-found vs. confirmed-absence distinction Ground rule 2 exists to
+   preserve.
+
+**Implementation plan.**
+
+1. Collect the *careers page's own* same-site links during discovery (alongside the
+   homepage's) so the junk filter can drop careers-page-local nav, not just homepage
+   nav. Keep existing `site_nav_urls` blobs (older rows) working.
+2. When the crawled page yields zero listings but contains links to known external
+   job boards (LinkedIn jobs, Ultipro, Workday, SmartRecruiters, Greenhouse, ...),
+   the derived count must NOT be written as a confirmed zero: keep the honest
+   "we couldn't look at the real board" outcome (no count signal) and record the
+   external board URLs as evidence in the raw blob. Do not attempt to crawl the
+   external boards here — LinkedIn/ATS auth and ToS are out of scope.
+3. No new signal_keys, no weight changes, no changes to discovery ranking. Stay in
+   the wrapper: the `Scraper` repo is not checked out for this ticket.
+
+**Files to touch:** `scrapers/job_postings_crawler.py`; extend
+`tests/test_crawler_hardening.py` (where the existing job-postings tests live).
+
+**Acceptance criteria:**
+
+- Unit tests: careers-page-local nav/news links (Rotork-style) are dropped from
+  `_plausible_listings` and produce no count signal when they are all the sample
+  contains; a Bray-style page (zero listings + external board links) produces no
+  `not_applicable` zero signal and records the board URLs.
+- Live-verified against the two documented miscount pages above, showing the
+  wrapper no longer asserts a count from either.
+- Full `pytest --capture=no` green.
+- Results note states explicitly whether T05 is unblocked.
+
+**Results**
 
 ---
 
