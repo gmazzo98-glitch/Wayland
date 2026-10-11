@@ -166,7 +166,7 @@ re-discover the same blocker.
 | T01 | Unattended Phase 1/4/7 coverage sweep | Ops | P0 | DONE | Codex 01a127b4 | 2026-10-10 21:25:27 | (merged) |
 | T02 | Fix stale crawler-count/category references | Ops | P0 | DONE | Vibe Code fd5055 | 2026-10-10 21:26:49 | (merged) |
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-10 21:28:17 | (merged) |
-| T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | CLAIMED | Antigravity da2ebdec | 2026-10-10 22:38:37 | crawler/T03b-job-postings-reliability |
+| T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | DONE | Antigravity da2ebdec + Claude Code gio3maz | 2026-10-10 22:38:37 | (merged) |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-11 08:25:04 | (merged) |
 | T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | BLOCKED (job crawler counts navigation as vacancies) | Codex 01a12a10 | 2026-10-11 08:53:03 | (merged; inactive prototype) |
@@ -449,6 +449,54 @@ dominant cause rather than guessing.
 
 **Acceptance criteria:** live-verified error rate materially lower on a real
 batch of ≥20 companies; existing unit tests still green.
+
+**Results**
+
+- 2026-10-11 (Antigravity da2ebdec claimed/implemented; Claude Code gio3maz
+  took over, tested, live-verified and merged — see note below on why):
+  Antigravity's session diagnosed and fixed this but went inactive
+  (confirmed by the user) before committing or live-verifying, leaving
+  substantial, coherent, uncommitted work sitting in the shared working
+  tree for hours. Reviewed the full diff before touching anything, found it
+  addressed the real problem soundly, then finished what Ground rule 4
+  still required: tests and live verification.
+  **Root cause: the same resource-contention pattern T03a already found
+  for Digital Maturity Crawler** — `job-postings-crawler` unconditionally
+  claimed a `"browser"` resource-governor slot even on companies where no
+  careers page was ever found and Playwright was never going to run,
+  starving the four other browser-using Phase 7 crawlers under real
+  concurrent load. Fix: `crawler_resources(careers_url)` returns
+  `("process",)` only (no `"browser"`) when no careers URL exists, same
+  fix shape as `digital_maturity_crawler.crawler_resources()`, now also
+  skipping the Node subprocess entirely in that case — confirmed this
+  produces the identical honest outcome `_derive_signals` already returns
+  for `sources_used=[]` (empty signals, not a fabricated absence), not a
+  new shortcut.
+  Also fixed along the way: an SSL-error fetch path with an `http://`
+  fallback retry; soft-404 redirect detection across `www.`/non-`www.`
+  variants (`_same_url_or_home` — the old check missed a redirect back to
+  the homepage under a different host form); and a timeout bug where one
+  slow probe candidate's `FutureTimeoutError` aborted checking every
+  remaining candidate (`break` → `continue`, with the per-candidate
+  remaining-time budget now computed correctly).
+  **Live-verified** via `scripts/crawler_bench.py` against real companies:
+  a 25-company sequential `--lanes jobs` run came back **0/25 errors**
+  (down from the 23% baseline, 387 calls/89 errors); an 8-company
+  concurrent `--mode queue --workers 4 --phases 7` repro (every Phase 7
+  source running at once, matching T03a/T03c's own contention-reproduction
+  method) came back with **0 Job Postings Crawler errors** — the batch's
+  only error was an unrelated, already-known Digital Maturity Crawler
+  250s timeout (flagged, not new, see T03a's own Results note). Full
+  `pytest --capture=no`: 642 passed, 0 failed (16 of those job-postings-
+  specific, including 2 new: `crawler_resources()` branching and the
+  no-careers-URL short-circuit).
+  **Note on the merge:** committed directly to `master` rather than via
+  the existing `crawler/T03b-job-postings-reliability` branch — that
+  branch only ever held the original claim commit from hours before
+  `master` moved through ~10 other tickets' merges, so replaying onto it
+  would have meant a rebase (forbidden, Ground rule 5) rather than a
+  clean merge. Net effect on `master` is the same as the usual
+  claim-branch-merge flow.
 
 ---
 
