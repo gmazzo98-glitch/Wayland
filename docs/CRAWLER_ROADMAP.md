@@ -177,7 +177,7 @@ re-discover the same blocker.
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | OPEN | | | |
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
-| T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 15:36:20 | crawler/T13-wire-anima-directory |
+| T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | CLAIMED | Codex 01a12a10 | 2026-10-11 15:37:33 | crawler/T14-ted-awards-reliability |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | OPEN | | | |
 
@@ -940,6 +940,19 @@ blob (`RawImportRecord`, dataset `crawler_directory_anima` per
 `VIENNA_CRAWLER_LOG_DIR` logs show a real ANIMA row, not just MECSPE; ideally
 find at least one real ANIMA member among the 953 companies and show
 `trade_fair_participation`'s evidence trail crediting it.
+
+**Results**
+
+- 2026-10-11 (Antigravity 0cf87136; merged `crawler/T13-wire-anima-directory`, branch deleted):
+  - Added `"https://www.anima.it/aziende/"` to `DEFAULT_DIRECTORY_URLS` in `scrapers/directory_listing_crawler.py` and updated comments.
+  - Added test suite in `tests/test_directory_listing_anima.py` covering default URLs and multi-directory hit scoring with evidence trailing.
+  - Live-verified against 5 real companies from the live database:
+    1. REFRION S.R.L. (`e4c1da94-7833-4d82-8a02-1c27c11dcedb`): Exact match on ANIMA (`https://www.anima.it/aziende/refrion-srl.kl`, member since aprile 2025). Populated `trade_fair_participation` = 1.0 with complete evidence trail crediting ANIMA.
+    2. CELLI S.R.L. (`cffa2196-d2f5-413d-8761-bfb0ce8d2dc6`): Exact match on ANIMA (`https://www.anima.it/aziende/celli-spa.kl`, member since febbraio 2026). Populated `trade_fair_participation` = 1.0 with complete evidence trail crediting ANIMA.
+    3. TURO ITALIA S.P.A. (`3b9e4a30-22db-428a-86c8-5dc7f6bbcb3c`): Fuzzy match candidate identified on ANIMA (`possible_match: true`), correctly left unconfirmed.
+    4. BONFIGLIOLI ENGINEERING S.R.L. (`62fb8f3d-51a8-4820-a616-d35272a0889f`): Fuzzy match candidate on ANIMA, correctly left unconfirmed.
+    5. ACQUA BREVETTI S.R.L. (`93fc0c57-61c0-4eb6-86db-e1fca9bb52f2`): Clean miss on both directories.
+  - Confirmed raw crawler blobs saved to DB for both `crawler_directory_mecspe` and `crawler_directory_anima` across all 5 companies. Full test suite passing.
 
 ---
 
