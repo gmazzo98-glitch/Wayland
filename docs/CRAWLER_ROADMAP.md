@@ -173,7 +173,7 @@ re-discover the same blocker.
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | DONE | Claude Code gio3maz | 2026-10-11 15:39:21 | (merged) |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | BLOCKED (both review modes disabled; no live rating extraction) | Codex 01a12a10 | 2026-10-11 16:15:25 | (merged; gated) |
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
-| T09 | Directory plugin: Kompass Italia | New directories | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 16:20:18 | crawler/T09-kompass-directory |
+| T09 | Directory plugin: Kompass Italia | New directories | P2 | DONE | Claude Code gio3maz | 2026-10-11 16:20:18 | (merged) |
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 16:18:00 | (merged) |
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
@@ -872,6 +872,59 @@ note and T13).
 **Acceptance criteria:** same as T08, plus: live-verified that the crawler
 actually invokes the Kompass plugin for a real company (not just that the
 plugin passes its own isolated tests).
+
+**Results**
+
+- 2026-10-11 (Claude Code gio3maz, merged `crawler/T09-kompass-directory` to
+  `Scraper`'s `main` and to this repo's `master` — see note on the merge
+  path below — branches deleted): Built
+  `Scraper/crawlers/directory-listing-crawler/src/directories/kompass.ts`.
+  Kompass Italia's own "Cerca un'Azienda" search is actually served from a
+  different host, b2bstars.com, not kompass.com (`https://www.b2bstars.com/
+  it/kompass/company?name=<name>&from=IT`, a plain GET, confirmed by
+  following the real homepage search through to its results page). Unlike
+  ANIMA, the full legal name with its "S.p.A."/"S.r.l." suffix returns
+  correct results here, so `shortSearchName` is only a zero-results
+  fallback, not required for the common case. The harder finding: result
+  cards have no real `<a href>` — each is a React client-side route push —
+  so `search()` resolves up to 5 ranked candidates by clicking each one,
+  reading `page.url()` after the SPA transition, then using the browser
+  back button (confirmed instant/cached) to return to the result list
+  before the next click, rather than clicking through all 20 possible
+  results every time. Confirmed the destination is a genuinely free company
+  profile page (legal name, address, employee count, website), not the
+  directory's paywalled "Acquista e scarica tutti i risultati" bulk-export
+  feature, which this plugin never touches. `npm test`: 10/10 passing
+  (2 new — exact/empty/changed-page/HTTP-error, mirroring ANIMA's own
+  test shape).
+  **Acceptance criteria's own warning earned its keep:** isolated
+  `search()` testing alone looked done, but running the real
+  `dist/main.js` end to end against a real company first hit a flat HTTP
+  403 — `it.kompass.com` itself blocks Crawlee's `PlaywrightCrawler` on the
+  very first request (Cloudflare bot detection; a plain interactive
+  browser used for the initial site inspection was never blocked, only the
+  production crawler's own fingerprint was). The exact same company
+  against the b2bstars.com URL `search()` actually uses succeeded cleanly,
+  so `scrapers/directory_listing_crawler.py`'s `DEFAULT_DIRECTORY_URLS`
+  registers `https://www.b2bstars.com/it/kompass/company`, not an
+  `it.kompass.com` URL — documented in both files so the next bot doesn't
+  rediscover this.
+  **Live-verified end to end** (real Node subprocess through
+  `sync_directory_listing`, real Neon DB, not mocks) against 6 real
+  companies: Aristarco S.p.A., Roten S.r.l., Sintesi S.r.l., Kronn S.r.l.,
+  Mossini S.p.A., Cavagnino & Gatti S.p.A. — every one got `status: "ok"`,
+  a genuine `listing_url` on b2bstars.com, and a `trade_fair_participation`
+  signal crediting Kompass (plausible: Kompass is a broad general B2B
+  directory, so most real manufacturing SMEs having some listing there is
+  expected, unlike the sector- or fair-specific ANIMA/MECSPE). Full
+  `pytest --capture=no`: 629 passed, 0 failed.
+  **Note on the merge path** (same shared-tree situation as T06, see that
+  ticket's Results note): other concurrent agents' branch activity moved
+  this session's checkout back to `master` more than once while this
+  ticket was in progress, so both repos' commits landed via a direct
+  commit-then-pull-merge-push on `master`/`main` rather than a clean
+  `git merge --no-ff crawler/T09-...`. Net effect is the same; flagging it
+  for the same reason as before.
 
 ---
 
