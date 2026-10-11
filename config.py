@@ -242,6 +242,7 @@ SOURCE_CREDENTIAL_VARS = {
     # Product JSON-LD, which this crawler reads for free with no key at all — CRAWLER_LLM_API_KEY
     # only widens coverage to sites without structured product data, it isn't a hard gate.
     "Product Catalog Crawler": [],
+    "Competitor Catalog Benchmark": [],
 }
 
 # Paid/flag-gated sources are switched on by an explicit enable flag rather than a
