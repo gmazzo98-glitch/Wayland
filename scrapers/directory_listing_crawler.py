@@ -26,15 +26,18 @@ PHASE = 7
 
 # Registered directory plugins in Scraper/crawlers/directory-listing-crawler/src/directories/index.ts:
 # MECSPE (trade fair exhibitor search), ANIMA (industry association member directory), and
-# Kompass (general B2B company directory — broader, less sector-specific coverage than ANIMA;
-# its own search() actually runs against b2bstars.com, not this URL — see kompass.ts's header
-# comment, and note it.kompass.com's own robots.txt disallows /search* and any "?" URL, which is
-# exactly why this registers the bare homepage here rather than a search URL on this host).
+# Kompass (general B2B company directory — broader, less sector-specific coverage than ANIMA).
+# Its own search() actually runs against b2bstars.com, not kompass.com — see kompass.ts's header
+# comment. The INITIAL request here matters, not just search()'s own navigation: live-verified
+# that it.kompass.com itself 403s Crawlee's PlaywrightCrawler on the very first request (Cloudflare
+# bot detection — a plain manual browser was not blocked, but the production crawler's fingerprint
+# was), while the exact same company against this b2bstars.com URL succeeds end-to-end. Register
+# the host search() actually uses, not the directory's own "brand" homepage.
 # Add more here as new directory plugins are registered there.
 DEFAULT_DIRECTORY_URLS = [
     "https://www.mecspe.com/portale/it/espositori",
     "https://www.anima.it/aziende/",
-    "https://it.kompass.com/",
+    "https://www.b2bstars.com/it/kompass/company",
 ]
 
 # A single MECSPE search completes in 10-17s against an uncontended machine (25/25 real

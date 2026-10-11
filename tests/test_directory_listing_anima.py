@@ -12,7 +12,7 @@ def test_directory_listing_default_urls_includes_kompass():
     # docs/CRAWLER_ROADMAP.md T13. This is the Python-side half of T09's "actually invoked"
     # acceptance criteria; the TS-side half is Scraper/crawlers/directory-listing-crawler's
     # own npm test + live verification (see that repo's README).
-    assert "https://it.kompass.com/" in directory_listing_crawler.DEFAULT_DIRECTORY_URLS
+    assert "https://www.b2bstars.com/it/kompass/company" in directory_listing_crawler.DEFAULT_DIRECTORY_URLS
 
 
 def test_directory_listing_derive_signals_multiple_hits():
