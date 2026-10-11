@@ -180,7 +180,8 @@ re-discover the same blocker.
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 17:01:20 | (merged) |
-| T16 | Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero | Reliability | P1 | CLAIMED | Vibe Code f3f064 | 2026-10-11 19:40:00 | crawler/T16-job-postings-false-vacancies |
+| T16 | Product Catalog Crawler: catalog-page breadth starves the product-page budget | Reliability | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 19:32:08 | crawler/T16-catalog-page-budget |
+| T17 | Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero | Reliability | P1 | CLAIMED | Vibe Code f3f064 | 2026-10-11 19:41:30 | crawler/T17-job-postings-false-vacancies |
 
 Adding a new ticket yourself (T16+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
@@ -1294,9 +1295,90 @@ price that isn't really there); note explicitly whether this unblocks T04.
   4. T04 status: **T04 is unblocked**. Its blocker was zero priced products extracted from Imperia and Coltri; both now yield fixed-price products with currencies and categories.
   5. Test suite: Node crawler tests in `Scraper` pass 50/50 (`npm test`). Python tests pass (`pytest tests/test_product_catalog_crawler.py`). Full suite `pytest --capture=no` passes with 0 exit code.
 
+**Correction (2026-10-11, independent re-verification):** re-ran this exact
+ticket's two named repro cases live, against the real DB companies (not just
+the crawler's own CLI), to check this ticket's claims before trusting them
+for other work. Imperia & Monferrina confirmed as claimed (9 priced products,
+names and SKUs intact). **Aerotecnica Coltri did not reproduce — 0 products,
+twice independently, not 33** — `is_partial: true`, hit the 45-page crawl
+budget cap both times without ever reaching a product detail page. Root
+cause and fix tracked as T16; see that ticket for why this one's own live
+verification likely caught a lucky run (Coltri's ~19 subcategories can
+starve the page budget non-deterministically depending on enqueue/visit
+ordering under concurrency). **T04 is NOT yet safely unblockable on broad
+catalog sites** until T16 lands — Imperia-shaped (few subcategories) sites
+are fine today.
+
 ---
 
-### T16 — Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero
+### T16 — Product Catalog Crawler: catalog-page breadth starves the product-page budget
+**Track:** Reliability · **Priority:** P2
+
+**Problem.** Found while independently re-verifying T15's own claims before
+building on them (per Ground rule 4's "live-verify, don't just trust"):
+`main.ts`'s per-company page budget (`MAX_PAGES_PER_DOMAIN`, default 45) has
+no reserved allocation for actual product detail pages. Pass 2 of the
+enqueueing logic (`crawlCompany`'s `requestHandler`) keeps scheduling newly
+discovered catalog/category pages with no cap of its own, competing for the
+same shared budget as Pass 1's forefront product-page links. On a site with
+many subcategories (Aerotecnica Coltri: ~19, e.g. "Linea Portables",
+"Compressori Nitrox", "Booster per elio" ...), category-page breadth alone
+can consume the entire 45-page budget — live-verified: 26 of 45 pages
+visited were catalog pages, 0 were products, `is_partial: true`, reproduced
+twice. Pass 1's "forefront" prioritization only reorders whatever is already
+*in* the queue at the moment a product link is discovered; it does nothing
+to stop Pass 2 from continuing to add new, not-yet-visited category pages
+from other pages being processed concurrently (`maxConcurrency: 8`), so
+category pages keep winning the race for the shared budget. Imperia &
+Monferrina shows the same symptom at lower severity (37 of 45 pages were
+catalog pages, only because it has fewer subcategories, so a handful of
+product pages still fit before the cap).
+
+Two smaller bugs found in the same investigation, both in
+`src/structured.ts`'s `parseJsonLdProducts`/`categoryFromBreadcrumbs`:
+1. A page carrying more than one `<script type="application/ld+json">` tag
+   (common — e.g. Yoast SEO's generic WebPage/Organization graph alongside a
+   separate, product-specific graph, confirmed live on `imperia.com`) has its
+   category read from the *first* `BreadcrumbList` node found across every
+   script, not the one actually associated with the Product node's own
+   `@graph` — live-verified wrong: every Imperia product category read
+   "Products – old" (a stale Yoast page-title breadcrumb) instead of the
+   real category ("Fettuccine 6,5 mm" etc., present in the second script).
+2. HTML entities in extracted text (`&#8211;` etc.) are never decoded
+   anywhere in the pipeline.
+
+**Implementation plan.**
+1. Give Pass 2 (catalog/category pages) its own smaller sub-budget inside
+   the existing `MAX_PAGES_PER_DOMAIN` total (e.g. a third of it, floor 10) —
+   track how many catalog pages have been scheduled and stop Pass 2 from
+   adding more once that sub-budget is spent, while Pass 1 (product pages,
+   forefront) and Pass 3 (home-nav fallback) keep working unchanged. This
+   guarantees product pages can't be starved by category breadth alone,
+   without reducing the total page budget or touching unrelated logic.
+2. Fix `categoryFromBreadcrumbs` to prefer a `BreadcrumbList` node found in
+   the SAME parsed script (or `@graph`) as the Product node itself, falling
+   back to the first found anywhere only if none is co-located — same
+   "prefer the specific over the first" principle, not a new concept.
+3. Decode HTML entities in `product_name`/`category`/`description` before
+   they're stored (a small, shared decode helper — don't duplicate the
+   change across three call sites).
+
+**Files to touch:** `Scraper/crawlers/product-catalog-crawler/src/main.ts`
+(catalog-page sub-budget), `Scraper/crawlers/product-catalog-crawler/src/structured.ts`
+(breadcrumb co-location fix, HTML entity decoding).
+
+**Acceptance criteria:** live-verified against Aerotecnica Coltri
+specifically (`www.coltri.com`) showing real priced products now extracted,
+not just a narrower page-budget miss; Imperia & Monferrina's category labels
+read correctly (not "Products – old"); existing 50 Node tests plus new ones
+for the sub-budget and breadcrumb-co-location logic all green; full
+`pytest --capture=no` still green.
+
+---
+
+---
+
+### T17 — Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero
 
 **Track:** Reliability · **Priority:** P1 (unblocks T05)
 
@@ -1350,6 +1432,7 @@ not touch:
 - Results note states explicitly whether T05 is unblocked.
 
 **Results**
+
 
 ---
 
