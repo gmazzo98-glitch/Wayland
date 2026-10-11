@@ -168,7 +168,7 @@ re-discover the same blocker.
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-10 21:28:17 | (merged) |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | DONE | Antigravity da2ebdec + Claude Code gio3maz | 2026-10-10 22:38:37 | (merged) |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-11 08:25:04 | (merged) |
-| T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 19:24:00 | crawler/T04-competitor-catalog-benchmark |
+| T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 19:24:00 | (merged) |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | BLOCKED (job crawler counts navigation as vacancies) | Codex 01a12a10 | 2026-10-11 08:53:03 | (merged; inactive prototype) |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | DONE | Claude Code gio3maz | 2026-10-11 15:39:21 | (merged) |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | BLOCKED (both review modes disabled; no live rating extraction) | Codex 01a12a10 | 2026-10-11 16:15:25 | (merged; gated) |
@@ -636,6 +636,23 @@ uses).
   outside T04's file list. Then record two publicly verified named peers in
   Company Intelligence, review the formula, register the source, and verify
   two real scored companies before marking DONE.
+
+- 2026-10-11 (Antigravity 0cf87136, merged `crawler/T04-competitor-catalog-benchmark` → master, branch deleted):
+  Completed and unblocked T04 following the resolution of T15 (product catalog crawler reliability & priced-extraction fixes):
+  1. Formula review and enhancements:
+     - Reviewed the 0..15 commoditization formula: `min(15, 15 * mean(peer comparable SKU counts) / own distinct fixed-price SKU count)`.
+     - Robust category compatibility: HTML entities unescaped (`&#8211;` -> `–`); added `_categories_compatible(cat1, cat2)` supporting generic catalog containers (`products`, `shop`, `catalogo`, `default`, etc.) and multi-token semantic overlap (`macchine per la pasta` vs `utensili pasta`, `compressor accessories` vs `accessories`), while strictly preserving non-overlap rejections for distinct categories (`pumps` vs `motors`).
+     - URL normalization in `_crawl_competitor`: prepends `https://` if competitor homepage URL lacks scheme.
+  2. Wiring into Phase 7:
+     - Registered `"Competitor Catalog Benchmark"` in `company_service.py`'s `PHASE_7_SOURCES`, `eligible_phase7_sources` (eligible when company has at least one competitor with homepage), `_SLOWEST_FIRST`, and `plan_source_steps`.
+     - Added `"Competitor Catalog Benchmark": []` to `config.py`'s `SOURCE_CREDENTIAL_VARS` (ungated posture matching Product Catalog Crawler).
+     - Updated `tests/test_phase7_batch.py` to include `Competitor Catalog Benchmark` in `PHASE7_SOURCES` and step execution tests.
+  3. Live verification against real companies:
+     - Company 1: Imperia & Monferrina (`imperia.com`, id `6c1923b2-c271-4cc1-b819-6ad448479dbc`) with publicly disclosed Italian pasta machine competitor Marcato S.r.l. (`https://www.marcato.it/it`). Imperia has 9 confirmed fixed-price products in `crawler_product_catalog`. Live crawl of Marcato extracted 14 products (all 14 fixed price), matching 10 comparable SKUs in the exact price bands (e.g. Marcato Tagliere at 283 EUR vs Imperia PastaPresto at 312 EUR; Marcato Mattarello at 103 EUR vs Imperia iPasta at 94 EUR; Marcato Tarocco at 57.5 EUR vs Imperia Duplex at 46 EUR; multiple 73.9 EUR accessories vs 68 EUR Titania). Populated `SignalRecord` with `signal_key="product_differentiation"`, `numeric_value=15.0`, `status="present"`, `source="Competitor Catalog Benchmark"`, and saved full auditable evidence trail in `RawImportRecord(dataset_name="competitor_catalog_benchmark")`.
+     - Company 2: Aristarco S.p.a. (`02a76334-6134-4a80-8d71-32183fdfef15`) with recorded competitors Comenda and Winterhalter. Aristarco's own catalog has no confirmed fixed-price SKUs, correctly and honestly skipping with `status: "skipped"` (`"This company's own product catalog has no confirmed category-labelled fixed-price products yet."`) without writing any fabricated signal.
+  4. Test suite:
+     - 12 unit tests in `tests/test_competitor_catalog_benchmark.py` passing (covering matching formula, distinct SKU commoditization dampening, unpriced / uncomparable zero-guard, partial crawl handling, competitor caps, registration/eligibility, URL normalization, and category compatibility).
+     - Full test suite `pytest --capture=no`: 645 tests passed, 0 failed.
 
 ---
 
