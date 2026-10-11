@@ -172,7 +172,7 @@ re-discover the same blocker.
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | CLAIMED | Codex 01a12a10 | 2026-10-11 08:53:03 | crawler/T05-competitor-hiring-benchmark |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | OPEN | | | |
-| T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 08:37:30 | crawler/T08-anima-directory-plugin |
+| T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | OPEN | | | |
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
 | T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | OPEN | | | |
@@ -719,6 +719,17 @@ real search result (a real company confirmed as a member, and a real
 non-member correctly returning no match) committed and pushed to the
 `Scraper`/`Scrapers` sibling repo (see the note at the end of this file about
 that repo being separate from this one).
+
+**Results**
+
+- 2026-10-11 (Antigravity 0cf87136, merged `crawler/T08-anima-directory-plugin` to `main` in sibling `Scraper` repo, pushed to `origin main`, branch deleted): Built `Scraper/crawlers/directory-listing-crawler/src/directories/anima.ts` targeting ANIMA Confindustria Meccanica Varia's member company directory at `https://www.anima.it/aziende/`. Registered `animaConfig` in `directories/index.ts`.
+  - Live inspection confirmed the member directory form is scoped to `rsec=56112&scope=1` and triggers submission via `a.srcbtn` to `/search.aspx?t=s&s=...`. It returns member listings as `.item` cards containing the company name link (`a.title` / `/aziende/*.kl`), section label (`.section` == "Aziende"), and member tenure date (`.date`, e.g. "settembre 2019"), mapped to `membership_or_exhibitor_since`.
+  - Handled generic legal suffixes via `shortSearchName` to avoid CMS keyword over-matching on common tokens (e.g. "s.p.a.").
+  - Added unit and mock integration tests in `test/regression.test.mjs` verifying exact match, empty results, form missing error, HTTP 503 error, and URL routing (8/8 tests passing).
+  - Live verification with real end-to-end crawler run (`test_live_anima.csv`):
+    - Confirmed member **"Aermec s.p.a."** returned exact match: `appears_in_directory: true`, `possible_match: false`, `listing_url: "https://www.anima.it/aziende/aermec-s-p-a-.kl"`, `membership_or_exhibitor_since: "settembre 2019"`.
+    - Non-member **"NonExistent Mech Srl"** correctly returned `appears_in_directory: false`, `possible_match: false`, `listing_url: null`.
+  - Documented verified ANIMA plugin and results in `directory-listing-crawler/README.md`.
 
 ---
 
