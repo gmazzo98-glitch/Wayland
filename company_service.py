@@ -28,6 +28,7 @@ from scrapers import (
     directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler,
     linkedin_profile_crawler, product_catalog_crawler,
     ted_awards_crawler, fda_recalls_crawler, competitor_benchmark, competitor_news_benchmark,
+    competitor_review_benchmark,
 )
 
 SUPPORTED_COUNTRIES = ["Germany", "Italy"]
@@ -49,6 +50,7 @@ PHASE_7_SOURCES = [
     "FDA Recalls Crawler",
     "Competitor Benchmark",
     "Competitor News Benchmark",
+    "Competitor Review Benchmark",
 ]
 
 
@@ -127,6 +129,8 @@ def eligible_phase7_sources(company: Company) -> set[str]:
         names.add("Competitor Benchmark")
     if company.competitors:
         names.add("Competitor News Benchmark")
+    if competitor_review_benchmark.has_enabled_review_profile(company):
+        names.add("Competitor Review Benchmark")
     return names
 
 
@@ -306,6 +310,9 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
             SourceStep("Competitor Benchmark", competitor_benchmark.sync_competitor_benchmark, 7),
             SourceStep("Competitor News Benchmark", competitor_news_benchmark.sync_competitor_news_benchmark, 7),
         ]
+        if competitor_review_benchmark.has_enabled_review_profile(company):
+            steps.append(SourceStep("Competitor Review Benchmark",
+                                    competitor_review_benchmark.sync_competitor_review_benchmark, 7))
     return steps, after
 
 

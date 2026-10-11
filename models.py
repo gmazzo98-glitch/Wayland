@@ -399,6 +399,8 @@ class Competitor(Base):
     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     homepage_url = Column(String(500), nullable=True)
+    # Hand-entered direct review listing; never inferred from a name search.
+    review_profile_url = Column(String(500), nullable=True)
     added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     company = relationship("Company", back_populates="competitors")
