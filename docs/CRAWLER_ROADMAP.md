@@ -168,7 +168,7 @@ re-discover the same blocker.
 | T03a | Digital Maturity Crawler reliability (33% error rate) | Reliability | P1 | DONE | Claude Code 95d22c8c | 2026-10-10 21:28:17 | (merged) |
 | T03b | Job Postings Crawler reliability (23% error rate) | Reliability | P1 | CLAIMED | Antigravity da2ebdec | 2026-10-10 22:38:37 | crawler/T03b-job-postings-reliability |
 | T03c | Directory Listing Crawler reliability (25% error rate) | Reliability | P1 | CLAIMED | Claude Code 95d22c8c | 2026-10-11 08:25:04 | crawler/T03c-directory-listing-reliability |
-| T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | CLAIMED | Codex 01a12a10 | 2026-10-11 08:26:20 | crawler/T04-competitor-catalog-benchmark |
+| T04 | Competitor Product/Catalog Benchmark → `product_differentiation` | Competitor army | P1 | BLOCKED (own catalog crawler extracted no priced SKUs live) | Codex 01a12a10 | 2026-10-11 08:26:20 | (merged; inactive prototype) |
 | T05 | Competitor Hiring-Velocity signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T06 | Competitor News/Press-Share signal (raw data) | Competitor army | P2 | OPEN | | | |
 | T07 | Competitor Review/Reputation signal (raw data) | Competitor army | P2 | OPEN | | | |
@@ -521,6 +521,31 @@ disclosed-publicly competitor names, not invented ones); `product_differentiatio
 populates with an auditable evidence trail (named competitors + their SKU
 counts, same evidence-dialog pattern every other Phase 7 signal already
 uses).
+
+**Results**
+
+- 2026-10-11 (Codex 01a12a10; merged `crawler/T04-competitor-catalog-benchmark`
+  as an inactive prototype, branch deleted): Built
+  `scrapers/competitor_catalog_benchmark.py` with a documented 0-15
+  commoditization formula, same-category/same-currency fixed-price matching
+  within 20%, explicit partial-crawl handling, named-peer SKU counts and
+  per-product evidence; added 9 tests. Deliberately did not register a
+  Phase 7 source in `company_service.py` or `config.py`: the formula still
+  needs review and no live own catalog had comparable priced data. Live DB
+  had 953 companies, zero named-competitor rows, and 18 prior catalog blobs
+  with no priced products. The existing product-catalog crawler returned
+  3 unpriced, uncategorized names (partial) for Imperia & Monferrina despite
+  visible fixed prices on https://imperia.com/products/; it returned zero
+  products (partial) for Aerotecnica Coltri despite visible fixed prices on
+  https://www.coltri.com/en/category-product/accessories/compressor-accessories/.
+  The new competitor crawl path did run live against Marcato's homepage and
+  returned 2 fixed-price products. No `product_differentiation` signal was
+  written and no competitor rows were added. Full `pytest --capture=no`:
+  591 passed, 1 skipped (from JUnit XML). **BLOCKED:** own-catalog price
+  extraction must be fixed in the separate product-catalog-crawler repo,
+  outside T04's file list. Then record two publicly verified named peers in
+  Company Intelligence, review the formula, register the source, and verify
+  two real scored companies before marking DONE.
 
 ---
 
