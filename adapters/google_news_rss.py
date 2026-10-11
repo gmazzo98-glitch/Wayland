@@ -85,13 +85,24 @@ CONCEPT_PATTERNS = {
     "open_innovation": re.compile(
         r"acceleratore|incubatore|hackathon|start-?up|premio innovazione|competizione|"
         r"accelerator|inkubator|wettbewerb", re.I),
+    "pilot": re.compile(
+        r"(?:progett[oi]|fase|test|impiant[oi]|line[ae]|programma|programmi)\s+pilota|"
+        r"(?:pilot[a-z]*)\s+(?:project|program|phase|study|run|test|plant)|"
+        r"pilot(?:projekt|phase|test|anlage|betrieb)|"
+        r"proof of concept|\bpoc\b|"
+        r"open innovation|innovazione aperta|"
+        r"sperimentazion\w*|progett[oi]\s+sperimental\w*|"
+        r"living lab|test-?bed|fabbrica faro|lighthouse\s+(?:plant|project)|"
+        r"reallabor|leuchtturmprojekt|"
+        r"call for (?:ideas|start-?ups?|innovators)", re.I),
 }
 
 # Signals the paid Phase 7 crawlers own when NEWSAPI_KEY is configured. This adapter
 # is the free fallback, so it yields those keys rather than double-writing them —
 # the project keeps one producer per signal_key.
 NEWSAPI_OWNED_KEYS = {"external_collaboration", "university_partnership",
-                      "press_launch_mentions", "prior_open_innovation_usage"}
+                      "press_launch_mentions", "prior_open_innovation_usage",
+                      "sector_pilot_precedent"}
 
 _STOPWORDS = {"spa", "srl", "s.p.a", "s.r.l", "gmbh", "kg", "ag", "co", "spa.", "group", "gruppo",
               "international", "italia", "italy", "deutschland", "and", "the",
@@ -356,6 +367,7 @@ def _fetch_live(company, captured: dict = None) -> dict:
     add("press_launch_mentions", "launch", count, "{n} product-launch headline(s)")
     add("recent_ma_activity", "ma", flag, "M&A coverage ({n} headline(s))")
     add("prior_open_innovation_usage", "open_innovation", flag, "accelerator/competition coverage ({n} headline(s))")
+    add("sector_pilot_precedent", "pilot", count, "{n} innovation pilot / proof-of-concept headline(s)")
 
     captured["payload"] = {
         "search_phrase": search_phrase, "locale": f"{lang}-{country}", **stats,

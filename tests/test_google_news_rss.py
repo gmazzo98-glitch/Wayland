@@ -201,8 +201,46 @@ def test_generic_name_short_circuits_before_any_request(monkeypatch):
 def test_newsapi_crawlers_keep_ownership_of_their_keys(monkeypatch):
     """One producer per signal_key: when the paid crawlers can run, the free fallback
     yields the keys they own and keeps only the ones nothing else produces."""
-    _stub_feed(monkeypatch, ["Amazon rinnova e amplia la partnership tecnica con Datalogic"])
+    _stub_feed(monkeypatch, [
+        "Amazon rinnova e amplia la partnership tecnica con Datalogic",
+        "Datalogic avvia il progetto pilota per la logistica predittiva",
+    ])
     monkeypatch.setattr(rss, "NEWSAPI_KEY", "configured")
     out = rss._fetch_live(_Co("DATALOGIC S.P.A."))
     assert "external_collaboration" not in out["signals"]   # owned by news-signals-crawler
+    assert "sector_pilot_precedent" not in out["signals"]   # owned by news-signals-crawler
     assert "partnership_news_count" in out["signals"]       # owned by nothing else
+
+
+def test_pilot_precedent_headlines_are_classified():
+    """Verify pilot, PoC, living lab, and testbed patterns match, while racing/airline
+    pilots are safely rejected."""
+    pilot_re = rss.CONCEPT_PATTERNS["pilot"]
+    # Italian positives
+    assert pilot_re.search("Brembo avvia il progetto pilota per i freni intelligenti")
+    assert pilot_re.search("Prima Industrie completa la fase pilota con la startup")
+    assert pilot_re.search("Comau lancia la sperimentazione della nuova linea robotica")
+    assert pilot_re.search("Datalogic sviluppa un proof of concept per la visione AI")
+    assert pilot_re.search("Marposs inaugura la fabbrica faro digitale")
+    assert pilot_re.search("Sacmi lancia la call for startups sull'open innovation")
+    # German positives
+    assert pilot_re.search("Kuka startet Pilotprojekt für autonome Montage")
+    assert pilot_re.search("Festo erprobt neues Reallabor für Industrie 4.0")
+    # English positives
+    assert pilot_re.search("ABB launches pilot program for smart robotics")
+    assert pilot_re.search("Siemens opens new living lab and industrial testbed")
+    # False-positive guards: racing driver and airline pilot headlines
+    assert not pilot_re.search("Ferrari, il pilota Charles Leclerc trionfa a Monza")
+    assert not pilot_re.search("Sciopero dei piloti di linea all'aeroporto di Malpensa")
+
+
+def test_sector_pilot_precedent_signal_generated(monkeypatch):
+    _stub_feed(monkeypatch, ["Datalogic avvia il progetto pilota per la fabbrica 4.0"])
+    out = rss._fetch_live(_Co("DATALOGIC S.P.A."))
+    sig = out["signals"]["sector_pilot_precedent"]
+    assert sig["value"] == 1.0 and sig["status"] == "present"
+    assert "progetto pilota" in sig["summary"]
+    assert "innovation pilot" in sig["summary"]
+    assert sig["evidence"]["found"][0]["url"].startswith("https://news/")
+    assert "Google News RSS" in sig["evidence"]["method"]
+
