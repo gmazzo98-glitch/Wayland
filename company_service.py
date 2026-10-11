@@ -28,7 +28,7 @@ from scrapers import (
     directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler,
     linkedin_profile_crawler, product_catalog_crawler,
     ted_awards_crawler, fda_recalls_crawler, competitor_benchmark, competitor_news_benchmark,
-    competitor_review_benchmark,
+    competitor_review_benchmark, competitor_catalog_benchmark,
 )
 
 SUPPORTED_COUNTRIES = ["Germany", "Italy"]
@@ -51,6 +51,7 @@ PHASE_7_SOURCES = [
     "Competitor Benchmark",
     "Competitor News Benchmark",
     "Competitor Review Benchmark",
+    "Competitor Catalog Benchmark",
 ]
 
 
@@ -127,6 +128,7 @@ def eligible_phase7_sources(company: Company) -> set[str]:
         names.add("LinkedIn Profile Crawler")
     if any(comp.homepage_url for comp in company.competitors):
         names.add("Competitor Benchmark")
+        names.add("Competitor Catalog Benchmark")
     if company.competitors:
         names.add("Competitor News Benchmark")
     if competitor_review_benchmark.has_enabled_review_profile(company):
@@ -220,6 +222,7 @@ _SLOWEST_FIRST = (
     "Company Website Crawler", "Digital Maturity Crawler", "Product Catalog Crawler", "Job Postings Crawler",
     "Directory Listing Crawler", "Review Crawler", "LinkedIn Profile Crawler", "News Signals Crawler",
     "Innovation Participation Crawler", "TED Contract Awards Crawler", "FDA Recalls Crawler",
+    "Competitor Catalog Benchmark",
 )
 
 
@@ -309,6 +312,7 @@ def plan_source_steps(company: Company, phases: list) -> tuple:
             SourceStep("FDA Recalls Crawler", fda_recalls_crawler.sync_fda_recalls, 7),
             SourceStep("Competitor Benchmark", competitor_benchmark.sync_competitor_benchmark, 7),
             SourceStep("Competitor News Benchmark", competitor_news_benchmark.sync_competitor_news_benchmark, 7),
+            SourceStep("Competitor Catalog Benchmark", competitor_catalog_benchmark.sync_competitor_catalog_benchmark, 7),
         ]
         if competitor_review_benchmark.has_enabled_review_profile(company):
             steps.append(SourceStep("Competitor Review Benchmark",

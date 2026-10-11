@@ -57,9 +57,12 @@ def _crawler_env() -> dict[str, str]:
 
 
 def _crawl_competitor(competitor) -> dict:
+    url = (competitor.homepage_url or "").strip()
+    if url and not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
     rows = run_ts_crawler(
         catalog.CRAWLER_DIR,
-        [{"company_id": competitor.id, "homepage_url": competitor.homepage_url}],
+        [{"company_id": competitor.id, "homepage_url": url}],
         env_overrides=_crawler_env(), run_timeout=RUN_TIMEOUT_SECONDS,
     )
     matches = rows_for_company(rows, competitor.id)
@@ -71,6 +74,29 @@ def _crawl_competitor(competitor) -> dict:
     return row
 
 
+import html
+import re
+
+def _category_tokens(cat: str) -> set[str]:
+    clean = html.unescape(cat or "").lower()
+    clean = re.sub(r"[^a-z0-9\s]", " ", clean)
+    stop_words = {"di", "da", "per", "la", "le", "il", "lo", "i", "gli", "e", "ed", "in", "the", "and", "of", "for", "with", "old", "new"}
+    return {w for w in clean.split() if len(w) > 2 and w not in stop_words}
+
+
+def _categories_compatible(cat1: str, cat2: str) -> bool:
+    c1 = html.unescape(cat1 or "").lower().strip()
+    c2 = html.unescape(cat2 or "").lower().strip()
+    if not c1 or not c2 or c1 == c2:
+        return True
+    tokens1 = _category_tokens(c1)
+    tokens2 = _category_tokens(c2)
+    generic = {"product", "products", "prodotto", "prodotti", "item", "items", "catalog", "catalogo", "shop", "store", "all", "general", "default"}
+    if not tokens1 or not tokens2 or not (tokens1 - generic) or not (tokens2 - generic):
+        return True
+    return bool(tokens1 & tokens2)
+
+
 def _priced_products(row: dict) -> list[dict]:
     """Distinct, category-labelled products with an actual fixed numeric price."""
     if not isinstance(row, dict) or row.get("error") or (row.get("field_status") or {}).get("products") in ("not_found", "error"):
@@ -79,7 +105,7 @@ def _priced_products(row: dict) -> list[dict]:
     for p in row.get("products") or []:
         if not isinstance(p, dict):
             continue
-        category = " ".join(str(p.get("category") or "").lower().split())
+        category = " ".join(html.unescape(str(p.get("category") or "")).lower().split())
         currency = str(p.get("price_currency") or "").upper().strip()
         price = p.get("price_value")
         if not category or not currency or p.get("price_type") != "fixed":
@@ -110,14 +136,14 @@ def _derive_signals(own_row: dict, competitor_results: list[dict]) -> dict:
         products = _priced_products(row)
         if not reason and not products:
             reason = "no category-labelled products with confirmed fixed prices"
-        if not reason and not ({p["category"] for p in products} & own_categories):
+        if not reason and not any(_categories_compatible(p["category"], oc) for p in products for oc in own_categories):
             reason = "no common catalog category; product comparability cannot be established"
         if reason:
             skipped.append({"name": peer.name, "homepage_url": peer.homepage_url, "reason": str(reason)})
             continue
         comparable = []
         for p in products:
-            near = next((o for o in own if o["category"] == p["category"] and o["currency"] == p["currency"]
+            near = next((o for o in own if _categories_compatible(o["category"], p["category"]) and o["currency"] == p["currency"]
                          and abs(o["price"] - p["price"]) / max(o["price"], p["price"]) <= PRICE_BAND), None)
             if near:
                 comparable.append({"peer_product": p, "own_product": near})

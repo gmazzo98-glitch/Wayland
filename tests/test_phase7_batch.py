@@ -30,6 +30,7 @@ PHASE7_SOURCES = [
     (company_service.fda_recalls_crawler, "sync_fda_recalls", "FDA Recalls Crawler"),
     (company_service.competitor_benchmark, "sync_competitor_benchmark", "Competitor Benchmark"),
     (company_service.competitor_news_benchmark, "sync_competitor_news_benchmark", "Competitor News Benchmark"),
+    (company_service.competitor_catalog_benchmark, "sync_competitor_catalog_benchmark", "Competitor Catalog Benchmark"),
 ]
 
 
@@ -172,7 +173,7 @@ def test_phase7_reports_each_crawler_before_it_starts(monkeypatch, factory):
     session.close()
 
     assert [s[0] for s in steps] == list(range(len(PHASE7_SOURCES))) and all(s[1] == len(PHASE7_SOURCES) for s in steps)
-    assert steps[0][2] == "Company Website Crawler" and steps[-1][2] == "Competitor News Benchmark"
+    assert steps[0][2] == "Company Website Crawler" and steps[-1][2] == "Competitor Catalog Benchmark"
     assert list(results) == [s[2] for s in steps]
     # The hook fires BEFORE each crawler: step i is reported, then that crawler runs.
     assert calls[0] == ("step", 0) and calls[1][0] == "ran" and calls[2] == ("step", 1)

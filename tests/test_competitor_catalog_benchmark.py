@@ -129,3 +129,44 @@ def test_sync_writes_real_signal_and_auditable_blob(db, monkeypatch):
 
 def test_competitor_cap_is_three():
     assert benchmark.MAX_COMPETITORS == 3
+
+
+def test_registration_and_eligibility(db):
+    from company_service import PHASE_7_SOURCES, eligible_phase7_sources, plan_source_steps
+    from config import has_credentials
+
+    assert "Competitor Catalog Benchmark" in PHASE_7_SOURCES
+    assert has_credentials("Competitor Catalog Benchmark") is True
+
+    c = _company(db, "reg")
+    assert "Competitor Catalog Benchmark" not in eligible_phase7_sources(c)
+    db.add(Competitor(company_id=c.id, name="Rival", homepage_url="https://rival.example"))
+    db.commit()
+    assert "Competitor Catalog Benchmark" in eligible_phase7_sources(c)
+
+    steps, _ = plan_source_steps(c, [7])
+    step_names = [s.name for s in steps]
+    assert "Competitor Catalog Benchmark" in step_names
+
+
+def test_crawl_competitor_normalizes_url(monkeypatch):
+    captured = []
+
+    def fake_run(crawler_dir, inputs, **kwargs):
+        captured.extend(inputs)
+        return [{"company_id": "c1", "products": []}]
+
+    monkeypatch.setattr(benchmark, "run_ts_crawler", fake_run)
+    peer = SimpleNamespace(id="c1", name="Rival", homepage_url="rival.example")
+    benchmark._crawl_competitor(peer)
+    assert captured[0]["homepage_url"] == "https://rival.example"
+
+
+def test_category_compatibility_with_generic_and_token_overlap():
+    assert benchmark._categories_compatible("Pumps", "Pumps") is True
+    assert benchmark._categories_compatible("Pumps", "Motors") is False
+    assert benchmark._categories_compatible("Products &#8211; old", "Macchine per la pasta") is True
+    assert benchmark._categories_compatible("Macchine per la pasta", "Utensili pasta") is True
+    assert benchmark._categories_compatible("Compressor Accessories", "Accessories") is True
+
+
