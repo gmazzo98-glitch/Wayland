@@ -69,7 +69,10 @@ def sync_product_catalog(company, db_session: Session) -> dict:
         # finding the whole catalog is the point, not a side effect — real headroom needed.
         # The crawler's own soft deadline (node_crawler_base.SOFT_DEADLINE_MARGIN=30) stops it
         # 30s early and writes whatever was read, flagged is_partial, rather than losing the row.
-        rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}],
+        url = (c.website_url or "").strip()
+        if url and not url.startswith(("http://", "https://")):
+            url = f"https://{url}"
+        rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": url}],
                                env_overrides=env, run_timeout=280)
         matches = rows_for_company(rows, c.id)
         if not matches:
