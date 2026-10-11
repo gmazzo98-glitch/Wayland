@@ -181,7 +181,7 @@ re-discover the same blocker.
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
 | T15 | Product Catalog Crawler reliability & priced-extraction gap (41% error rate) | Reliability | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 17:01:20 | (merged) |
 | T16 | Product Catalog Crawler: catalog-page breadth starves the product-page budget | Reliability | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 19:32:08 | crawler/T16-catalog-page-budget |
-| T17 | Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero | Reliability | P1 | CLAIMED | Vibe Code f3f064 | 2026-10-11 19:41:30 | crawler/T17-job-postings-false-vacancies |
+| T17 | Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero | Reliability | P1 | DONE | Vibe Code f3f064 | 2026-10-11 19:41:30 | (merged) |
 | T18 | Phase 1/4 coverage sweep needs per-source completion tracking | Ops | P0 | BLOCKED (T04 currently edits `company_service.py`; reopen after its merge) | — | — | (not claimed) |
 
 Adding a new ticket yourself (T16+)? Append a row here and a matching
@@ -690,6 +690,15 @@ decision implicit.
   against a real company with a recorded peer. This is intentionally
   unscored; GG must decide whether it becomes a signal, its key, and its
   weight, if any.
+- 2026-10-11 (Vibe Code f3f064, from T17): the job-postings wrapper no longer counts
+  careers-page nav/news links as vacancies and no longer writes a fabricated confirmed
+  zero when the careers page hands vacancies to an external board — both of this
+  ticket's stated blockers are fixed and live-verified (see T17's Results). Rotork's
+  careers landing page now yields 0 plausible listings; Bray's external-board case
+  writes no zero. The prototype in `scrapers/competitor_hiring_benchmark.py` picks both
+  fixes up automatically (it re-uses `_discover_careers_page`/`_derive_signals`);
+  remaining work to activate is this ticket's own scope (Phase 7 registration + a real
+  company with a recorded peer).
 
 ---
 
@@ -1434,6 +1443,39 @@ not touch:
 
 **Results**
 
+- 2026-10-11 (Vibe Code f3f064; merged `crawler/T17-job-postings-false-vacancies`, branch
+  deleted): Fixed both honest-measurement bugs in the job-postings wrapper.
+  1. **Careers-page-local chrome** (rotork.com/en/careers, T05's miscount): discovery now
+     collects the chosen careers page's own links (`_careers_page_context`) and every
+     same-site link on it whose path has no job-ish segment is treated as careers-page
+     navigation (`careers_nav_urls`), dropped by `_plausible_listings`. The CTA/chrome
+     title regexes also learned careers-landing labels ("Click here to explore our current
+     opportunities", "Career opportunities", "Employee stories", ...) and offsite links are
+     never counted as listings (external boards are recorded, not crawled).
+  2. **External boards are not a confirmed zero** (bray.com/careers): when the page yields
+     zero countable listings but links to known offsite boards (LinkedIn jobs, Ultipro,
+     Workday, SmartRecruiters, Greenhouse, etc. — detected by URL or by a board-name +
+     job-word label), `_derive_signals` writes no `not_applicable` confirmed-zero for
+     `digital_job_postings`/`job_posting_velocity`; the board URLs are stored in the raw
+     blob and `raw_payload` for a human or future ticket to follow. A genuine zero with no
+     board links still writes the established-zero signal.
+  **Live-verified against both documented cases** (2026-10-11, real fetched pages, the
+  generic extractor's link shape emulated over them): rotork.com/en/careers — 96 links
+  extracted, 0 plausible, 0 signals derived (was: 10 nav/news links counted as 10 digital
+  jobs); bray.com/careers — 0 listings, 2 external boards detected (LinkedIn jobs +
+  Ultipro), no confirmed-zero signal, boards recorded. Also live-checked that Rotork's
+  actual vacancies sit behind a SmartRecruiters widget
+  (api.smartrecruiters.com/v1/companies/Rotork/postings → 5 open roles) — out of scope to
+  crawl here, noted for a future ticket. Existing blobs without `careers_nav_urls` behave
+  exactly as before. 5 new unit tests; full `pytest --capture=no`: 645 passed, 1 skipped,
+  2 pre-existing failures unrelated to this change (missing sandbox deps + a Windows
+  line-ending artifact in `worker_dist`
+  — `test_worker_hub.py::test_committed_bundle_contains_the_current_worker_source`;
+  both fail identically on plain master).
+  **T05 is unblocked**: its stated blocker ("T03b must fix/verify the job crawler's false
+  vacancy counts and external job-link handling") is exactly what this ticket fixed and
+  live-verified. Remaining activation work (Phase 7 registration, a real company with a
+  recorded peer) is T05's own scope, not this ticket's.
 
 ---
 
