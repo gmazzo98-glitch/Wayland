@@ -175,7 +175,7 @@ re-discover the same blocker.
 | T08 | Directory plugin: ANIMA / Confindustria Meccanica Varia | New directories | P1 | DONE | Antigravity 0cf87136 | 2026-10-11 08:37:30 | (merged) |
 | T09 | Directory plugin: Kompass Italia | New directories | P2 | CLAIMED | Claude Code gio3maz | 2026-10-11 16:20:18 | crawler/T09-kompass-directory |
 | T10 | Directory plugin: Europages | New directories | P2 | OPEN | | | |
-| T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | CLAIMED | Antigravity 0cf87136 | 2026-10-11 16:18:00 | crawler/T11-sector-pilot-rss |
+| T11 | `sector_pilot_precedent` via free Google News RSS route | Signal extension | P2 | DONE | Antigravity 0cf87136 | 2026-10-11 16:18:00 | (merged) |
 | T12 | `regulatory_compliance_exposure` curated EUR-Lex lookup table | Signal extension | P2 | OPEN (needs legal review) | | | |
 | T13 | Wire the ANIMA directory plugin into production (`DEFAULT_DIRECTORY_URLS`) | New directories | P0 | DONE | Antigravity 0cf87136 | 2026-10-11 15:36:20 | (merged) |
 | T14 | TED Contract Awards Crawler reliability (89% error rate) | Reliability | P1 | DONE | Codex 01a12a10 | 2026-10-11 15:37:33 | (merged) |
@@ -928,6 +928,19 @@ signals and follow the same path).
 
 **Acceptance criteria:** live-verified on ≥3 real companies; unit tests for
 the new classification bucket mirroring the existing ones in that area.
+
+**Results**
+
+- 2026-10-11 (Antigravity 0cf87136; merged `crawler/T11-sector-pilot-rss`, branch deleted):
+  - Added multilingual `"pilot"` pattern to `CONCEPT_PATTERNS` in `adapters/google_news_rss.py` covering Italian, German, and English pilot, PoC, living lab, testbed, and open-innovation terms, while guarding against false positives from racing and airline pilots.
+  - Added `"sector_pilot_precedent"` to `NEWSAPI_OWNED_KEYS` (preserving single-producer rule if paid `NEWSAPI_KEY` is present) and added signal emission in `_fetch_live` producing count and full evidence trail.
+  - Moved `sector_pilot_precedent` from GATED to Phase 4 RUN in `scripts/indicator_gaps.py` and regenerated `docs/indicator_catalog.json` (GATED indicators count reduced from 8 to 7).
+  - Added unit tests in `tests/test_google_news_rss.py` verifying classification across languages, false-positive rejection, signal generation contract, and NEWSAPI key ownership yielding.
+  - Live-verified against real companies from the database:
+    1. Probed 5 companies from DB (`CANGINI BENNE`, `BONFIGLIOLI ENGINEERING`, `MOSSINI`, `ROTEN`, `CAVAGNINO & GATTI`); verified honest empty/partial signal generation with real news retrieval and payload capture.
+    2. Probed prominent manufacturers with active press (`EUROFORK`, `CIMOLAI TECHNOLOGY`, `TECHNIPES`, `ANDRITZ NOVIMPIANTI`, `TECNOINOX`); verified accurate classification of real headlines and no spurious pilot assertions.
+    3. Live-probed Google News RSS feed for Italian pilot/open innovation headlines confirming live matching against real news items.
+  - Full test suite passed (614 passed, 0 failures, 0 errors in 49.8s).
 
 ---
 
