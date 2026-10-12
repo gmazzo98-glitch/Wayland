@@ -125,6 +125,34 @@ _FINANCE_NOISE_RE = re.compile(
     r"\bearnings\b|\bshares?\b|\bstake\b", re.I,
 )
 
+# A single-token company name can collide with an unrelated PERSON who happens to share the
+# surname or word, not just another company (live-verified: searching "ARISTARCO" — a real
+# dishwasher/ice-machine maker, a safe-length single token under _attribution_mode's own
+# check — pulled in obituary and profile coverage of Tiziana Aristarco, a TV director, and
+# Guido Aristarco, a film critic, neither related to the company; three of those headlines
+# were still cited as partnership/university evidence for Aristarco S.p.A.). The existing
+# length/generic-word check only screens for "common word", not "common surname", so it can't
+# catch this shape. Deliberately narrow: obituary language is unambiguous, and the chosen
+# professions (actor, singer, footballer, ...) essentially never describe an industrial
+# manufacturer's own press coverage — broader words considered and rejected as too
+# collision-prone themselves: "conduttore" (also "electrical conductor", a real term in this
+# project's own industrial-equipment cohort), "chef" (a company can legitimately co-headline
+# with a named chef it partners with). "critico" is both the profession noun in the second
+# real Aristarco headline ("I mestieri del critico") AND the common Italian adjective
+# "critical" ("momento critico") — kept, but only in its noun shape (a masculine singular
+# article/preposition immediately before it), which the adjective form never takes attached to
+# another noun ("un momento critico" has "momento", not an article, right before "critico").
+# Unlike _FINANCE_NOISE_RE, no concept-pattern override: a headline about an unrelated person
+# doesn't become company evidence just because it also contains a matched keyword.
+_PERSON_MENTION_RE = re.compile(
+    r"\bmort[oa]\b|\bscomparsa?\b|\baddio a\b|\baddio all[ao]\b|\bin memoria di\b|\blutto\b|"
+    r"\bfunerali di\b|\bcompiant[oa]\b|"
+    r"\bregista\b|\battrice\b|\battore\b|\bcantante\b|\bscrittrice\b|\bscrittore\b|"
+    r"\bcalciatore\b|\bcalciatrice\b|\b(?:il|lo|un|del|dello|al|allo|dal|dallo|col)\s+critico\b|"
+    r"\bdies at\b|\bobituary\b|\bpassed away\b|\bin memoriam\b|"
+    r"\bactor\b|\bactress\b|\bsinger\b|\bnovelist\b", re.I,
+)
+
 # Legal forms stripped from the search phrase — leaving them in reduces an exact-phrase
 # match to zero hits (verified: "R.C.M. S.P.A." -> 0, "RCM" -> 3).
 _LEGAL_FORM_RE = re.compile(
@@ -282,7 +310,8 @@ def _filter_headlines(items: list, company) -> tuple:
     mode = _attribution_mode(company.legal_name)
     discriminators = _discriminators(company) if mode == "tokens+discriminator" else []
     stats = {"attribution_mode": mode, "discriminators": discriminators, "headlines_fetched": len(items),
-             "dropped_not_about_company": 0, "dropped_no_discriminator": 0, "dropped_finance_noise": 0}
+             "dropped_not_about_company": 0, "dropped_no_discriminator": 0, "dropped_finance_noise": 0,
+             "dropped_person_mention": 0}
     seen, kept = set(), []
     for it in items:
         headline = _headline_text(it["title"], it.get("outlet") or "")
@@ -291,6 +320,12 @@ def _filter_headlines(items: list, company) -> tuple:
             continue
         if mode == "tokens+discriminator" and not _has_discriminator(headline, discriminators):
             stats["dropped_no_discriminator"] += 1
+            continue
+        # A single-token name matched, but the headline reads like it's about an unrelated
+        # PERSON who shares that word (an obituary, a profile piece) rather than the company —
+        # see _PERSON_MENTION_RE's own comment for the real case this guards against.
+        if _PERSON_MENTION_RE.search(headline):
+            stats["dropped_person_mention"] += 1
             continue
         # Share-price/results coverage says nothing about innovation capacity — unless
         # the same headline also carries a concept ("ricavi record grazie alla

@@ -183,8 +183,11 @@ re-discover the same blocker.
 | T16 | Product Catalog Crawler: catalog-page breadth starves the product-page budget | Reliability | P2 | DONE | Claude Code gio3maz | 2026-10-11 19:32:08 | (merged) |
 | T17 | Job Postings: careers-page-local nav/news links are not vacancies; external job boards are not a confirmed zero | Reliability | P1 | DONE | Vibe Code f3f064 | 2026-10-11 19:41:30 | (merged) |
 | T18 | Phase 1/4 coverage sweep needs per-source completion tracking | Ops | P0 | OPEN (T04 merged 2026-10-11 19:24 — no longer blocked) | | | |
+| T19 | A bookkeeping failure under load can report a successful crawl as `{"error": ...}` | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
+| T20 | Google News RSS can attribute an unrelated person's coverage to a same-surname company | Signal extension | P1 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
+| T21 | No unified view of what the crawlers found — build one on Company Intelligence | Ops | P1 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 
-Adding a new ticket yourself (T16+)? Append a row here and a matching
+Adding a new ticket yourself (T22+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
 renumber existing tickets.
 
@@ -1588,6 +1591,167 @@ through review the first time). Full `pytest --capture=no`: all green, no regres
 **Results**
 
 - 2026-10-11 audit only: the read-only measurements and single live EPO search above establish the backlog-selection gap. No code or production data was changed for T18.
+
+---
+
+### T19 — A bookkeeping failure under load can report a successful crawl as `{"error": ...}`
+**Track:** Ops · **Priority:** P0
+
+**Problem.** Found while live-verifying what Phase 7 actually returns, for a separate
+investigation into why crawled data wasn't visible on Company Intelligence (see T21). Ran a
+full `run_phase7_for_company()` pass against a real company (Aristarco S.p.A.) while two other
+sessions were active on this shared machine. 9 of 14 sources succeeded and wrote real data —
+confirmed via fresh `RawImportRecord` timestamps — but the call returned `(company_id, None,
+{"error": "AttributeError: ..."})`, and `CompanySourceRun` ended up with **zero** rows for
+this company. Re-running the identical call once the machine was quieter wrote all 14 rows
+correctly.
+
+**Root cause.** `run_company_phases()`'s concurrent path commits every source's
+`CompanySourceRun` row in a single tail transaction *after* all crawlers finish, inside a
+`try/except` that also wraps the whole `_run_steps_concurrently()` call. Two problems stacked:
+1. `CompanySourceRun` has a `(company_id, source_name)` unique constraint, and
+   `_record_source_run()` does a plain check-then-insert — a concurrent crawl of the exact
+   same company (a background sweep picking up a company a user also triggered by hand, say)
+   can lose that race, raising `IntegrityError` at commit time.
+2. That exception propagated to the *outer* handler, which discards `results` entirely —
+   even though every individual crawler had already committed its own real data independently,
+   in its own session, before the tail transaction ever ran.
+
+**Fix.** `company_service.py`:
+- `_record_source_run()` now retries once past an `IntegrityError` as an UPDATE instead of
+  raising — the data in `outcome` is correct either way, only the insert-vs-update path was
+  wrong.
+- `run_company_phases()`'s tail-commit block now has its own `try/except`, separate from the
+  outer one: a bookkeeping failure falls back to committing each source individually (so one
+  row's conflict can't take the rest down with it) and, critically, can **never** discard
+  `results` — the real crawl data the caller actually needs.
+
+**Files touched:** `company_service.py` (`_record_source_run`, `run_company_phases`),
+`tests/test_phase7_batch.py` (two new regression tests: one reproduces the real
+check-then-insert race directly against a real unique-constraint violation, the other proves
+`run_company_phases` no longer discards `results` when the tail commit throws).
+
+**Results**
+
+- 2026-10-12 (Claude, human-directed): Implemented as above. `tests/test_phase7_batch.py`:
+  15/15 passing including both new tests. Live-verified the fix's actual effect by re-running
+  Phase 7 against two real companies (Mossini S.p.A., Aristarco S.p.A.) under normal load:
+  both wrote all 14 `CompanySourceRun` rows correctly on the first attempt.
+
+---
+
+### T20 — Google News RSS can attribute an unrelated person's coverage to a same-surname company
+**Track:** Signal extension · **Priority:** P1
+
+**Problem.** Found during the same investigation as T19, while reviewing what a live crawl of
+Aristarco S.p.A. (a real dishwasher/ice-machine manufacturer) actually returned. Its
+`"headlines_about_company": 24` included obituary and profile coverage of two unrelated
+people who share the surname — Tiziana Aristarco, a TV director, and Guido Aristarco, a film
+critic — neither related to the company. Three of those headlines were still cited as
+evidence for three real, scored indicators: `external_collaboration`,
+`partnership_news_count`, `university_partnership`.
+
+**Root cause.** `ARISTARCO` is a single token ≥ `_SINGLE_TOKEN_SAFE_LEN` characters, so
+`_attribution_mode()` treats it as safe on length alone (`"tokens"` mode, no discriminator
+required). The existing generic-word guard (`_GENERIC_NAME_WORDS`) only screens for "common
+word," never "common surname" — a company named after its founder's surname is exactly the
+case it misses.
+
+**Fix.** `adapters/google_news_rss.py`: added `_PERSON_MENTION_RE`, a new drop-stage in
+`_filter_headlines` (same shape as the existing `_FINANCE_NOISE_RE` stage, with its own
+`dropped_person_mention` stat) that recognizes obituary language and a short, deliberately
+narrow list of entertainment/sports professions (regista, attore/attrice, cantante,
+scrittore/scrittrice, calciatore/calciatrice, plus EN equivalents) — see the regex's own
+comment for broader words considered and rejected as themselves too collision-prone
+("critico" also means "critical," "conduttore" also means "electrical conductor," "chef" is a
+real co-headline case for a legitimate company). "Critico" is kept, but only in its
+person-noun form (preceded by a masculine singular article: "del critico"), which the
+adjective form never takes. Unlike the finance-noise stage, no concept-pattern override — a
+headline about an unrelated person doesn't become company evidence just because it also
+contains a matched keyword.
+
+**Live data correction.** The three stale `SignalRecord` rows for Aristarco S.p.A. that cited
+the now-filtered headline as their evidence were deleted from the live DB (verified each
+one's `text_value` actually quoted the bad headline before deleting) — signals are
+append-only, so the fix alone would never have retroactively cleared them. Aristarco's own
+NEED score moved 22.7 → 18.6 as a direct, visible result, confirmed live in the running app.
+A DB-wide scan afterward found zero other `Google News RSS` signal rows matching the new
+filter — this appears to have been an isolated case among what's been crawled so far, not a
+widespread contamination.
+
+**Known residual limit, disclosed not hidden:** this is a keyword heuristic, not a real
+named-entity classifier. A differently-phrased mention of the same unrelated person
+("Guido Aristarco e l'istituzionalizzazione della critica cinematografica italiana" — no
+"del critico," no obituary word) still slips through, confirmed live in the same UI check
+used to verify the fix. The fix substantially narrows the problem (18 of 25 real headlines
+dropped on the Aristarco re-crawl, down from a likely near-complete pass-through before); it
+does not claim to close it completely.
+
+**Files touched:** `adapters/google_news_rss.py`, `tests/test_google_news_rss.py` (two new
+tests using the real Aristarco headlines verbatim, plus a check that genuine company coverage
+survives the new filter).
+
+**Results**
+
+- 2026-10-12 (Claude, human-directed): Implemented and live-corrected as above.
+  `tests/test_google_news_rss.py`: 29/29 passing. Live-verified via `sync_news_rss()` against
+  the real Aristarco record and via the running app's own Company Intelligence page.
+
+---
+
+### T21 — No unified view of what the crawlers found — build one on Company Intelligence
+**Track:** Ops · **Priority:** P1
+
+**Problem.** User-reported: crawler data appeared not to surface on Company Intelligence at
+all. Investigation (live crawls against 3 real companies, written up as a sample report)
+found the real picture was more specific: real data does reach scoring (confirmed via a
+live company's `SignalRecord` rows), but what's visible today is scattered across a one-line
+summary per signal, a 🔍 Audit dialog you have to open per signal, and a separate Raw Data &
+Mapping tab with per-dataset `st.json` dumps — nothing stitches a company's whole crawled
+picture (catalog, jobs, digital presence, directories, reviews, press, competitor
+benchmarks) into one place. (T19's bookkeeping bug was a second, compounding reason a crawl
+could look like it produced nothing — tracked and fixed separately.)
+
+**Implementation.** New `_render_crawled_intelligence(db, company)` in
+`views/company_detail.py`: reads every `crawler_*`-prefixed `RawImportRecord` for the
+company in one query (plus `competitor_benchmark`/`competitor_catalog_benchmark`, which
+predate that naming convention), groups them into themed cards — Company Website, Digital
+Presence, Hiring Signals, Trade Directories, Reviews, Press & News, Competitor Benchmarks —
+and renders only the groups that actually have data, inside one
+`🕷️ Crawled Intelligence (N source group(s) with data)` expander placed on the existing
+Company Intelligence tab, right after the pre-existing Product/TED-contract sections. Every
+field is read defensively (`.get()` with honest fallbacks — "no clear estimate," "not yet
+run," "could not check" — never a fabricated zero) and nothing here writes a `SignalRecord`;
+it's a read-only summary of data that already exists, matching Ground rule 1.
+
+**Files touched:** `views/company_detail.py` only (new function + one call site; no change
+to existing sections).
+
+**Results**
+
+- 2026-10-12 (Claude, human-directed): Implemented as above. No unit tests added — this is
+  presentation code reading already-tested data shapes (`scrapers/*_crawler.py`'s own row
+  schemas), matching this file's existing convention of live-verifying Streamlit rendering
+  rather than unit-testing it. Live-verified in the running app (`preview_start` against the
+  real `vienna-dashboard` config, real Neon DB, signed in with the real
+  `APP_ACCESS_PASSWORD`): checked against two real companies.
+  - A DUE DI SQUERI DONATO & C. S.P.A. (0 named competitors): 6 source groups rendered;
+    Company Website's product-line list matched a previous session's live-verified findings
+    for this exact company almost exactly (real product lines plus the same known
+    process-stage-label extraction quirk), confirming the renderer doesn't silently reshape
+    what the crawlers actually returned.
+  - Aristarco S.p.A. (2 named competitors): 7 source groups rendered, every field checked
+    field-by-field against this ticket's own raw JSON dump (T19/T20's investigation) —
+    35 product lines, CMS/e-commerce/redesign-stability/social/snapshot figures, 2 open
+    roles with real titles, all 3 directories in the right order, both review sources
+    correctly shown as robots.txt-blocked rather than a confirmed zero, fresh press headlines
+    (T20's fix visibly reflected — the specific false match is gone), and all 5 Competitor
+    Benchmark rows showing accurate per-source status (2 "data collected," 3 "not yet run").
+  - **Separately found and NOT fixed (out of scope for this ticket):** a pre-existing,
+    unrelated crash in `_render_tab1_content`'s "📈 Data Trends" section
+    (`pyarrow.lib.ArrowInvalid: cannot mix list and non-list, non-null values`), triggered by
+    Aristarco's own raw-import data shape, at `views/company_detail.py:1981` — real, live,
+    reproducible, does not involve any code this ticket touched. Flagged for a future ticket.
 
 ---
 

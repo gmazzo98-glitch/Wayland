@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import pandas as pd
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, PilotOutcome, RawImportRecord, CompanyPerson, CompanySourceRun
@@ -136,14 +137,7 @@ def eligible_phase7_sources(company: Company) -> set[str]:
     return names
 
 
-def _record_source_run(db: Session, company_id: str, step: "SourceStep", outcome: dict,
-                       commit: bool = True) -> None:
-    if step.phase != 7:
-        return
-    row = db.query(CompanySourceRun).filter_by(company_id=company_id, source_name=step.name).first()
-    if row is None:
-        row = CompanySourceRun(company_id=company_id, source_name=step.name, phase=step.phase)
-        db.add(row)
+def _apply_source_run_outcome(row: CompanySourceRun, step: "SourceStep", outcome: dict) -> None:
     if outcome.get("status") == "success" and (outcome.get("mode") == "live" or step.name == "LinkedIn Profile Crawler"):
         row.status = "live"
     elif outcome.get("status") == "error":
@@ -152,7 +146,36 @@ def _record_source_run(db: Session, company_id: str, step: "SourceStep", outcome
         row.status = "skipped" if outcome.get("status") == "skipped" else "simulated"
     row.error_message = str(outcome.get("error") or outcome.get("reason") or "")[:500] or None
     row.finished_at = datetime.utcnow()
-    if commit:
+
+
+def _record_source_run(db: Session, company_id: str, step: "SourceStep", outcome: dict,
+                       commit: bool = True) -> None:
+    """Upserts CompanySourceRun for one source. This is bookkeeping about a crawl that has
+    already happened and already committed its own real data (SignalRecord/RawImportRecord) —
+    see docs/CRAWLER_ROADMAP.md T19. When `commit` is True, a concurrent crawl of the exact
+    same company racing this one (a background sweep picking up a company a user also
+    triggered by hand, say) can lose the check-then-insert race on this table's
+    (company_id, source_name) unique constraint; retried once as an update rather than
+    letting IntegrityError propagate, since the data in `outcome` is still correct either way."""
+    if step.phase != 7:
+        return
+    row = db.query(CompanySourceRun).filter_by(company_id=company_id, source_name=step.name).first()
+    is_new = row is None
+    if is_new:
+        row = CompanySourceRun(company_id=company_id, source_name=step.name, phase=step.phase)
+    _apply_source_run_outcome(row, step, outcome)
+    if is_new:
+        db.add(row)
+    if not commit:
+        return
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        row = db.query(CompanySourceRun).filter_by(company_id=company_id, source_name=step.name).first()
+        if row is None:
+            raise  # not the race this guards against; a real problem, let it surface
+        _apply_source_run_outcome(row, step, outcome)
         db.commit()
 
 
@@ -407,8 +430,20 @@ def run_company_phases(company_id: str, phases: list, session_factory=None, on_s
 
     try:
         results = _run_steps_concurrently(company_id, steps, session_factory, on_step)
-        if after or any(step.phase == 7 for step in steps):
-            tail = _open_step_session(session_factory)
+    except Exception as e:  # noqa: BLE001
+        return company_id, None, {"error": f"{type(e).__name__}: {e}"}
+
+    # Each step above already committed its own real data (SignalRecord/RawImportRecord)
+    # independently, inside run_step's own session — results is genuine regardless of what
+    # happens below. A failure recording CompanySourceRun or running `after` must never make
+    # this call look like the whole crawl failed (see docs/CRAWLER_ROADMAP.md T19: a real
+    # crawl against a live company produced 9/14 successful sources but 0 CompanySourceRun
+    # rows, because an unrelated concurrent crawl of the SAME company raced this tail
+    # transaction's insert and the single batched commit threw, discarding bookkeeping for
+    # every source at once — and, before this fix, discarding `results` too).
+    if after or any(step.phase == 7 for step in steps):
+        tail = _open_step_session(session_factory)
+        try:
             try:
                 for step in steps:
                     _record_source_run(tail, company_id, step, results[step.name], commit=False)
@@ -416,11 +451,26 @@ def run_company_phases(company_id: str, phases: list, session_factory=None, on_s
                 for compute in after:
                     compute(tail, company)
                 tail.commit()
-            finally:
-                tail.close()
-        return company_id, name, results
-    except Exception as e:  # noqa: BLE001
-        return company_id, None, {"error": f"{type(e).__name__}: {e}"}
+            except Exception:
+                # Retry source-by-source, each on its own commit, so one row's conflict (the
+                # race above) can't take the rest of the batch down with it — _record_source_run
+                # itself retries once more past an IntegrityError on any single row.
+                tail.rollback()
+                for step in steps:
+                    try:
+                        _record_source_run(tail, company_id, step, results[step.name], commit=True)
+                    except Exception:
+                        tail.rollback()
+                try:
+                    company = tail.query(Company).filter_by(id=company_id).first()
+                    for compute in after:
+                        compute(tail, company)
+                    tail.commit()
+                except Exception:
+                    tail.rollback()
+        finally:
+            tail.close()
+    return company_id, name, results
 
 
 def _run_steps_concurrently(company_id: str, steps: list, session_factory, on_step) -> dict:

@@ -124,6 +124,37 @@ def test_finance_headline_that_also_carries_a_concept_is_kept(monkeypatch):
     assert len(kept) == 1
 
 
+def test_unrelated_person_coverage_is_not_attributed_to_the_company(monkeypatch):
+    """Real 2026-09-22 run against ARISTARCO S.P.A. (a dishwasher/ice-machine maker, a
+    safe-length single token): the feed returned obituary/profile coverage of two unrelated
+    people who share the surname — Tiziana Aristarco (TV director) and Guido Aristarco (film
+    critic) — and three of those headlines were still cited as evidence for
+    external_collaboration, partnership_news_count and university_partnership. None of these
+    six real headlines are about the company and all must be dropped."""
+    _stub_feed(monkeypatch, [
+        "Morta a 66 anni Tiziana Aristarco, regista di fiction come \"Mina Settembre\"",
+        "Addio alla regista Tiziana Aristarco. Uno sguardo sul mondo empatico, ironico e femminile",
+        "Tiziana Aristarco, morta la regista di ‘Mina Settembre’",
+        "At Ristorante Belvedere Ravello the joy of chef Aristarco",
+        "Addio a Tiziana Aristarco, la regista di 'Un medico in famiglia' e 'Mina Settembre'",
+        "I mestieri del critico. Guido Aristarco",
+    ])
+    kept = rss._company_headlines(_Co("ARISTARCO S.P.A."))
+    # "chef Aristarco" has no obituary/entertainment-profession word in this exact headline
+    # (deliberately: the filter is narrow, see _PERSON_MENTION_RE's own comment on why "chef"
+    # itself was rejected as a trigger word) - everything else is dropped on sight.
+    assert [h["title"] for h in kept] == ["At Ristorante Belvedere Ravello the joy of chef Aristarco"]
+
+
+def test_person_mention_filter_does_not_eat_real_company_coverage(monkeypatch):
+    _stub_feed(monkeypatch, [
+        "Aristarco lancia la nuova gamma di lavastoviglie industriali",
+        "Aristarco e Winterhalter: due aziende a confronto sul mercato del lavaggio professionale",
+    ])
+    kept = rss._company_headlines(_Co("ARISTARCO S.P.A."))
+    assert len(kept) == 2
+
+
 def test_takeover_bid_is_not_a_product_launch():
     """'lancia l'OPA' is launching a tender offer — counting it as a product launch
     reported 4 launches for a company whose news was entirely about a buyout."""

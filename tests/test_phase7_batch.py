@@ -8,13 +8,14 @@ shares one connection across threads, which intermittently returned no rows unde
 
 import threading
 import time
+from datetime import datetime
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import company_service
-from models import Base, Company
+from models import Base, Company, CompanySourceRun
 
 PHASE7_SOURCES = [
     (company_service.company_website_crawler, "sync_company_website", "Company Website Crawler"),
@@ -272,3 +273,78 @@ def test_public_grant_count_has_exactly_one_producer_per_company():
     assert "EU Funding Portal" in de_names and "RNA Aiuti di Stato" not in de_names
     assert "EU Funding Portal" in it_no_piva_names and "RNA Aiuti di Stato" not in it_no_piva_names
     assert "RNA Aiuti di Stato" in it_piva_names and "EU Funding Portal" not in it_piva_names
+
+
+def test_bookkeeping_failure_does_not_discard_real_crawl_results(monkeypatch, factory):
+    """docs/CRAWLER_ROADMAP.md T19: a real live run against Aristarco S.p.A. wrote 9/14
+    sources' real data successfully but ended with ZERO CompanySourceRun rows, because
+    something (very likely a concurrent crawl of the same company racing this tail
+    transaction's insert) made the single batched tail commit throw, and the old code let
+    that exception propagate all the way out of run_company_phases — discarding `results`
+    too, so the caller saw {"error": ...} for a crawl that had, in fact, mostly succeeded.
+    """
+    _stub_crawlers(monkeypatch, _ok)
+    state = {"raised": False}
+    real_record = company_service._record_source_run
+
+    def flaky_once(db, company_id, step, outcome, commit=True):
+        if not state["raised"]:
+            state["raised"] = True
+            raise RuntimeError("simulated concurrent-write conflict on the tail commit")
+        return real_record(db, company_id, step, outcome, commit=commit)
+
+    monkeypatch.setattr(company_service, "_record_source_run", flaky_once)
+    cid, name, results = company_service.run_company_phases("c0", [7], factory, parallel=True)
+
+    assert name == "Company 0 S.R.L."  # not None - the bug returned (cid, None, {"error": ...}) here
+    assert len(results) == len(PHASE7_SOURCES)
+    assert all(r.get("status") == "success" for r in results.values())
+
+    with factory() as db:
+        rows = db.query(CompanySourceRun).filter_by(company_id="c0").all()
+        # Recovered via the per-row retry fallback, despite the first attempt blowing up.
+        assert len(rows) == len(PHASE7_SOURCES)
+        assert all(r.status == "live" for r in rows)
+
+
+def test_record_source_run_retries_past_a_concurrent_insert_race(factory):
+    """Reproduces the actual race, not just a mocked exception: a row for this exact
+    (company_id, source_name) already exists (as if another session inserted and committed
+    it first), but our own read is stubbed to miss it - the same stale-SELECT-then-INSERT
+    sequence a real concurrent crawl of the same company produces. The resulting
+    IntegrityError must be retried as an update, not propagated."""
+    db = factory()
+    step = company_service.SourceStep("Job Postings Crawler", lambda c, d: None, 7)
+
+    db.add(CompanySourceRun(company_id="c0", source_name=step.name, phase=7, status="skipped",
+                            finished_at=datetime(2020, 1, 1)))
+    db.commit()
+
+    class _NoRowsQuery:
+        def filter_by(self, **kw):
+            return self
+
+        def first(self):
+            return None
+
+    # Only the FIRST lookup is stubbed to miss the row (the stale read a real race would
+    # produce); the retry's own re-query after the IntegrityError must see the real table,
+    # exactly as a second, fresh SELECT would in production.
+    state = {"stubbed": False}
+    real_query = db.query
+
+    def query_once_stale(model, *a, **kw):
+        if model is CompanySourceRun and not state["stubbed"]:
+            state["stubbed"] = True
+            return _NoRowsQuery()
+        return real_query(model, *a, **kw)
+
+    db.query = query_once_stale
+    try:
+        company_service._record_source_run(db, "c0", step, {"status": "success", "mode": "live"})
+    finally:
+        db.query = real_query
+
+    row = db.query(CompanySourceRun).filter_by(company_id="c0", source_name=step.name).first()
+    assert row is not None and row.status == "live"  # the retry's UPDATE applied, no duplicate row
+    assert db.query(CompanySourceRun).filter_by(company_id="c0", source_name=step.name).count() == 1

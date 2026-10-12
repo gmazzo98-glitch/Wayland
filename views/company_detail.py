@@ -1328,6 +1328,164 @@ def _pilot_rows(db: Session, company: Company) -> list:
     return rows
 
 
+def _render_crawled_intelligence(db: Session, company: Company) -> None:
+    """Human-readable summary of what each Phase 7 crawler (plus Phase 4's Google News RSS)
+    actually found for this company, grouped by theme. The raw blobs behind these are already
+    queryable one at a time via the 🔍 Audit dialog on the matching signal, or the Raw Data &
+    Mapping tab's st.json dump — both real, but scattered: neither stitches a company's whole
+    crawled picture into one place. See docs/CRAWLER_ROADMAP.md T21 for why this exists."""
+    records = {r.dataset_name: r.raw_row for r in db.query(RawImportRecord).filter(
+        RawImportRecord.company_id == company.id, RawImportRecord.dataset_name.like("crawler_%")
+    ).all() if r.raw_row}
+    # These two derived-benchmark sources predate the crawler_ naming convention (see their
+    # own DATASET_NAME constants in scrapers/competitor_benchmark.py and
+    # scrapers/competitor_catalog_benchmark.py) and would otherwise be invisible here.
+    for extra in ("competitor_benchmark", "competitor_catalog_benchmark"):
+        rec = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=extra).first()
+        if rec and rec.raw_row:
+            records[extra] = rec.raw_row
+
+    sections = []  # (label, render_fn), only the ones with real data to show
+
+    website = records.get("crawler_company_website")
+    if website:
+        def _render_website(row=website):
+            lines = row.get("product_types") or []
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Product lines found", row.get("product_lines_count") or 0)
+            c2.metric("Pages crawled", row.get("crawled_pages_count") or 0)
+            c3.metric("Last product update", (row.get("last_product_update_signal") or {}).get("date") or "—")
+            if lines:
+                shown = ", ".join(lines[:12])
+                st.caption(f"Product lines: {shown}" + (f" (+{len(lines) - 12} more)" if len(lines) > 12 else ""))
+        sections.append(("🏭 Company Website", _render_website))
+
+    digital = records.get("crawler_digital_maturity")
+    if digital:
+        def _render_digital(row=digital):
+            c1, c2, c3 = st.columns(3)
+            c1.metric("CMS", row.get("cms_platform") or "unknown")
+            c2.metric("E-commerce", "Yes" if row.get("has_ecommerce") else "No")
+            redesign = (row.get("last_major_redesign_estimate") or {}).get("estimated_year")
+            stable = (row.get("last_major_redesign_estimate") or {}).get("comparisons") or []
+            if redesign:
+                c3.metric("Last redesign", str(int(redesign)))
+            elif stable:
+                oldest = min((c.get("from_year") for c in stable if c.get("from_year")), default=None)
+                c3.metric("Last redesign", f"stable since {oldest}" if oldest else "no clear estimate")
+            else:
+                c3.metric("Last redesign", "no clear estimate")
+            socials = row.get("social_presence_links") or []
+            if socials:
+                st.caption("Social profiles: " + ", ".join(s.get("platform", "?") for s in socials))
+            snaps = row.get("snapshot_count_last_5_years")
+            if snaps is not None:
+                st.caption(f"{snaps} Wayback Machine snapshot(s) in the last 5 years.")
+        sections.append(("💻 Digital Presence", _render_digital))
+
+    jobs = records.get("crawler_job_postings")
+    if jobs:
+        def _render_jobs(row=jobs):
+            if not row.get("sources_used"):
+                note = (row.get("careers_discovery") or {}).get("note") or "No careers page could be found for this company."
+                st.caption(note)
+                return
+            c1, c2 = st.columns(2)
+            total = row.get("total_open_roles")
+            digital_n = row.get("technical_digital_roles_count")
+            c1.metric("Open roles", total if total is not None else "—")
+            c2.metric("Digital/technical roles", digital_n if digital_n is not None else "—")
+            titles = [r.get("title") for r in (row.get("roles_sample") or []) if r.get("title")]
+            if titles:
+                shown = "; ".join(titles[:6])
+                st.caption(f"Open roles: {shown}" + (f" (+{len(titles) - 6} more)" if len(titles) > 6 else ""))
+            elif total == 0:
+                st.caption("Careers page found — advertises no open roles at all.")
+        sections.append(("💼 Hiring Signals", _render_jobs))
+
+    directory_rows = {k: v for k, v in records.items() if k.startswith("crawler_directory_")}
+    if directory_rows:
+        def _render_directories(rows=directory_rows):
+            for key, row in sorted(rows.items()):
+                label = row.get("directory_name") or key.replace("crawler_directory_", "").title()
+                if row.get("appears_in_directory") and not row.get("possible_match"):
+                    url = row.get("listing_url")
+                    st.markdown(f"- **{label}**: ✅ listed" + (f" — [{url}]({url})" if url else ""))
+                elif row.get("possible_match"):
+                    st.markdown(f"- **{label}**: fuzzy match only — not counted as confirmed")
+                elif row.get("status") == "ok":
+                    st.markdown(f"- **{label}**: not listed")
+                else:
+                    st.markdown(f"- **{label}**: {row.get('status_detail') or row.get('status') or 'could not check'}")
+        sections.append(("🗂️ Trade Directories", _render_directories))
+
+    review_rows = {k: v for k, v in records.items() if k.startswith("crawler_reviews_")}
+    if review_rows:
+        def _render_reviews(rows=review_rows):
+            for key, row in sorted(rows.items()):
+                src = (row.get("source_type") or key.replace("crawler_reviews_", "")).title()
+                rating_key = "avg_rating" if row.get("source_type") == "google" else "avg_employer_rating"
+                rating = row.get(rating_key)
+                if row.get("status") == "skipped_robots":
+                    st.markdown(f"- **{src}**: blocked by robots.txt — not a confirmed absence of reviews")
+                elif rating is not None:
+                    count = row.get("review_count")
+                    st.markdown(f"- **{src}**: {rating:.1f} avg rating" + (f" ({count} review(s))" if count else ""))
+                else:
+                    st.markdown(f"- **{src}**: {row.get('status_detail') or row.get('status') or 'no rating found'}")
+        sections.append(("⭐ Reviews", _render_reviews))
+
+    news = records.get("crawler_news_rss")
+    if news:
+        def _render_news(row=news):
+            mentions = row.get("headlines_about_company")
+            if not mentions:
+                st.caption("No press coverage matched to this company in the last 24 months.")
+                return
+            st.metric("Press mentions (last 24 months)", mentions)
+            concepts = {k: v for k, v in (row.get("headlines_by_concept") or {}).items() if v}
+            if concepts:
+                st.caption("By concept: " + ", ".join(f"{k} ({v})" for k, v in concepts.items()))
+            for h in (row.get("kept_headlines") or [])[:3]:
+                st.caption(f"“{h.get('headline')}” — {h.get('outlet') or 'unknown outlet'}")
+        sections.append(("📰 Press & News", _render_news))
+
+    competitors = list(company.competitors or [])
+    comp_blobs = {k: records[k] for k in (
+        "competitor_benchmark", "competitor_catalog_benchmark", "crawler_competitor_hiring",
+        "crawler_competitor_news", "crawler_competitor_reviews") if k in records}
+    if competitors or comp_blobs:
+        def _render_competitors(peers=competitors, blobs=comp_blobs):
+            if not peers:
+                st.caption("No named competitors recorded yet — add one or more above to benchmark against them.")
+                return
+            st.caption("Named: " + ", ".join(p.name for p in peers))
+            for key, label in (
+                ("competitor_benchmark", "Digital maturity gap"),
+                ("competitor_catalog_benchmark", "Product catalog gap"),
+                ("crawler_competitor_hiring", "Hiring velocity (unscored — open decision)"),
+                ("crawler_competitor_news", "Press share (unscored — open decision)"),
+                ("crawler_competitor_reviews", "Reviews (unscored — open decision)"),
+            ):
+                status = "data collected — see 🔍 Audit or Raw Data & Mapping for detail" if key in blobs else "not yet run"
+                st.markdown(f"- **{label}**: {status}")
+        sections.append(("🥊 Competitor Benchmarks", _render_competitors))
+
+    if not sections:
+        return
+    with st.expander(f"🕷️ Crawled Intelligence ({len(sections)} source group(s) with data)", expanded=False):
+        st.caption(
+            "Everything the crawlers found for this company, grouped by theme, in one place. "
+            "Every figure here traces back to a specific crawler run — open 🔍 Audit on the "
+            "matching signal below, or the Raw Data & Mapping tab, for the full evidence trail."
+        )
+        for i, (label, render_fn) in enumerate(sections):
+            st.markdown(f"**{label}**")
+            render_fn()
+            if i < len(sections) - 1:
+                st.markdown("---")
+
+
 def _render_tab1_content(db: Session):
     # Split out of render_company_detail_page() so its early "no companies"/
     # "no companies for this country" returns only skip THIS tab's content —
@@ -1690,6 +1848,8 @@ def _render_tab1_content(db: Session):
                     st.markdown(f"- **{title}** — {patent.get('publication') or 'publication unknown'} "
                                 f"({str(patent.get('publication_date') or 'date unknown')[:8]})"
                                 + (f" · applicants: {coapplicants}" if coapplicants else ""))
+
+        _render_crawled_intelligence(db, company)
 
         from company_brief import collect_evidence, evidence_fingerprint, generate_brief
         from config import CRAWLER_LLM_API_KEY
