@@ -86,6 +86,13 @@ competitors — that design decision stands.
    should look like `scrapers/competitor_benchmark.py`; a new directory
    plugin should look like `Scraper/crawlers/directory-listing-crawler/src/directories/mecspe.ts`
    (copy `_template.ts`, per that package's own README).
+   **If your ticket changes anything under `Scraper/crawlers/...`, rebuilding the worker
+   bundle is part of the ticket, not optional follow-up cleanup** — run
+   `python scripts/build_worker_bundle.py` and commit the result (it's a binary
+   `worker_dist/vienna-crawler-bundle.zip` plus its `worker_shim/app/` mirror) in the same
+   commit as your crawler change. T22 found this had been skipped across several tickets
+   (T08/T09/T13-T17): remote Crawler Workers ran up to 2 days of stale code as a result,
+   silently undoing real fixes for any company whose crawl happened to route to one.
 4. **Test discipline.** `tests/conftest.py` already points `DATABASE_URL` at a
    throwaway SQLite file so nothing touches the live Neon DB by default —
    never set `VIENNA_TESTS_ALLOW_LIVE_DB=1` as a shortcut. Run
@@ -186,8 +193,9 @@ re-discover the same blocker.
 | T19 | A bookkeeping failure under load can report a successful crawl as `{"error": ...}` | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T20 | Google News RSS can attribute an unrelated person's coverage to a same-surname company | Signal extension | P1 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T21 | No unified view of what the crawlers found — build one on Company Intelligence | Ops | P1 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
+| T22 | Remote Crawler Workers were running a ~2-day-stale worker bundle | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 
-Adding a new ticket yourself (T22+)? Append a row here and a matching
+Adding a new ticket yourself (T23+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
 renumber existing tickets.
 
@@ -1752,6 +1760,65 @@ to existing sections).
     (`pyarrow.lib.ArrowInvalid: cannot mix list and non-list, non-null values`), triggered by
     Aristarco's own raw-import data shape, at `views/company_detail.py:1981` — real, live,
     reproducible, does not involve any code this ticket touched. Flagged for a future ticket.
+
+---
+
+### T22 — Remote Crawler Workers were running a ~2-day-stale worker bundle
+**Track:** Ops · **Priority:** P0 (silently undoes T08/T09/T13-T17 for every company a
+background crawl happens to route to a remote worker)
+
+**Problem.** Found while investigating a human-reported "Crawled Intelligence looks empty"
+case for THYSSENKRUPP NUCERA ITALY SRL — a large, real company, not a small-footprint one
+like T21's own AMPLIA example. Its directory-listing crawl returned `status: "no_config"`
+against the Kompass URL (`b2bstars.com/it/kompass/company`) even though Kompass has had a
+registered plugin since T09. That result is only possible if the crawl ran on code that
+predates T09.
+
+**Root cause.** `worker_dist/vienna-crawler-bundle.zip` — "the ONLY thing a helper's computer
+ever receives" per its own build script's docstring — was last built **2026-10-10 11:17**.
+ANIMA (T08, merged 10-11 08:37), Kompass (T09, 10-11 16:20), the TED CSV fix (T14), the
+product-catalog page-budget and priceSpecification fixes (T15/T16), and the job-postings
+false-vacancy fix (T17) all landed in the `Scraper` repo *after* that build. The README's own
+instructions say to rebuild and commit the bundle after any crawler change — several bots'
+work across T08-T17 skipped that step. Confirmed directly: the stale zip contained zero
+references to `anima`/`kompass` anywhere in it. Since a company's whole Phase 7 batch runs on
+one chosen target (`crawl_jobs.py`), any company routed to a remote worker (the Pipeline page
+showed one active and in rotation) ran **every** one of its sources on code up to 2 days
+out of date — not just directory listing.
+
+**Fix.** Ran the documented `python scripts/build_worker_bundle.py` — confirmed "Bundling 11
+crawlers," confirmed `anima.js`/`kompass.js` now present in the output zip, new build hash.
+This also auto-synced `worker_shim/app/vienna-crawler-bundle.zip` and its
+`update_manifest.json` — the service that pushes updates to *already-installed* workers, not
+just new ones — so helper machines already running don't need a fresh install to catch up.
+
+**Live-verified end to end:** re-ran Phase 7 for Thyssenkrupp Nucera locally (bypassing the
+remote worker entirely, to get a clean before/after on the same machine) after the rebuild.
+Directory Listing went from 1 directory checked with a `no_config` error to all 3 checked
+correctly, including a **real, confirmed Kompass listing**
+(`b2bstars.com/it/kompass/company/thyssenkrupp-nucera-italy-srl`) the stale code had no way to
+find. `tests/test_worker_hub.py::test_committed_bundle_contains_the_current_worker_source` —
+a pre-existing test that had been silently failing (attributed, incorrectly, to "a Windows
+line-ending artifact" in earlier tickets' Results notes) — now passes; it was actually
+flagging this exact staleness the whole time.
+
+**Also surfaced by the same re-crawl, not a bug:** Digital Maturity Crawler hit real, live
+Wayback CDX 503s/timeouts on this run (an external-service issue, unrelated to the bundle).
+Company Website and Product Catalog Crawlers still found nothing for this company even on
+fresh code — plausibly honest for an industrial electrolysis-technology seller (custom
+multi-million-euro plants, not a browsable product catalog; same shape as the Danieli case
+from earlier sessions) rather than an extraction bug, but not confirmed either way — flagged,
+not claimed.
+
+**Files touched:** `worker_dist/vienna-crawler-bundle.zip`,
+`worker_shim/app/vienna-crawler-bundle.zip`, `worker_shim/app/update_manifest.json` (all
+binary/generated — no source code changed; the generator already existed and worked
+correctly, it just hadn't been re-run).
+
+**Process note for every future ticket that touches `Scraper/crawlers/...`:** rebuilding the
+worker bundle is not optional cleanup — skipping it means your fix works on this machine and
+silently doesn't exist anywhere else. Run `python scripts/build_worker_bundle.py` and commit
+the result as part of the same ticket, not a follow-up.
 
 ---
 
