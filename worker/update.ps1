@@ -105,33 +105,54 @@ function Run([string]$Exe, [string[]]$ToolArgs, [string]$Cwd) {
 }
 
 function Install-PackagesWithProgress([string]$NodeExe, [string]$NpmCli, [string]$Crawlers, [int]$Start, [int]$End) {
-  $lock = Get-Content -LiteralPath (Join-Path $Crawlers 'package-lock.json') -Raw | ConvertFrom-Json
+  # npm lockfileVersion 3 always keys the root package's own entry in "packages" with an empty
+  # string (""), and Windows PowerShell 5.1's ConvertFrom-Json cannot build a PSCustomObject
+  # member with an empty name - it throws PSArgumentException ("the value of the 'name'
+  # argument is not valid"), which looked like the whole update silently hanging (the real
+  # exception was only visible by running this script directly instead of detached - see
+  # docs/CRAWLER_ROADMAP.md T23). That root entry is never used below anyway (the filter two
+  # lines down already excludes a falsy $_.Name), so it's safe to rename before parsing rather
+  # than needing a different JSON parser.
+  $lockRaw = (Get-Content -LiteralPath (Join-Path $Crawlers 'package-lock.json') -Raw) -replace '"packages"\s*:\s*\{\s*""\s*:', '"packages": { "__root__":'
+  $lock = $lockRaw | ConvertFrom-Json
   $packagePaths = @($lock.packages.PSObject.Properties | Where-Object { $_.Name -and -not $_.Value.dev } | ForEach-Object { $_.Name })
   $total = [Math]::Max(1, $packagePaths.Count)
   $stdout = Join-Path $env:TEMP ('vienna-npm-' + $stamp + '.out')
   $stderr = Join-Path $env:TEMP ('vienna-npm-' + $stamp + '.err')
-  $process = Start-Process -FilePath $NodeExe -ArgumentList (Join-Arguments @($NpmCli, 'ci', '--omit=dev', '--no-audit', '--no-fund')) `
-    -WorkingDirectory $Crawlers -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-  $lastCount = -1
-  while (-not $process.HasExited) {
-    $process.Refresh()
-    $installed = 0
-    foreach ($relative in $packagePaths) {
-      $packageJson = Join-Path (Join-Path $Crawlers ($relative -replace '/', '\')) 'package.json'
-      if (Test-Path -LiteralPath $packageJson) { $installed++ }
-    }
-    if ($installed -ne $lastCount) {
-      $pct = $Start + [int](($End - $Start) * $installed / $total)
-      Report-Progress 'installing' "Installing crawler libraries ($installed of $total packages)" $pct `
-        @{ completed_packages = $installed; total_packages = $total }
-      $lastCount = $installed
-    }
-    Start-Sleep -Seconds 1
+  Report-Progress 'installing' "Installing crawler libraries (0 of $total packages)" $Start `
+    @{ completed_packages = 0; total_packages = $total }
+  # Start-Process -PassThru's ExitCode is unreliable here (confirmed by direct testing - see
+  # docs/CRAWLER_ROADMAP.md T23): it reads back empty even after HasExited is true and the
+  # process genuinely finished. System.Diagnostics.Process started directly, with -Wait,
+  # does not have this problem, at the cost of not being able to poll for live progress
+  # while npm runs - we only report progress before and after instead of per-package.
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $NodeExe
+  $psi.Arguments = Join-Arguments @($NpmCli, 'ci', '--omit=dev', '--no-audit', '--no-fund')
+  $psi.WorkingDirectory = $Crawlers
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $proc = New-Object System.Diagnostics.Process
+  $proc.StartInfo = $psi
+  [void]$proc.Start()
+  $capturedOut = $proc.StandardOutput.ReadToEndAsync()
+  $capturedErr = $proc.StandardError.ReadToEndAsync()
+  $proc.WaitForExit()
+  Set-Content -LiteralPath $stdout -Value $capturedOut.Result -Encoding UTF8 -ErrorAction SilentlyContinue
+  Set-Content -LiteralPath $stderr -Value $capturedErr.Result -Encoding UTF8 -ErrorAction SilentlyContinue
+  $exitCode = $proc.ExitCode
+  $installed = 0
+  foreach ($relative in $packagePaths) {
+    $packageJson = Join-Path (Join-Path $Crawlers ($relative -replace '/', '\')) 'package.json'
+    if (Test-Path -LiteralPath $packageJson) { $installed++ }
   }
-  $process.WaitForExit()
-  if ($process.ExitCode -ne 0) {
-    $tail = ((Get-Content -LiteralPath $stderr -Tail 20 -ErrorAction SilentlyContinue) -join ' ')
-    throw "Installing crawler libraries failed with exit code $($process.ExitCode): $tail"
+  Report-Progress 'installing' "Installing crawler libraries ($installed of $total packages)" $End `
+    @{ completed_packages = $installed; total_packages = $total }
+  if ($exitCode -ne 0) {
+    $tail = ($capturedErr.Result -split "`r?`n" | Select-Object -Last 20) -join ' '
+    throw "Installing crawler libraries failed with exit code $exitCode`: $tail"
   }
   Remove-Item $stdout, $stderr -Force -ErrorAction SilentlyContinue
 }
@@ -139,34 +160,47 @@ function Install-PackagesWithProgress([string]$NodeExe, [string]$NpmCli, [string
 function Install-BrowserWithProgress([string]$NodeExe, [string]$PlaywrightCli, [string]$Crawlers) {
   $stdout = Join-Path $env:TEMP ('vienna-browser-' + $stamp + '.out')
   $stderr = Join-Path $env:TEMP ('vienna-browser-' + $stamp + '.err')
-  $process = Start-Process -FilePath $NodeExe -ArgumentList (Join-Arguments @($PlaywrightCli, 'install', 'chromium')) `
-    -WorkingDirectory $Crawlers -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-  $lastPercent = -1
-  while (-not $process.HasExited) {
-    $process.Refresh()
-    $output = (Get-Content -LiteralPath $stdout, $stderr -Raw -ErrorAction SilentlyContinue) -join "`n"
-    $matches = [regex]::Matches($output, '(?<!\d)(\d{1,3})%')
-    if ($matches.Count) {
-      $downloadPercent = [Math]::Min(100, [int]$matches[$matches.Count - 1].Groups[1].Value)
-      if ($downloadPercent -ne $lastPercent) {
-        Report-Progress 'browser' "Downloading Chromium browser files ($downloadPercent%)" (81 + [int](9 * $downloadPercent / 100)) `
-          @{ download_percent = $downloadPercent }
-        $lastPercent = $downloadPercent
-      }
-    }
-    Start-Sleep -Seconds 1
-  }
-  $process.WaitForExit()
-  if ($process.ExitCode -ne 0) {
-    $tail = ((Get-Content -LiteralPath $stderr -Tail 20 -ErrorAction SilentlyContinue) -join ' ')
-    throw "Downloading Chromium failed with exit code $($process.ExitCode): $tail"
+  Report-Progress 'browser' 'Downloading Chromium browser files' 81 @{ download_percent = 0 }
+  # Same Start-Process -PassThru ExitCode unreliability as Install-PackagesWithProgress above
+  # (see T23) - use System.Diagnostics.Process directly instead. This drops the live
+  # download-percent polling (we can't peek at partial output without the same async-event
+  # complexity that caused other subtle bugs elsewhere), reporting only start/end instead.
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $NodeExe
+  $psi.Arguments = Join-Arguments @($PlaywrightCli, 'install', 'chromium')
+  $psi.WorkingDirectory = $Crawlers
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $proc = New-Object System.Diagnostics.Process
+  $proc.StartInfo = $psi
+  [void]$proc.Start()
+  $capturedOut = $proc.StandardOutput.ReadToEndAsync()
+  $capturedErr = $proc.StandardError.ReadToEndAsync()
+  $proc.WaitForExit()
+  Set-Content -LiteralPath $stdout -Value $capturedOut.Result -Encoding UTF8 -ErrorAction SilentlyContinue
+  Set-Content -LiteralPath $stderr -Value $capturedErr.Result -Encoding UTF8 -ErrorAction SilentlyContinue
+  $exitCode = $proc.ExitCode
+  Report-Progress 'browser' 'Downloading Chromium browser files (100%)' 90 @{ download_percent = 100 }
+  if ($exitCode -ne 0) {
+    $tail = ($capturedErr.Result -split "`r?`n" | Select-Object -Last 20) -join ' '
+    throw "Downloading Chromium failed with exit code $exitCode`: $tail"
   }
   Remove-Item $stdout, $stderr -Force -ErrorAction SilentlyContinue
 }
 
-function Start-InstalledWorker([string]$Home) {
-  Start-Process -FilePath (Join-Path $Home 'node\node.exe') `
-    -ArgumentList (Join-Arguments @((Join-Path $Home 'worker\worker.mjs'))) -WorkingDirectory $Home -WindowStyle Hidden
+function Start-InstalledWorker([string]$InstallDir) {
+  # Must not be named $Home - that collides with PowerShell's own built-in, read-only $Home
+  # automatic variable (the user's profile directory) and throws "Impossibile sovrascrivere
+  # la variabile Home perche e costante o di sola lettura" / VariableNotWritable the moment
+  # this function is called - silently killing every update since this script was first
+  # added (2026-09-29), both the pre-flight launch of the newly staged worker AND this
+  # function's own use as the failure-path fallback to restart the OLD worker, so a failed
+  # update couldn't even recover cleanly. Found 2026-10-12 by running the updater directly
+  # (not detached) against a real stuck update - see docs/CRAWLER_ROADMAP.md T23.
+  Start-Process -FilePath (Join-Path $InstallDir 'node\node.exe') `
+    -ArgumentList (Join-Arguments @((Join-Path $InstallDir 'worker\worker.mjs'))) -WorkingDirectory $InstallDir -WindowStyle Hidden
 }
 
 function Remove-TreeWithRetry([string]$Path) {
@@ -277,6 +311,12 @@ try {
 } catch {
   $failure = $_.Exception.Message
   Log ('Update failed: ' + $failure)
+  # Detached runs have no console, so the log is the only way to diagnose a failure after
+  # the fact - keep the exception type/stack/offending line here rather than just the
+  # message (this is exactly what exposed the three real bugs fixed under T23).
+  Log ('Error type: ' + $_.Exception.GetType().FullName)
+  Log ('Error stack: ' + $_.ScriptStackTrace)
+  Log ('Error line: ' + $_.InvocationInfo.Line)
   if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
   # A failure while preparing the staged copy must not leave the existing worker stopped.
   if (Test-Path (Join-Path $Dir 'node\node.exe')) {

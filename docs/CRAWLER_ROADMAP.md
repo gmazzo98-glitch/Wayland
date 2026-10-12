@@ -194,8 +194,9 @@ re-discover the same blocker.
 | T20 | Google News RSS can attribute an unrelated person's coverage to a same-surname company | Signal extension | P1 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T21 | No unified view of what the crawlers found — build one on Company Intelligence | Ops | P1 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T22 | Remote Crawler Workers were running a ~2-day-stale worker bundle | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
+| T23 | `worker/update.ps1` had 3 bugs that silently killed every update (one fatal on every run) | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 
-Adding a new ticket yourself (T23+)? Append a row here and a matching
+Adding a new ticket yourself (T24+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
 renumber existing tickets.
 
@@ -1819,6 +1820,86 @@ correctly, it just hadn't been re-run).
 worker bundle is not optional cleanup — skipping it means your fix works on this machine and
 silently doesn't exist anywhere else. Run `python scripts/build_worker_bundle.py` and commit
 the result as part of the same ticket, not a follow-up.
+
+---
+
+### T23 — `worker/update.ps1` had 3 bugs that silently killed every update
+**Track:** Ops · **Priority:** P0 (every remote worker's auto-update was broken, not just this
+one — any helper machine running the T22 build would hit the exact same crash)
+
+**Problem.** After T22's rebuild, the local worker (treated here as "a helper machine," at the
+human's explicit direction, since this session runs on the same physical computer it manages)
+sat stuck at "Starting installer · 32%" for well over an hour instead of completing in the
+expected couple of minutes. The app's own `worker.log` showed the update had been downloaded
+and verified, then nothing — no error, no retry, no further progress. Because the updater
+script is copied to `%TEMP%` and launched **detached** (so it can replace the very directory
+the parent process is running from), any exception it throws before its own try/catch is wired
+up is invisible: no console, no log line, nothing. The only way to see what was actually
+failing was to copy the exact arguments production uses and run the script directly
+(synchronous, in-session) instead of detached — which surfaced three separate, unrelated bugs,
+each one fatal, each one previously silent:
+
+**Bug A — `$Home` parameter collision.** `Start-InstalledWorker([string]$Home)` shadowed
+PowerShell's own built-in, read-only `$Home` automatic variable (the user profile directory).
+The moment this function ran — on the success path *and* as the failure-path fallback to
+restart the old worker — it threw `Impossibile sovrascrivere la variabile Home perché è
+costante o di sola lettura` (`VariableNotWritable`) and the whole script died, with no ability
+to even fall back and restart the worker it had just stopped. This had been silently killing
+every update since the script was first added (2026-09-29). **Fix:** renamed the parameter
+(and every internal use) to `$InstallDir`.
+
+**Bug B — npm lockfileVersion 3's empty-string root key.** `Install-PackagesWithProgress`
+parses `package-lock.json` to count install progress. npm lockfileVersion 3 always keys the
+root package's own entry in `"packages"` with an empty string (`""`), and Windows PowerShell
+5.1's `ConvertFrom-Json` cannot build a `PSCustomObject` member with an empty name — it throws
+`PSArgumentException` (`"the value of the 'name' argument is not valid"`). That root entry was
+never actually used (the existing filter already excludes a falsy `$_.Name`), so **fix:**
+rename that one key (`"packages": { "":` → `"packages": { "__root__":`) via a targeted regex
+on the raw JSON text before parsing, rather than needing a different JSON parser entirely.
+
+**Bug C — `Start-Process -PassThru`'s `.ExitCode` read back empty after a genuinely successful
+run.** Once Bugs A and B no longer masked it, `npm ci` itself ran to completion correctly
+(confirmed via real npm deprecation-warning output captured in the redirected stderr file,
+and `$process.HasExited` reliably `$true`) — but `$process.ExitCode` evaluated to empty/null
+regardless, including after explicitly calling `$process.Refresh()` immediately before reading
+it (the standard documented fix for this exact symptom, tested and confirmed **not** to work
+here). This made the script treat every successful `npm ci` as a failure. Root cause not fully
+isolated beyond "`Start-Process -PassThru` combined with `-WindowStyle Hidden` and
+`-RedirectStandardOutput`/`-RedirectStandardError` is unreliable for `.ExitCode` on this
+PowerShell 5.1 host" — `Run()` elsewhere in this same file uses `-Wait -PassThru` *without*
+redirection and has never shown this symptom, which is consistent with the redirection
+combination being the trigger. **Fix:** rewrote both `Install-PackagesWithProgress` and
+`Install-BrowserWithProgress` to start the process via `System.Diagnostics.Process` /
+`ProcessStartInfo` directly (bypassing the `Start-Process` cmdlet wrapper entirely) with
+`-Wait`-equivalent synchronous `WaitForExit()`, reading captured output via
+`StandardOutput.ReadToEndAsync()`/`StandardError.ReadToEndAsync()`. Trade-off: both functions
+now report progress only before/after the subprocess runs instead of live per-second
+percentages during it (polling partial output from an async-event-based reader is possible but
+adds real complexity/risk for a cosmetic feature) — correctness of the exit code mattered far
+more than smooth progress bars.
+
+**Also fixed as part of the same investigation:** wrapped the script's environment setup
+(TLS protocol, loading `System.IO.Compression.FileSystem`/`System.Net.Http`, decoding
+`-WorkerInfoBase64`, reading `worker.config.json`) inside the existing outer `try` block —
+previously this ran *before* the try block, so any failure there (a bad environment, a
+mangled command-line payload) killed the process before it logged a single line or restarted
+the worker it had just stopped, looking identical to "stuck" with zero diagnosis. Also added
+permanent exception-type/stack-trace/offending-line logging to the outer catch block (not a
+debug leftover — detached runs have no console, so this is the only way to diagnose a future
+failure without re-running synchronously the way this investigation had to).
+
+**Live-verified end to end:** ran the fixed script directly and synchronously against the real
+pending update (build `9ff0f6a8ed7b`, the same one stuck since T22) with production's exact
+arguments. `npm ci` completed for real, Chromium downloaded and self-tested
+(`"Chromium 156.0.8078.4 starts"`), all 11 crawlers confirmed present, the atomic
+directory swap happened, and the new worker started, self-tested, and connected —
+`status.json` on the local machine shows `"state": "connected"` with a fresh heartbeat, and
+`worker.log` shows `worker 1.0.0 (build 9ff0f6a8ed7b) starting ...; self-test passed` /
+`connected to Vienna`. Exit code 0.
+
+**Files touched:** `worker/update.ps1` (source fix — must ship in
+`worker_dist/vienna-crawler-bundle.zip` and its `worker_shim/app/` mirror, rebuilt via
+`scripts/build_worker_bundle.py` as part of this same ticket, per T22's own process note).
 
 ---
 
