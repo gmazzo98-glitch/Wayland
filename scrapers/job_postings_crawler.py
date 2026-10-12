@@ -401,8 +401,19 @@ _SELECT_OPTION_FRAGMENT = "#posizione="
 # zero on such a page is NOT a confirmed absence — the real listings live behind a link the
 # crawler was never going to follow (LinkedIn login walls, ATS portals), so the wrapper must
 # not write the not_applicable "advertises no open roles at all" outcome for it.
+#
+# `linkedin\.com/company` alone used to be one of the alternatives here — too broad: it matches
+# a plain "Follow Us on LinkedIn" social link (every `linkedin.com/company/<slug>` page, not just
+# one with open roles), live-verified on both bray.com/careers ("Follow Us LinkedIn") and
+# rotork.com/en/careers (a bare company-page link with no job content at all). That silently
+# suppressed the honest confirmed-zero signal for any company whose careers page has a generic
+# LinkedIn follow link and genuinely zero vacancies — the exact mistake this regex's own job is to
+# avoid, just one level removed. A LinkedIn company page only counts as a job board when the path
+# itself says so (`/company/<slug>/jobs`) or it's LinkedIn's own jobs domain — the separate
+# `_JOB_BOARD_NAME_RE` + `_JOB_LINK_TEXT_RE` label check below still catches a labelled company-page
+# link ("International Job Postings on LinkedIn") independently of this URL pattern.
 _EXTERNAL_JOB_BOARD_RE = re.compile(
-    r"linkedin\.com/(company|jobs|mhcompanies)|smartrecruiters\.com|ultipro\.com|"
+    r"linkedin\.com/(?:company/[^/\s]+/jobs|jobs|mhcompanies)|smartrecruiters\.com|ultipro\.com|"
     r"myworkdayjobs?\.com|workaday\.com|greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|"
     r"bamboohr\.com|jobvite\.com|icims\.com|taleo\.net|successfactors\.com|eightfold\.ai|"
     r"phenom(?:people)?\.com|recruitee\.com|teamtailor\.com|personio\.(?:de|com)|softgarden\.de|"

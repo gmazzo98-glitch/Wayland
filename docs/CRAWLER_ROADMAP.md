@@ -1533,6 +1533,40 @@ not touch:
   live-verified. Remaining activation work (Phase 7 registration, a real company with a
   recorded peer) is T05's own scope, not this ticket's.
 
+**Follow-up fix (2026-10-12, human-requested review of T09/T11/T16/T17):**
+`_EXTERNAL_JOB_BOARD_RE`'s `linkedin\.com/(company|jobs|mhcompanies)` alternative was
+too broad — it matched a bare `linkedin.com/company/<slug>` URL unconditionally, so a
+plain "Follow Us on LinkedIn" social link (present on nearly every corporate site,
+including careers pages) got classified as an external job board. Live-reproduced on
+both of this ticket's own pages: bray.com/careers's "Follow Us LinkedIn" link (label
+with no job-related word at all) matched the URL pattern even though the adjacent
+label-based check was specifically built to reject exactly that; rotork.com/en/careers'
+bare company-page link matched too, with no job content anywhere on the page. Net
+effect: the fix this ticket shipped to stop fabricating confirmed zeros was, for this
+one board type, silently creating a *different* false negative — suppressing the
+honest confirmed-zero signal for any company with a genuinely empty careers page and
+an ordinary LinkedIn follow link, which is most companies. Not yet visible in
+`SourceHealth`/the live DB because Job Postings Crawler hasn't been bulk-rerun since
+this ticket merged (checked: zero `RawImportRecord` rows have `external_job_boards`
+populated at all yet) — would have shown up as soon as T01's coverage sweep reached
+it.
+
+**Fix:** tightened the regex to `linkedin\.com/(?:company/[^/\s]+/jobs|jobs|mhcompanies)`
+— a LinkedIn company page only counts as a board when its own path says `/jobs`, or
+it's LinkedIn's own jobs domain. The separate label-based check (`_JOB_BOARD_NAME_RE` +
+`_JOB_LINK_TEXT_RE`) still independently catches a labelled company-page link
+("International Job Postings on LinkedIn") regardless of this URL pattern, so no real
+detection was lost. Re-verified live against both pages after the fix:
+rotork.com/en/careers now correctly reports `external_job_boards: {}` (its real
+vacancies still sit behind a SmartRecruiters widget loaded via JS/API, invisible to
+plain HTML parsing either way — that part stays exactly as out-of-scope as this
+ticket already said); bray.com/careers still correctly detects both real boards
+(LinkedIn `/jobs` + Ultipro) and no longer includes either of its two generic LinkedIn
+follow links. Added `test_bare_linkedin_company_follow_link_is_not_an_external_job_board`
+and a missing negative assertion in the existing Bray test (it asserted the real board
+was found but never asserted the bare follow link was excluded — how this slipped
+through review the first time). Full `pytest --capture=no`: all green, no regressions.
+
 ---
 
 ### T18 — Phase 1/4 coverage sweep needs per-source completion tracking

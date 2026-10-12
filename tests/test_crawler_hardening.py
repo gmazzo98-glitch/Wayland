@@ -404,6 +404,9 @@ def test_external_job_board_links_are_not_a_confirmed_zero():
     boards = ctx["external_job_boards"]
     assert any("linkedin.com/company/bray-controls/jobs" in u for u in boards)
     assert any("ultipro.com" in u for u in boards)
+    # The bare "Follow Us LinkedIn" company-page link is not a job board — a generic
+    # social link must never be conflated with the real /jobs link above it.
+    assert not any(u.rstrip("/").endswith("bray-controls") for u in boards)
     signals = job_postings_crawler._derive_signals({
         "technical_digital_roles_count": 0, "total_open_roles": 0,
         "roles_sample": [], "external_job_boards": boards,
@@ -412,6 +415,18 @@ def test_external_job_board_links_are_not_a_confirmed_zero():
     })
     assert "digital_job_postings" not in signals
     assert "job_posting_velocity" not in signals   # not a real established zero
+
+
+def test_bare_linkedin_company_follow_link_is_not_an_external_job_board():
+    """rotork.com/en/careers has no real open-roles content and no genuine offsite
+    job board link either — only a plain 'Follow Us on LinkedIn' company-page link,
+    confirmed live. That link alone must never make the honest confirmed-zero signal
+    disappear; the bug this guards was found by re-reviewing this ticket's own fix —
+    linkedin.com/company/<slug> with no /jobs path matched unconditionally before."""
+    page = "https://www.rotork.com/en/careers"
+    ctx = job_postings_crawler._careers_page_context(
+        '<a href="https://www.linkedin.com/company/rotork">LinkedIn</a>', page)
+    assert ctx["external_job_boards"] == {}
 
 
 def test_zero_listings_without_external_boards_is_still_a_confirmed_zero():
