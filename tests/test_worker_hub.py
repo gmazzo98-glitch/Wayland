@@ -378,6 +378,24 @@ def test_committed_bundle_contains_the_current_worker_source():
             assert bundled == expected, "worker_dist is stale; run python scripts/build_worker_bundle.py"
 
 
+def test_self_update_extracts_the_updater_script_from_the_new_bundle_not_the_old_install():
+    """A worker must run the update.ps1 it is updating TO, not the one it is updating FROM.
+
+    worker.mjs used to copy update.ps1 from its own directory (the currently-installed
+    version) before handing off to it. That means a fix to update.ps1 itself could never
+    take effect through the normal update path: every update would keep re-running whatever
+    updater script happened to ship with whatever was already installed, forever. See
+    docs/CRAWLER_ROADMAP.md T23.
+    """
+    source = (worker_installer.ROOT / "worker" / "worker.mjs").read_text(encoding="utf-8")
+    assert "GetEntry('worker/update.ps1')" in source or 'GetEntry("worker/update.ps1")' in source
+    update_call = source.index("fs.writeFileSync(zipPath")
+    fallback_copy = source.index("fs.copyFileSync(path.join(HERE, 'update.ps1'), updaterPath)")
+    extract_attempt = source.index("spawnSync('powershell.exe'", update_call)
+    assert update_call < extract_attempt < fallback_copy, \
+        "the bundle extraction must be attempted before falling back to the installed copy"
+
+
 def test_update_manifest_identifies_the_exact_committed_bundle():
     manifest = json.loads((worker_installer.ROOT / "worker_shim" / "app" / "update_manifest.json").read_text())
     assert manifest["build"] == worker_installer.bundle_info()["build"]

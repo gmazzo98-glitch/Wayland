@@ -177,7 +177,25 @@ async function startUpdate(manifest, workerInfo) {
   const zipPath = path.join(os.tmpdir(), `vienna-update-${nonce}.zip`);
   const updaterPath = path.join(os.tmpdir(), `vienna-update-${nonce}.ps1`);
   fs.writeFileSync(zipPath, bytes);
-  fs.copyFileSync(path.join(HERE, 'update.ps1'), updaterPath);
+  // Extract update.ps1 from the bundle we just downloaded (the version being updated TO),
+  // not from this installation's own worker/update.ps1 (the version being updated FROM). A
+  // fix to the updater script itself would otherwise never take effect: every update would
+  // keep re-running whichever copy happened to ship with whatever was already installed,
+  // forever - see docs/CRAWLER_ROADMAP.md T23. Falls back to the installed copy only if the
+  // bundle is somehow missing that entry, so a bad extraction doesn't block the update outright.
+  const extract = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead('${zipPath}')
+    try {
+      $entry = $zip.GetEntry('worker/update.ps1')
+      if (-not $entry) { throw 'worker/update.ps1 not found in bundle' }
+      [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, '${updaterPath}', $true)
+    } finally { $zip.Dispose() }
+  `], { windowsHide: true });
+  if (extract.status !== 0) {
+    log(`could not extract update.ps1 from the new bundle (${extract.stderr?.toString().trim()}); falling back to the installed copy`);
+    fs.copyFileSync(path.join(HERE, 'update.ps1'), updaterPath);
+  }
   writeStatus({ state: 'updating', fromBuild: VERSION_INFO.build, toBuild: manifest.build,
     startedAt: new Date().toISOString(), updateProgress: { stage: 'starting', label: 'Starting installer', percent: 32 } });
   await rpc('vienna_worker_heartbeat', { p_token: CONFIG.token, p_info: {

@@ -1878,6 +1878,24 @@ percentages during it (polling partial output from an async-event-based reader i
 adds real complexity/risk for a cosmetic feature) — correctness of the exit code mattered far
 more than smooth progress bars.
 
+**Bug D — a fix to `update.ps1` itself could never take effect through a normal update.**
+Found while verifying Bugs A-C would actually reach a worker already in the field:
+`worker.mjs`'s self-update step copied `update.ps1` from **its own currently-installed
+directory** (`HERE`) before handing off to it, rather than from the bundle it had just
+downloaded. That means the script that performs an update is always whichever version
+shipped with the build being updated **from**, never the one being updated **to** — a
+structural bug that would have made every fix above permanently inert for any worker that
+was already installed and running: it would keep re-running the old, broken `update.ps1`
+on every future update, forever, regardless of how many times the source file and bundle
+were fixed and rebuilt. **Fix:** `worker.mjs` now extracts `worker/update.ps1` directly out
+of the freshly-downloaded zip (via a `System.IO.Compression.ZipFile` one-liner through
+`spawnSync('powershell.exe', ...)`, since Node ships no built-in zip reader and the worker
+intentionally has zero npm dependencies of its own) and only falls back to the installed
+copy if that extraction fails for some reason. Verified the extraction logic directly
+against the real rebuilt bundle (byte-for-byte match against source, modulo CRLF) and ran
+the edited `worker.mjs --selftest` against an isolated copy of the real installation.
+Regression test: `tests/test_worker_hub.py::test_self_update_extracts_the_updater_script_from_the_new_bundle_not_the_old_install`.
+
 **Also fixed as part of the same investigation:** wrapped the script's environment setup
 (TLS protocol, loading `System.IO.Compression.FileSystem`/`System.Net.Http`, decoding
 `-WorkerInfoBase64`, reading `worker.config.json`) inside the existing outer `try` block —
@@ -1897,9 +1915,11 @@ directory swap happened, and the new worker started, self-tested, and connected 
 `worker.log` shows `worker 1.0.0 (build 9ff0f6a8ed7b) starting ...; self-test passed` /
 `connected to Vienna`. Exit code 0.
 
-**Files touched:** `worker/update.ps1` (source fix — must ship in
-`worker_dist/vienna-crawler-bundle.zip` and its `worker_shim/app/` mirror, rebuilt via
-`scripts/build_worker_bundle.py` as part of this same ticket, per T22's own process note).
+**Files touched:** `worker/update.ps1` (Bugs A-C), `worker/worker.mjs` (Bug D),
+`tests/test_worker_hub.py` (new regression test for Bug D). Both source files must ship in
+`worker_dist/vienna-crawler-bundle.zip` and its `worker_shim/app/` mirror — rebuilt twice via
+`scripts/build_worker_bundle.py` in this ticket (once per source file touched), per T22's own
+process note.
 
 ---
 
