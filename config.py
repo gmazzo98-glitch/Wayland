@@ -145,6 +145,30 @@ def _numbered_llm_fallbacks(prefix: str = "CRAWLER_LLM", getenv=os.getenv) -> li
 
 CRAWLER_LLM_EXTRA_FALLBACKS = _numbered_llm_fallbacks()
 
+# views/ai_assistant.py's chat — a SEPARATE provider namespace from CRAWLER_LLM_* above:
+# a different use case (ad hoc user Q&A, not a batch crawler) with its own quota, even if
+# pointed at the same account. No default base_url (unlike the crawlers' Groq default):
+# the assistant is off until the user deliberately picks a provider by setting one of the
+# two pairs below. Neither Mistral nor Gemini had an actual example value written down
+# anywhere in this repo before — both are genuinely OpenAI-compatible, so this reuses the
+# exact request shape company_brief.py already posts (see assistant_llm.py).
+#   Mistral: ASSISTANT_LLM_BASE_URL=https://api.mistral.ai/v1, model mistral-large-latest
+#   Gemini:  ASSISTANT_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai,
+#            model gemini-2.0-flash (re-check against the current model list if this 404s —
+#            same caveat as CRAWLER_LLM_MODEL above, provider catalogs move)
+ASSISTANT_LLM_API_KEY = os.getenv("ASSISTANT_LLM_API_KEY")
+ASSISTANT_LLM_BASE_URL = os.getenv("ASSISTANT_LLM_BASE_URL")
+ASSISTANT_LLM_MODEL = os.getenv("ASSISTANT_LLM_MODEL")
+
+# Optional SECOND provider for the assistant — same idea as CRAWLER_LLM_FALLBACK_* above: when
+# the primary request fails (connection error, timeout, or a 429/5xx response) and a fallback is
+# configured, assistant_llm.py retries with this one instead of surfacing the error to the chat.
+# Once a turn falls over to this provider, it stays on it for the rest of that turn rather than
+# re-trying the now-known-bad primary every round. Unset = no fallback, errors surface as-is.
+ASSISTANT_LLM_FALLBACK_API_KEY = os.getenv("ASSISTANT_LLM_FALLBACK_API_KEY")
+ASSISTANT_LLM_FALLBACK_BASE_URL = os.getenv("ASSISTANT_LLM_FALLBACK_BASE_URL")
+ASSISTANT_LLM_FALLBACK_MODEL = os.getenv("ASSISTANT_LLM_FALLBACK_MODEL")
+
 # digital-maturity-crawler's visual-assessment phase (homepage screenshot -> vision LLM) — a
 # SEPARATE provider namespace from CRAWLER_LLM_* above, even though both commonly point at the
 # same Groq account: gpt-oss-120b (the text crawlers' default) is not vision-capable, so the two

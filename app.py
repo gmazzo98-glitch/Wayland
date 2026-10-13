@@ -29,6 +29,7 @@ from views.pipeline_health import render_pipeline_health_page
 from views.paid_shortlist_gate import render_paid_shortlist_gate_page
 from views.indicator_weights import render_indicator_weights_page
 from views.pain_points import render_pain_points_page
+from views.ai_assistant import render_ai_assistant_page
 from views.crawl_widget import sync_session, render_crawl_widget
 from views.crawler_setup import render_crawler_setup_page, render_sidebar_target
 
@@ -87,7 +88,8 @@ page_selection = st.sidebar.radio(
         "💶 Valuation",
         "💰 Shortlist Gate & Paid Pulls",
         "⚖️ Indicator Weights",
-        "🖥️ Crawler Setup"
+        "🖥️ Crawler Setup",
+        "🤖 AI Assistant"
     ]
 )
 
@@ -132,6 +134,8 @@ elif page_selection == "⚖️ Indicator Weights":
     render_indicator_weights_page(db)
 elif page_selection == "🖥️ Crawler Setup":
     render_crawler_setup_page(db)
+elif page_selection == "🤖 AI Assistant":
+    render_ai_assistant_page(db)
 
 # Footer
 st.sidebar.markdown("---")

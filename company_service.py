@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from models import Company, SignalRecord, ColumnMappingProfile, IndicatorDefinition, PilotOutcome, RawImportRecord, CompanyPerson, CompanySourceRun
 from indicators import fetch_indicator_defs, TREND_INDICATOR_KEYS, CAT_CONTEXT
+from painpoints import fetch_pain_point_defs, evaluate_pain_points, rank_detected
+from scoring import build_signal_map, calculate_company_scores
 from utils import normalize_registration_nr
 from config import has_credentials, LINKEDIN_LI_AT
 from adapters import epo_ops, euipo, eu_funding, arbeitsagentur, google_news, google_news_rss, eurostat_sector_growth, eurostat_export_exposure, rna_state_aid
@@ -3147,3 +3149,66 @@ def sync_management_composition_signals(db: Session, company: Company, source: s
 
     db.commit()
     return results
+
+
+# =============================================================================
+# Read-only query helpers for the AI Assistant (views/ai_assistant.py) and the
+# Quick Lookup widget on that same page. Each wraps existing, already-trusted
+# building blocks (fetch_indicator_defs, build_signal_map, calculate_company_scores,
+# the pain-point evaluator) rather than duplicating query logic — see those
+# functions' own docstrings for what each number actually means. None of these
+# write anything; they are the only functions the assistant's tool-calling loop
+# is allowed to call (see assistant_llm.py's TOOL_DISPATCH).
+# =============================================================================
+
+def search_companies(db: Session, query: str, limit: int = 10) -> List[Company]:
+    """Companies whose legal name or registration number contains `query` (case-insensitive).
+    Used to resolve a company the user names in chat before fetching its profile/pain points."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    like = f"%{q}%"
+    return (db.query(Company)
+            .filter(or_(Company.legal_name.ilike(like), Company.registration_number.ilike(like)))
+            .order_by(Company.legal_name).limit(limit).all())
+
+
+def top_companies_by_signal(db: Session, signal_key: str, n: int = 20, ascending: bool = False) -> List[dict]:
+    """The n companies with the highest (or lowest, if ascending) present value of one
+    signal_key — a direct SignalRecord ranking, independent of any composite score or
+    pain point. {legal_name, registration_number, nace_code, value}, sorted."""
+    rows = (db.query(Company.legal_name, Company.registration_number, Company.nace_code, SignalRecord.numeric_value)
+            .join(SignalRecord, SignalRecord.company_id == Company.id)
+            .filter(SignalRecord.signal_key == signal_key, SignalRecord.status == "present",
+                    SignalRecord.numeric_value.isnot(None))
+            .order_by(SignalRecord.numeric_value.asc() if ascending else SignalRecord.numeric_value.desc())
+            .limit(n).all())
+    return [{"legal_name": r[0], "registration_number": r[1], "nace_code": r[2], "value": r[3]} for r in rows]
+
+
+def get_company_profile(db: Session, company: Company) -> dict:
+    """One company's identity fields plus Need/Readiness scores and the full per-signal
+    breakdown (calculate_company_scores(..., include_detail=True)) — the same scoring
+    this codebase's own pages use, never a separate recomputation."""
+    indicator_defs = fetch_indicator_defs(db)
+    signals = db.query(SignalRecord).filter_by(company_id=company.id).all()
+    scores = calculate_company_scores(signals, indicator_defs, include_detail=True)
+    return {
+        "legal_name": company.legal_name, "registration_number": company.registration_number,
+        "nace_code": company.nace_code, "sector_name": company.sector_name, "segment": company.segment,
+        "headcount": company.headcount, "shortlist_status": company.shortlist_status,
+        "need_score": scores.get("need_score"), "readiness_score": scores.get("readiness_score"),
+        "completeness_pct": scores.get("total_completeness_pct"),
+        "need_signals": scores.get("need_detail"), "readiness_signals": scores.get("readiness_detail"),
+    }
+
+
+def get_company_pain_points(db: Session, company: Company) -> List[dict]:
+    """This company's detected pain points (emerging severity and up), strongest first —
+    same evaluator and ranking the Pain Points page uses, scoped to one company."""
+    indicator_defs = fetch_indicator_defs(db)
+    signals = db.query(SignalRecord).filter_by(company_id=company.id).all()
+    signal_map = build_signal_map(signals, indicator_defs)
+    pain_defs = fetch_pain_point_defs(db)
+    results = evaluate_pain_points(signal_map, indicator_defs, pain_defs)
+    return rank_detected(results)
