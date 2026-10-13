@@ -46,7 +46,11 @@ def _factory(tmp_path):
     factory = sessionmaker(bind=engine)
     s = factory()
     for i in range(5):
-        s.add(Company(id=f"c{i}", legal_name=f"Company {i} S.R.L.", registration_number=f"REG-{i}", country="Italy"))
+        # website_url is set so the website-discovery pre-step (company_service._try_discover_website)
+        # no-ops instantly instead of actually invoking website-discovery-crawler - this file's whole
+        # point is that "No crawler is spawned" (see module docstring).
+        s.add(Company(id=f"c{i}", legal_name=f"Company {i} S.R.L.", registration_number=f"REG-{i}",
+                       country="Italy", website_url=f"https://example{i}.test/"))
     s.commit()
     s.close()
     return factory

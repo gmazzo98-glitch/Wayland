@@ -24,6 +24,7 @@ from utils import normalize_registration_nr
 from config import has_credentials, LINKEDIN_LI_AT
 from adapters import epo_ops, euipo, eu_funding, arbeitsagentur, google_news, google_news_rss, eurostat_sector_growth, eurostat_export_exposure, rna_state_aid
 from scrapers import handelsregister_free, wappalyzer_local, management_diversity
+from scrapers.company_website_discovery import ensure_website_discovered
 from scrapers import (
     company_website_crawler, job_postings_crawler, review_crawler, news_signals_crawler,
     directory_listing_crawler, innovation_participation_crawler, digital_maturity_crawler,
@@ -249,6 +250,18 @@ _SLOWEST_FIRST = (
 )
 
 
+def _try_discover_website(company: Company, db: Session) -> None:
+    """Best-effort call to ensure_website_discovered before Phase 7's steps are built - never
+    allowed to take a company's whole crawl down over a search-engine hiccup (same "one source's
+    failure must not sink the rest" rule as every step in _run_steps_concurrently already
+    follows). No-ops immediately if website_url is already set. See
+    scrapers/company_website_discovery.py and docs/CRAWLER_ROADMAP.md T24."""
+    try:
+        ensure_website_discovered(company, db)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+
+
 def plan_source_steps(company: Company, phases: list) -> tuple:
     """
     The single definition of what each phase runs for this company: (steps, after), where `steps`
@@ -357,6 +370,9 @@ def sync_company_applicable_sources(company: Company, db: Session, phases: list 
     if phases is None:
         phases = [1, 4]
 
+    if 7 in phases:
+        _try_discover_website(company, db)
+
     steps, after = plan_source_steps(company, phases)
     phase7_total = sum(1 for s in steps if s.phase == 7)
     results, phase7_index = {}, 0
@@ -416,6 +432,8 @@ def run_company_phases(company_id: str, phases: list, session_factory=None, on_s
         if not company:
             return company_id, None, {"error": "company not found"}
         name = company.legal_name
+        if 7 in phases:
+            _try_discover_website(company, session)
         steps, after = plan_source_steps(company, phases)
         if not parallel or len(steps) <= 1:
             step_kwargs = {"on_step": on_step} if on_step else {}
