@@ -163,6 +163,12 @@ _SEED_ROWS = [
              _r("raw_material_cost", "higher", 45, 62, 2, "% of COGS"),
              _r("cogs_ratio", "higher", 70, 85, 2, "% of revenue"),
              _r("service_costs", "higher", 14, 22, 1, "% of revenue"),
+             _r("materials_cost_ratio_trend", "higher", 2, 8, 2, " pp",
+                note="Change in materials ÷ revenue, latest year minus earliest of the last three. Thresholds are a "
+                     "first-pass estimate pending recalibration once this is computed across the live portfolio."),
+             _r("materials_cost_ratio_peer_gap", "higher", 5, 15, 2, " pp",
+                note="Materials ÷ revenue minus the ATECO-sector peer median (ateco_cost_benchmarks.py). Thresholds are "
+                     "a first-pass estimate, same caveat as the trend driver above."),
          ]),
     dict(key="concentration_risk", label="Customer / supplier concentration", category=CAT_COST,
          description="Revenue rides on a few customers, or critical inputs on a few suppliers — losing one is a crisis.",
@@ -343,6 +349,26 @@ PROPOSED_INDICATORS = {
         how="Extend every financial series in the export beyond three years (AIDA normally keeps more).",
         evidence="A two-year change on a near-zero base makes 33 EBIT trends meaningless (beyond ±999%); a 5-year CAGR would not.",
         feeds=["growth_stall", "profit_erosion"]),
+    "sector_input_price_pressure": dict(
+        label="Sector input-price pressure (new indicator, no source)", kind="needs_source", status="needs_decision",
+        how="Build a commodity/input-price basket per ATECO code (weighted price-index exposure) from ISTAT/Eurostat series "
+            "(Supply & Use Tables, FIGARO, CPA/PRODCOM, or ISTAT/Eurostat producer price indices) — no existing adapter in "
+            "this codebase reads any of these; sector_growth_benchmark (adapters/eurostat_sector_growth.py) is the nearest "
+            "precedent but pulls a production-volume index, not an input-price basket. Would land as a context-axis signal "
+            "(weight 0), like sector_growth_benchmark — an external baseline for residual_material_pressure below, not a "
+            "company score on its own.",
+        evidence="Proposed in an external cost-pressure analysis, but its own basket/formula isn't finalized there either — "
+                 "this is a new data-sourcing project, not a calibration call.",
+        feeds=["input_cost_pressure"]),
+    "residual_material_pressure": dict(
+        label="Residual material pressure (new indicator, blocked on sector_input_price_pressure)", kind="needs_source", status="needs_decision",
+        how="Formula: actual Materials Cost Ratio − expected Materials Cost Ratio, where expected = prior ratio × "
+            "(1 + sector_input_price_pressure) ÷ (1 + selling-price pressure). Cannot be computed until "
+            "sector_input_price_pressure exists.",
+        evidence="The part of a materials-cost deterioration not explained by sector-wide input-price moves — would raise "
+                 "the priority of investigating company-specific causes (procurement, supplier pricing, yield/scrap, product "
+                 "mix) rather than treating every materials-cost rise as market-driven.",
+        feeds=["input_cost_pressure"]),
 }
 
 

@@ -320,6 +320,24 @@ INDICATOR_SEED = [
          rationale="Rising third-party service spend can indicate the company is already outsourcing functions it lacks in-house capability for.",
          comment="Distinguish from Labour Cost: rising service costs point to external outsourcing dependency, not internal headcount cost.",
          source_description="Bundesanzeiger annual filings", example_status="High/Increasing"),
+    dict(key="materials_cost_ratio_trend", automation_tier="T1", redundancy_group="COST_PRESSURE", label="Materials Cost Ratio Trend", category=CAT_COST, axis="need",
+         raw_min=-5, raw_max=15, weight=2.0, phase=3, source_system="AIDA Raw Exports", freshness_days=365,
+         proxy="Change in (materials cost ÷ revenue), latest year minus earliest of the last three, in percentage points", cost_per_pull=0.0,
+         rationale="Materials Cost captures the level; this captures the direction — a company whose materials share is rising fastest is under "
+                    "active, worsening pressure right now, distinct from one that is simply structurally material-intensive.",
+         comment="Signed, not floored at 0 (unlike Margin Compression): a falling ratio is a genuine improvement, not just 'no pressure'. "
+                  "Bounds are a first-pass estimate pending recalibration once this is computed across the live portfolio — see "
+                  "CATALOG_MIGRATIONS for the precedent (materials_cost, labour_cost, capex_ratio were all recalibrated the same way).",
+         source_description="Computed from AIDA 'Materie prime e consumo' and revenue, 3-year series", example_status="Rising"),
+    dict(key="materials_cost_ratio_peer_gap", automation_tier="T1", redundancy_group="COST_PRESSURE", label="Materials Cost Ratio Peer Gap", category=CAT_COST, axis="need",
+         raw_min=-10, raw_max=20, weight=2.0, phase=3, source_system="Computed: ATECO peer benchmark", freshness_days=90,
+         proxy="Company's Materials Cost minus the median Materials Cost of its ATECO/NACE peers, in percentage points", cost_per_pull=0.0,
+         rationale="Distinguishes a cost level that's high but normal for the sector from one that's genuinely anomalous versus peers — "
+                    "the one comparison this catalog didn't have before ateco_cost_benchmarks.py: every other cost indicator here is "
+                    "compared only against a flat, whole-portfolio bound.",
+         comment="Needs SectorCostBenchmark populated first (scripts/recompute_ateco_benchmarks.py) — not_yet_checked until its sector has "
+                  "at least one peer's Materials Cost on file. Bounds are a first-pass estimate, same caveat as Materials Cost Ratio Trend above.",
+         source_description="Computed: materials_cost − ATECO-peer median materials_cost (ateco_cost_benchmarks.py)", example_status="Above peers"),
 
     # ---------------------------------------------------------------- Innovation Capacity Gap
     # These three reuse the existing signal_key so the already-working EPO/EUIPO/Bundesanzeiger

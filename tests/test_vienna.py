@@ -393,8 +393,11 @@ def test_indicator_catalog_row_count_matches_reconciled_total():
     # (sector_growth_benchmark, revenue_growth_vs_sector) added on top of that
     # reconciled set for the company-vs-market growth comparison, + 1 (ebitda_trend) that
     # used to exist only as an ad-hoc importer row holding an EBITDA level under a "trend" name,
-    # + 11 evidence indicators derived from the AIDA raw exports (aida_import.py; all context axis).
-    assert len(INDICATOR_SEED) == 98
+    # + 11 evidence indicators derived from the AIDA raw exports (aida_import.py; all context axis),
+    # + 2 more (materials_cost_ratio_trend, materials_cost_ratio_peer_gap) closing the materials-cost-
+    # pressure gap identified from an external cost-structure analysis (Material Costs.xlsx) — see
+    # ateco_cost_benchmarks.py and aida_import.materials_cost_ratio_trend.
+    assert len(INDICATOR_SEED) == 100
 
 def test_indicator_catalog_automation_tier_is_valid():
     for row in INDICATOR_SEED:

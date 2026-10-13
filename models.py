@@ -362,6 +362,36 @@ class SourceHealth(Base):
     last_error_message = Column(Text, nullable=True)
 
 
+class SectorCostBenchmark(Base):
+    """
+    A cached peer-cost benchmark: median and percentile spread of one cost-pressure signal (e.g.
+    materials_cost) across all companies sharing a NACE/ATECO code (Company.nace_code). Computed by
+    ateco_cost_benchmarks.recompute_ateco_cost_benchmarks() from live SignalRecord data — never
+    imported as a frozen snapshot, so it can't go stale the way a one-off manual benchmark would.
+
+    One row per (nace_code, signal_key); recomputed on demand (script or UI button), not on every
+    page load, same operational spirit as SourceHealth above. p10/p25/p75/p90 are None when
+    peer_count is too small for a percentile to mean anything (fewer than 5 peers).
+    """
+    __tablename__ = "sector_cost_benchmarks"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    nace_code = Column(String(50), nullable=False, index=True)
+    signal_key = Column(String(100), nullable=False, index=True)
+    peer_count = Column(Integer, nullable=False)
+    median = Column(Float, nullable=True)
+    p10 = Column(Float, nullable=True)
+    p25 = Column(Float, nullable=True)
+    p75 = Column(Float, nullable=True)
+    p90 = Column(Float, nullable=True)
+    computed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("nace_code", "signal_key", name="_sector_cost_benchmark_uc"),)
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+
 class CompanySourceRun(Base):
     """Latest outcome for one company's source, including successful empty crawls."""
     __tablename__ = "company_source_runs"

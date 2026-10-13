@@ -92,6 +92,7 @@ FINANCIAL_SIGNAL_INPUT_FIELDS = {
     "ebit_trend": ("ebit_y-2", "ebit_latest"),
     "ebitda_trend": ("ebitda_y-2", "ebitda_latest"),
     "margin_compression": ("gross_margin_y-2", "gross_margin_latest", "revenue_y-2", "revenue_latest"),
+    "materials_cost_ratio_trend": ("materials_y-2", "materials_latest", "revenue_y-2", "revenue_latest"),
     "interest_coverage_ratio": ("interest_coverage_latest",),
     "leverage_ratio": ("leverage_ratio_latest",),
     "cash_position": ("cash_latest",),
@@ -202,6 +203,16 @@ def ratio(num: Optional[float], den: Optional[float], scale: float = 100.0) -> O
     if num is None or den is None or den <= 0:
         return None
     return num / den * scale
+
+
+def materials_cost_ratio_trend(materials_l: Optional[float], materials_b: Optional[float],
+                                revenue_l: Optional[float], revenue_b: Optional[float]) -> Optional[float]:
+    """Percentage points: (materials ÷ revenue) at the latest year minus the earliest of the last three.
+    Signed and NOT floored at 0 — a falling ratio is a genuine improvement, not just 'no pressure'. Shared
+    by derive_financial_signals (fresh imports) and scripts/backfill_materials_cost_ratio_trend.py (already-
+    imported companies), so the formula can't drift between the two call sites."""
+    l, b = ratio(materials_l, revenue_l), ratio(materials_b, revenue_b)
+    return None if l is None or b is None else l - b
 
 
 def pct_token(token: str) -> Optional[float]:
@@ -323,6 +334,16 @@ def derive_financial_signals(n: Dict[str, Optional[float]]) -> Dict[str, dict]:
     add("margin_compression", v, f"gross margin {pm_b:.1f}% → {pm_l:.1f}% of revenue" if v is not None else None,
         "percentage points of revenue: 'Margine sui consumi' ÷ revenue at the earliest and latest year, the fall between them, floored at 0",
         margin_latest=gm_l, margin_base=gm_b, revenue_latest=rev_l, revenue_base=rev_b)
+
+    # Unlike margin_compression this is signed and NOT floored at 0: a rising materials
+    # share of revenue is the pressure signal, a falling one is a genuine improvement, and
+    # collapsing both into "no compression" would hide the improvement.
+    mat_l, mat_b = g("materials_latest"), g("materials_y-2")
+    v = materials_cost_ratio_trend(mat_l, mat_b, rev_l, rev_b)
+    text = (f"materials/revenue {ratio(mat_b, rev_b):.1f}% → {ratio(mat_l, rev_l):.1f}%" if v is not None else None)
+    add("materials_cost_ratio_trend", v, text,
+        "percentage points: ('Materie prime e consumo' ÷ revenue) at the latest year minus the earliest of the last three years",
+        materials_latest=mat_l, materials_base=mat_b, revenue_latest=rev_l, revenue_base=rev_b)
 
     # -- levels taken as delivered
     add("interest_coverage_ratio", g("interest_coverage_latest"), f"interest cover {g('interest_coverage_latest')}×" if g("interest_coverage_latest") is not None else None,
