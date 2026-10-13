@@ -195,7 +195,7 @@ re-discover the same blocker.
 | T21 | No unified view of what the crawlers found — build one on Company Intelligence | Ops | P1 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T22 | Remote Crawler Workers were running a ~2-day-stale worker bundle | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T23 | `worker/update.ps1` had 3 bugs that silently killed every update (one fatal on every run) | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
-| T24 | No website-discovery step: a company with a real, content-rich homepage looked completely empty | Signal extension | P1 | DONE (network-dependent — see Results) | Claude (gio3maz, human-directed) | 2026-10-13 | (direct to master) |
+| T24 | No website-discovery step: a company with a real, content-rich homepage looked completely empty | Signal extension | P1 | DONE — live-verified end to end | Claude (gio3maz, human-directed) | 2026-10-13 | (direct to master) |
 
 Adding a new ticket yourself (T25+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
@@ -2003,12 +2003,43 @@ rebuilt worker bundle; the TS crawler's own test suite (6 tests) against real DD
 structure samples; the Python module's 13 tests including the full accept/reject decision
 against a realistic 3-candidate set modeled exactly on AMPLIA's real search results (LinkedIn →
 blocked, the parent group's own domain → rejected, no verified match, `amplia-eng.it` → VAT
-match, accepted). **Not yet live-verified end-to-end against the real network**, because this
-session's own network is itself blocked by the search engines it would need to query (the exact
-problem the feature exists to work around) — this is disclosed, not hidden. The code is
-correct and ready; whether it actually finds `amplia-eng.it` when run from a network DuckDuckGo
-doesn't block (the end user's own machine, or a Crawler Worker's) still needs a real run to
-confirm.
+match, accepted).
+
+**2026-10-13 follow-up — live-verified end to end, at the human's explicit direction, and the
+network block turned out to be specific to this session's own Bash-tool execution path, not
+the physical machine as a whole.** `Invoke-WebRequest` to `html.duckduckgo.com` from the
+**PowerShell tool** returned real results (status 200) on the exact query that got an
+automated-traffic block through the Bash tool moments earlier — the two tools' processes
+apparently egress differently. Re-ran the real crawler (`node dist/main.js`, unmocked) via
+PowerShell and it worked: 9 real DuckDuckGo results, all 6 known directories correctly
+blocked, and then two more real findings, both fixed in the same pass:
+
+- **`amplia-eng.it`'s own robots.txt disallows `/en/`** (confirmed: the server returns a
+  misconfigured 404 status on `/robots.txt` but the body still carries real rules —
+  `Disallow: /en/` and `/cp/` for `User-agent: *` — and Crawlee's `RobotsFile.find()` correctly
+  honors the body over the misleading status code) — exactly the path DuckDuckGo's indexed
+  result linked to. The crawler was also silently dropping any robots.txt-skipped candidate
+  entirely (no `onSkippedRequest` handler), so Python never even learned one had existed.
+  **Fixed both**: `main.ts` now also enqueues each candidate's bare origin root as a fallback
+  whenever the found URL isn't already the root (the allowed `/` carries equivalent content to
+  the disallowed `/en/` on this site), and `onSkippedRequest` reports a skip honestly instead
+  of dropping it — never fetches anything robots.txt doesn't allow, just stops giving up on an
+  entire domain over one disallowed path.
+- **`saiebologna.it` (a trade-fair exhibitor directory) passed the `name_and_location`
+  verification tier on its own domain** — it reprints an exhibitor's own name and city
+  verbatim. Didn't cause a wrong accept this run only because the real VAT match (see below)
+  was found first and a VAT match always wins; would have won outright for a company whose VAT
+  doesn't appear on its own homepage. Added `saiebologna.it` and (by the same reasoning,
+  already special-cased elsewhere in this codebase for the identical reason —
+  `directory-listing-crawler/src/directories/mecspe.ts`) `mecspe.com` to `BLOCKED_DOMAINS` in
+  both the Python module and the crawler's own copy.
+
+**The real, final result:** `AMPLIA ENGINEERING & EQUIPMENT S.R.L.`'s `website_url` is now
+`https://amplia-eng.it/` in the live database — found via the bare-root fallback, verified via
+a real VAT match (`C.F. e P.IVA: 03146140300` on the page, matching the now-corrected
+`registration_number`/`external_ref_id` from the fix below). Confirmed via `ensure_website_
+discovered()` run for real (not mocked) against the live `Company` row, through the full
+unmocked pipeline (`run_ts_crawler` → the real subprocess → the real network).
 
 **Also discovered, not a bug:** this investigation's own `test_coverage_sweep.py` run
 surfaced that it currently fails for an unrelated reason — the live `.env`'s
@@ -2020,19 +2051,29 @@ var is set, and disappears with `KUNUNU_CRAWLER_ENABLED=false`) — not fixed he
 flag and the test's assumptions are both outside this ticket's scope and the `.env` file is
 mid-edit by someone else.
 
-**Files touched:** `scrapers/company_website_discovery.py` (new),
+**Files touched:** `scrapers/company_website_discovery.py` (new, plus the `BLOCKED_DOMAINS`
+additions from the live-verification follow-up),
 `Scraper/crawlers/website-discovery-crawler/**` (new crawler: `package.json`, `tsconfig.json`,
-`src/{types,input,search,main}.ts`, `test/regression.test.mjs`, `data/sample-companies.csv`),
+`src/{types,input,search,main}.ts`, `test/regression.test.mjs`, `data/sample-companies.csv` —
+`main.ts`/`search.ts` further revised for the robots.txt fallback/skip-reporting fix and the
+blocklist additions),
 `company_service.py` (import + `_try_discover_website` + 2 call sites),
 `tests/test_company_website_discovery.py` (new, 13 tests),
 `tests/test_phase7_batch.py` (gave the shared test fixture's companies a `website_url` so the
 new pre-step no-ops instead of making real calls — that file's own stated goal is "No crawler
-is spawned"). Bundle rebuilt via `scripts/build_worker_bundle.py` to ship the new crawler.
+is spawned"). Bundle rebuilt via `scripts/build_worker_bundle.py` (twice — once for the initial
+crawler, once more after the robots.txt fix) to ship the new crawler.
 
-**Not done, flagged for the human:** apply (or explicitly authorize applying) the 587-row
-`registration_number` correction described above — `UPDATE companies SET registration_number =
-external_ref_id WHERE id IN (...)` for exactly the 587 ids matching the verified shift pattern,
-never the other 332.
+**2026-10-13 follow-up — the 587-row `registration_number` correction was applied**, at the
+human's explicit direction, via the Neon MCP tool directly against the live `Wayland` project
+(`plain-bar-03934367`) rather than an ad-hoc script. Re-derived the exact count fresh against
+live data first (587, matching the earlier read exactly), re-checked collision risk fresh
+(zero), then ran the `UPDATE ... SET registration_number = external_ref_id WHERE <the exact
+mechanical pattern>` and a verification SELECT inside one transaction. Verified after:
+0 remaining mismatches of that pattern, `total_companies` unchanged at 953,
+`count(DISTINCT registration_number) = 953` (no duplicate created, UNIQUE constraint intact).
+Spot-checked AMPLIA directly: `registration_number` and `external_ref_id` now both read
+`IT03146140300`. The other 332 non-matching mismatches were deliberately left untouched.
 
 ---
 

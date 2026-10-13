@@ -62,6 +62,14 @@ BLOCKED_DOMAINS = {
     "informazione-aziende.it", "companyreports.it", "quotidiano.net", "creditsafe.com",
     "icmq.it", "paginegialle.it", "paginebianche.it", "trovaziende.it", "reportaziende.it",
     "ebitda.it", "guidafinanza.it", "google.com", "bing.com", "duckduckgo.com",
+    "aziende.money.it",
+    # Trade-fair exhibitor directories reprint an exhibitor's own name and city verbatim,
+    # which clears the name_and_location tier on their own domain - confirmed live for AMPLIA
+    # (saiebologna.it's exhibitor page passed verification; happened to lose to a VAT match on
+    # the real site in that run, but would win outright for a company whose VAT doesn't appear
+    # on its own homepage). directory-listing-crawler already treats these as directories to
+    # search WITHIN, never as a candidate homepage - same rule applies here.
+    "saiebologna.it", "mecspe.com",
 }
 
 _LEGAL_FORM_RE = re.compile(
