@@ -2075,6 +2075,46 @@ mechanical pattern>` and a verification SELECT inside one transaction. Verified 
 Spot-checked AMPLIA directly: `registration_number` and `external_ref_id` now both read
 `IT03146140300`. The other 332 non-matching mismatches were deliberately left untouched.
 
+**2026-10-13 second follow-up — a human-requested 8-company spot check found 3 real false
+positives, fixed by requiring domain-name correlation.** Ran the real, unmocked pipeline
+against 8 random companies with no `website_url` on file (via PowerShell, for the same
+network reason as above). Result: of 8, one was genuinely correct (OXI S.R.L. →
+`oxisrl.it`, VAT confirmed on page), three were confidently **wrong**:
+
+- **FRIDEA S.R.L. → `mflgroup.com`** (VAT confidence) — `mflgroup.com` is a real, unrelated
+  wire/cable machinery company's site. The VAT-shaped digit run matched by pure coincidence
+  somewhere on an unrelated page.
+- **SCHNELL MONTEPRANDONE S.R.L. → `myadj.it`** (name_and_location confidence) — a
+  shipping/logistics tracker that legitimately prints a client's exact name and city as a
+  delivery destination. Confirmed live: the page's own title is literally "Schnell
+  Monteprandone Srl - Servizio di spedizione a MONTEPRANDONE."
+- **CIDEN S.R.L. → `impresaitalia.info`** (VAT confidence) — a business registry/directory
+  that legitimately looked up and published the company's real VAT. "The VAT appears
+  somewhere on this page" was never sufficient on its own: directories exist specifically to
+  publish exactly that information about OTHER companies, not themselves.
+
+**Root cause:** `_verify()` had no requirement that the candidate's own domain bear any
+relation to the company being searched — a VAT match or a name+location match on a
+completely unrelated or third-party page was treated the same as one on the company's own
+site. **Fix:** added `_domain_matches_company()` — the candidate's hostname (TLD and hyphens
+stripped) must contain at least one of the company's own significant name tokens, now a hard
+prerequisite for BOTH the `vat` and `name_and_location` tiers, not an optional extra signal.
+Re-ran all 8 companies with the fix: all three wrong ones now correctly find nothing (0 of
+14-15 candidates accepted each) rather than a wrong answer; OXI and the three genuinely-empty
+companies (PEZZORGNA, CO.ME.SCA., TEKNO SERVICE) are unaffected. The three wrongly-written
+`website_url` values were reverted to `NULL` (via the Neon MCP tool, confirmed before and
+after) before re-running.
+
+**One disclosed, NOT-fully-solved gray-area case, left as-is deliberately:** EMAG SU S.R.L.
+→ `emag.com` (name_and_location) still gets accepted after the fix, because "emag" genuinely
+is a substring of its own domain. `emag.com/it/contatti/sedi/` is EMAG Group's real
+"worldwide locations" page, which very plausibly lists this company as its real Italian
+subsidiary — not a random/unrelated false positive like the three above, but also not a
+dedicated site: attributing EMAG Group's entire international product catalog/jobs/digital
+footprint to one small Italian subsidiary (the same category of risk the AMPLIA case itself
+warns about, re parent vs. subsidiary) is a real, acknowledged limitation of the current
+domain-correlation check, not silently claimed as solved.
+
 ---
 
 ## Standard bot pickup prompt

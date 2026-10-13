@@ -129,9 +129,31 @@ def _search_queries(company) -> list:
     return queries
 
 
-def _verify(page_text: str, company, tokens: list, vat_digit_sets: set) -> Optional[str]:
-    """Returns the confidence tier ('vat' or 'name_and_location') the page clears, or None."""
+def _domain_matches_company(domain: str, tokens: list) -> bool:
+    """A real company's own site overwhelmingly carries its own name in the domain; a
+    directory or an unrelated page essentially never does. Found necessary live (T24
+    follow-up, 8-company spot check): a VAT-shaped digit run coincidentally appeared on a
+    totally unrelated company's page (mflgroup.com, for FRIDEA S.R.L.), and a business
+    directory legitimately printed a real looked-up VAT (impresaitalia.info, for CIDEN
+    S.R.L.) - "the VAT appears somewhere on this page" alone was not sufficient, since
+    directories exist specifically to publish that information about OTHER companies.
+    Requiring the domain to actually echo the company's own name catches both; it would
+    reject a company whose branding bears no resemblance to its legal name at all, which is
+    the right trade-off here (an honest miss beats a confidently wrong answer - see T20)."""
+    if not domain or not tokens:
+        return False
+    host = domain.split(".")[0].replace("-", "").replace("_", "")
+    return any(t in host for t in tokens)
+
+
+def _verify(page_text: str, domain: str, company, tokens: list, vat_digit_sets: set) -> Optional[str]:
+    """Returns the confidence tier ('vat' or 'name_and_location') the page clears, or None.
+    Domain correlation is a prerequisite for BOTH tiers, not just name_and_location - a VAT
+    match on a domain with zero lexical relation to the company is exactly the false-positive
+    pattern found live (see _domain_matches_company)."""
     page_text = page_text or ""
+    if not _domain_matches_company(domain, tokens):
+        return None
     if vat_digit_sets:
         page_vats = {re.sub(r"[\s.\-]", "", m.group(0)) for m in _VAT_TOKEN_RE.finditer(page_text)}
         if page_vats & vat_digit_sets:
@@ -174,7 +196,7 @@ def discover_website(company) -> dict:
         if domain in BLOCKED_DOMAINS:
             candidates.append({"url": url, "domain": domain, "rejected": "known directory/social domain"})
             continue
-        confidence = _verify(row.get("page_text"), company, tokens, vat_digit_sets)
+        confidence = _verify(row.get("page_text"), domain, company, tokens, vat_digit_sets)
         if confidence:
             candidates.append({"url": url, "domain": domain, "accepted": True, "confidence": confidence})
             if accepted_url is None or confidence == "vat":

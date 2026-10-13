@@ -60,21 +60,59 @@ def test_verify_accepts_a_vat_match_even_with_punctuation_in_the_page_text():
     tokens = wd._significant_tokens(wd._strip_legal_form(c.legal_name))
     vat_sets = wd._vat_digit_sets(c)
     page = "Contact us. P.IVA: 03.146.140.300 - Via Buttrio 36, Pozzuolo del Friuli"
-    assert wd._verify(page, c, tokens, vat_sets) == "vat"
+    assert wd._verify(page, "amplia-eng.it", c, tokens, vat_sets) == "vat"
 
 
 def test_verify_accepts_name_and_location_without_a_vat_on_the_page():
     c = _company()
     tokens = wd._significant_tokens(wd._strip_legal_form(c.legal_name))
     page = "Amplia Engineering & Equipment - based in Udine, part of Amplia Infrastructures."
-    assert wd._verify(page, c, tokens, set()) == "name_and_location"
+    assert wd._verify(page, "amplia-eng.it", c, tokens, set()) == "name_and_location"
 
 
 def test_verify_rejects_an_unrelated_page():
     c = _company()
     tokens = wd._significant_tokens(wd._strip_legal_form(c.legal_name))
     page = "Welcome to a totally unrelated construction company in Milan."
-    assert wd._verify(page, c, tokens, wd._vat_digit_sets(c)) is None
+    assert wd._verify(page, "amplia-eng.it", c, tokens, wd._vat_digit_sets(c)) is None
+
+
+def test_verify_rejects_a_vat_match_on_a_domain_with_no_relation_to_the_company_name():
+    """Live bug found via an 8-company spot check (T24 follow-up): FRIDEA S.R.L.'s VAT-shaped
+    digit run coincidentally appeared on mflgroup.com, a totally unrelated wire/cable
+    machinery company's page. A VAT match alone was not enough evidence."""
+    c = _company()
+    tokens = wd._significant_tokens(wd._strip_legal_form(c.legal_name))
+    vat_sets = wd._vat_digit_sets(c)
+    page = "Contact us. P.IVA: 03146140300 - some coincidental page"
+    assert wd._verify(page, "totally-unrelated-company.com", c, tokens, vat_sets) is None
+
+
+def test_verify_rejects_a_business_directory_that_prints_the_real_vat():
+    """Live bug: impresaitalia.info (a business directory) correctly published CIDEN S.R.L.'s
+    real looked-up VAT - that alone must not be read as 'this is the company's own site'."""
+    c = _company()
+    tokens = wd._significant_tokens(wd._strip_legal_form(c.legal_name))
+    vat_sets = wd._vat_digit_sets(c)
+    page = "AMPLIA ENGINEERING EQUIPMENT SRL UDINE - Impresa Italia. P.IVA: 03146140300"
+    assert wd._verify(page, "impresaitalia.info", c, tokens, vat_sets) is None
+
+
+def test_verify_rejects_a_logistics_tracker_that_prints_the_exact_name_and_city():
+    """Live bug: myadj.it (a shipping/logistics tracker) legitimately prints a company's
+    exact name and city as a shipping destination - that is not the company's own site."""
+    c = _company()
+    tokens = wd._significant_tokens(wd._strip_legal_form(c.legal_name))
+    page = "Amplia Engineering Equipment - Servizio di spedizione a Udine"
+    assert wd._verify(page, "myadj.it", c, tokens, set()) is None
+
+
+def test_domain_matches_company_accepts_a_short_distinctive_token():
+    assert wd._domain_matches_company("oxisrl.it", ["oxi"]) is True
+    assert wd._domain_matches_company("amplia-eng.it", ["amplia", "engineering", "equipment"]) is True
+    assert wd._domain_matches_company("mflgroup.com", ["fridea"]) is False
+    assert wd._domain_matches_company("", ["amplia"]) is False
+    assert wd._domain_matches_company("amplia-eng.it", []) is False
 
 
 def test_discover_website_skips_blocked_domains_and_picks_the_vat_verified_candidate(monkeypatch):
