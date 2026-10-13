@@ -39,11 +39,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from adapters.base import run_adapter
-from config import (
-    CRAWLER_LLM_API_KEY, CRAWLER_LLM_BASE_URL, CRAWLER_LLM_MODEL,
-    CRAWLER_LLM_FALLBACK_API_KEY, CRAWLER_LLM_FALLBACK_BASE_URL, CRAWLER_LLM_FALLBACK_MODEL,
-    CRAWLER_LLM_EXTRA_FALLBACKS,
-)
+import config
 from models import RawImportRecord
 from scrapers.node_crawler_base import (
     CrawlerRunError, run_ts_crawler, rows_for_company, save_crawler_blob,
@@ -247,23 +243,30 @@ def _years_since(date_str: str):
 
 def sync_company_website(company, db_session: Session) -> dict:
     captured = {}
+    # A fresh read, not the module-level CRAWLER_LLM_* constants - those are frozen at
+    # whatever config.py's own import-time os.getenv() call saw, which for a long-running
+    # Streamlit process can be "not configured yet" forever, even after a real key is added
+    # to .env. Shared between the gate check below and _fetch_live so one run sees one
+    # consistent picture. See config.crawler_llm_settings()'s docstring for the live case
+    # that prompted this (docs/CRAWLER_ROADMAP.md T24).
+    llm = config.crawler_llm_settings()
 
     def _fetch_live(c):
         # subprocess env values must be strings — never hand it a None. Defaults to
         # Groq (free, no card) rather than Anthropic — see config.py's docstring on
         # CRAWLER_LLM_BASE_URL for how to point this at Gemini/Cerebras/a local
         # Ollama instead, no code change needed on either side.
-        env = {"LLM_API_KEY": CRAWLER_LLM_API_KEY, "LLM_BASE_URL": CRAWLER_LLM_BASE_URL,
-               "LLM_MODEL": CRAWLER_LLM_MODEL} if CRAWLER_LLM_API_KEY else {}
-        if CRAWLER_LLM_API_KEY and CRAWLER_LLM_FALLBACK_API_KEY:
-            env["LLM_FALLBACK_API_KEY"] = CRAWLER_LLM_FALLBACK_API_KEY
-            if CRAWLER_LLM_FALLBACK_BASE_URL:
-                env["LLM_FALLBACK_BASE_URL"] = CRAWLER_LLM_FALLBACK_BASE_URL
-            if CRAWLER_LLM_FALLBACK_MODEL:
-                env["LLM_FALLBACK_MODEL"] = CRAWLER_LLM_FALLBACK_MODEL
+        env = {"LLM_API_KEY": llm["api_key"], "LLM_BASE_URL": llm["base_url"],
+               "LLM_MODEL": llm["model"]} if llm["api_key"] else {}
+        if llm["api_key"] and llm["fallback_api_key"]:
+            env["LLM_FALLBACK_API_KEY"] = llm["fallback_api_key"]
+            if llm["fallback_base_url"]:
+                env["LLM_FALLBACK_BASE_URL"] = llm["fallback_base_url"]
+            if llm["fallback_model"]:
+                env["LLM_FALLBACK_MODEL"] = llm["fallback_model"]
             # A third, fourth, ... provider (CRAWLER_LLM_FALLBACK2_API_KEY, ...) — see config.py.
             # llm.ts's loadProviders() reads the same LLM_FALLBACK<N>_* numbering.
-            for extra in CRAWLER_LLM_EXTRA_FALLBACKS:
+            for extra in llm["extra_fallbacks"]:
                 env[f"LLM_FALLBACK{extra['suffix']}_API_KEY"] = extra["api_key"]
                 if extra["base_url"]:
                     env[f"LLM_FALLBACK{extra['suffix']}_BASE_URL"] = extra["base_url"]
@@ -304,7 +307,7 @@ def sync_company_website(company, db_session: Session) -> dict:
     # a source that is structurally incapable of producing anything.
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
-        credentials_ok=bool(company.website_url and CRAWLER_LLM_API_KEY),
+        credentials_ok=bool(company.website_url and llm["api_key"]),
         fetch_live=_fetch_live, simulate=_simulate, timeout=190,
     )
 

@@ -1879,27 +1879,35 @@ def _render_tab1_content(db: Session):
 
         _render_crawled_intelligence(db, company)
 
-        from company_brief import collect_evidence, evidence_fingerprint, generate_brief
-        from config import CRAWLER_LLM_API_KEY
-        brief_evidence = collect_evidence(db, company)
+        import config
+        import company_brief
+        brief_evidence = company_brief.collect_evidence(db, company)
         if brief_evidence:
-            with st.expander("✨ AI evidence brief", expanded=False):
-                st.caption("On-demand interpretation of cited records. It does not change Need or Readiness scores.")
+            with st.expander(f"✨ AI Intelligence Report ({len(brief_evidence)} evidence item(s) collected)", expanded=False):
+                st.caption(
+                    "An AI-written summary of everything the crawlers above found for this company — "
+                    "website content, digital presence, hiring, directory listings, press, reviews, and any "
+                    "disclosed parent/group relationship — each claim citing the specific record it came "
+                    "from. On-demand only (it costs an LLM call); it does not change Need or Readiness scores."
+                )
                 brief_record = db.query(RawImportRecord).filter_by(
                     company_id=company.id, dataset_name="crawler_ai_company_brief").first()
                 brief = brief_record.raw_row if brief_record else None
-                if CRAWLER_LLM_API_KEY:
-                    if st.button("Generate / refresh brief", key=f"ai_brief_{company.id}"):
+                # A fresh read, not a frozen module attribute - see config.crawler_llm_settings()'s
+                # docstring for why a plain `from config import CRAWLER_LLM_API_KEY` doesn't
+                # actually re-check anything, even re-executed inside a function on every rerun.
+                if config.crawler_llm_settings()["api_key"]:
+                    if st.button("Generate / refresh report", key=f"ai_brief_{company.id}"):
                         try:
-                            with st.spinner("Reading the collected evidence..."):
-                                brief = generate_brief(db, company)
+                            with st.spinner("Reading everything collected for this company..."):
+                                brief = company_brief.generate_brief(db, company)
                         except Exception as exc:
-                            st.error(f"Brief could not be generated: {exc}")
+                            st.error(f"Report could not be generated: {exc}")
                 else:
-                    st.caption("Configure CRAWLER_LLM_API_KEY to generate a brief from these records.")
+                    st.caption("Configure CRAWLER_LLM_API_KEY to generate a report from these records.")
                 if brief:
-                    if brief.get("evidence_fingerprint") != evidence_fingerprint(brief_evidence):
-                        st.warning("New source evidence is available. Refresh this brief before using it.")
+                    if brief.get("evidence_fingerprint") != company_brief.evidence_fingerprint(brief_evidence):
+                        st.warning("New source evidence is available. Refresh this report before using it.")
                     by_id = {item["id"]: item for item in brief.get("evidence") or []}
                     for finding in brief.get("findings") or []:
                         refs = []
@@ -1910,7 +1918,7 @@ def _render_tab1_content(db: Session):
                         if refs:
                             st.markdown(f"- {finding.get('text', '')}  **Sources:** {', '.join(refs)}")
                     st.caption("Check the source records before using any claim in outreach. "
-                               "Patent samples and source coverage are bounded.")
+                               "Evidence coverage per category is bounded (see company_brief.py).")
 
         # Financial Profile — plain-language headline metrics + the complete table
         st.subheader("💰 Financial Profile")

@@ -2190,6 +2190,76 @@ working jump button when matched, renders the plain disclosure with no button wh
 but unmatched, and doesn't appear at all when nothing was ever found (including a check that
 the jump button's click actually writes the two expected `st.session_state` keys).
 
+**2026-10-13 fourth follow-up — "this still gets nothing during the crawls... does it just not
+get written to the database?"** Checking the live DB directly: real data WAS written (a real
+LinkedIn profile, a real careers page with 0 open roles, 3 real directory checks, the parent
+mention) — but **Company Website Crawler specifically came back `simulated`** even though
+`CRAWLER_LLM_API_KEY` was genuinely present in `.env`. Root cause: `scrapers/
+company_website_crawler.py` did `from config import CRAWLER_LLM_API_KEY` at its own module
+top level — a statement that runs exactly once, the first time anything imports that module,
+permanently binding whatever `os.getenv()` saw at that moment. A long-running Streamlit
+process started before the key existed (or before a later edit to it) keeps seeing the old
+value forever; nothing short of a restart ever re-reads it. Ran Company Website Crawler
+directly from this session (which does have a freshly-loaded key) and it immediately found 14
+real product lines (bridge/viaduct/crane/transtainer equipment) matching the real site.
+
+**The user then asked to fix the restart requirement itself, and separately reported the
+"🕷️ Crawled Intelligence" expander showing "basically nothing" despite wanting "a report...
+with all the data... ran through AI".** Two distinct fixes:
+
+1. **Restart-free config**, `config.crawler_llm_settings()`: a function (not a module-level
+   constant) that calls `load_dotenv(override=True)` and re-reads every `CRAWLER_LLM_*` env
+   var fresh on every call. Proved this matters at two levels, both now fixed: (a)
+   `os.environ` itself changing mid-process (e.g. a hosting platform's env panel) — a plain
+   `from config import X` never sees this regardless of whether the import statement is at
+   module top level or re-executed inside a function on every Streamlit rerun, since either
+   way it reads `config`'s own frozen attribute; (b) the **`.env` FILE on disk** changing
+   while the process keeps running — `os.getenv()` only ever sees what a PRIOR
+   `load_dotenv()` call already pulled into `os.environ`, so without `override=True` on a
+   fresh `load_dotenv()` call, an edited file's new value is invisible even though the key
+   now "exists in .env". `scrapers/company_website_crawler.py` and `company_brief.py` (see
+   below) were switched to call this instead of importing frozen constants. Verified directly
+   (not just reasoned about): simulated the exact failure (import happens while the key is
+   missing, key gets added to the running process with zero re-import) and confirmed the new
+   function picks it up immediately; separately proved `load_dotenv(override=True)` picks up
+   a changed `.env` file's new value into an already-populated `os.environ`, which
+   `load_dotenv()` without `override=True` does not.
+
+2. **The actual "report" the human wanted already existed** — `company_brief.py`'s "✨ AI
+   evidence brief" (citation-bound, LLM-synthesized, with careful anti-overclaiming
+   guardrails) — **but it was scoped to only 4 narrow evidence types**: TED public awards, FDA
+   recalls, EPO patent samples, and priced product-catalog entries. AMPLIA has none of these
+   (0 TED awards — too new a company; not FDA-relevant; presumably no patents; 0 priced
+   catalog products — custom infrastructure equipment, not SKU items), so `collect_evidence()`
+   returned an empty list and **the whole expander never rendered at all** — not a rendering
+   bug, a scoping gap. Broadened `collect_evidence()` to cover every `crawler_*` dataset
+   `_render_crawled_intelligence` already surfaces: the company's own website product lines
+   and sustainability-report disclosure, digital-maturity signals, hiring/careers findings,
+   **confirmed-only** trade directory listings (a `possible_match` fuzzy hit is deliberately
+   excluded — that is explicitly not confirmed evidence), customer/employer reviews, press
+   mentions, and the parent/group relationship (worded differently depending on whether it
+   matched a real company here or not). Extended the LLM system prompt with matching
+   guardrails (a confirmed directory listing must not be hedged as "possible"; zero open
+   roles is a snapshot, not a claim the company never hires; an unmatched parent mention must
+   never be claimed as verified). Renamed the expander "✨ AI Intelligence Report" and made it
+   show an item count up front.
+
+**Live-verified end to end:** re-ran against the real AMPLIA row — `collect_evidence()` now
+returns 5 real items (14 product lines, a disclosed sustainability report, the digital
+presence snapshot, the real careers-page finding, the disclosed Autostrade per l'Italia
+mention) instead of zero, and `generate_brief()` produced 5 honestly-worded, correctly-cited
+findings end to end — e.g. "No open job positions were listed on the company's careers page
+at the time of the crawl" (correctly time-bound, not claiming the company never hires).
+
+**Files touched this follow-up:** `config.py` (`crawler_llm_settings()`),
+`scrapers/company_website_crawler.py` (import + both use sites switched to it),
+`company_brief.py` (broadened `collect_evidence()`, same live-settings fix, expanded system
+prompt), `views/company_detail.py` (the renamed/relabeled expander, same live-settings fix),
+`tests/test_config_llm_fallbacks.py` (new restart-free regression test + the one test that
+monkeypatched the now-removed module constants, updated), `tests/test_company_brief.py` (4
+new tests covering the broadened evidence categories, including the exact AMPLIA-shaped
+"narrow four are all empty but real evidence exists elsewhere" case).
+
 ---
 
 ## Standard bot pickup prompt

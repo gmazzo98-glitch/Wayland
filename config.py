@@ -145,6 +145,40 @@ def _numbered_llm_fallbacks(prefix: str = "CRAWLER_LLM", getenv=os.getenv) -> li
 
 CRAWLER_LLM_EXTRA_FALLBACKS = _numbered_llm_fallbacks()
 
+
+def crawler_llm_settings() -> dict:
+    """Fresh os.getenv() read of CRAWLER_LLM_*, computed on every call rather than once at
+    import time like the module-level constants above. Found necessary live: Company Website
+    Crawler kept reporting "simulated" (no error, gate just never passed) even after
+    CRAWLER_LLM_API_KEY was already present in .env, because scrapers/company_website_crawler.py
+    did `from config import CRAWLER_LLM_API_KEY` at its own module top level - that statement
+    runs exactly once, the first time anything imports that module, and permanently binds
+    whatever the env held at that moment (missing, in a long-running Streamlit process started
+    before the key was added). A plain `import config; ...config.CRAWLER_LLM_API_KEY...` doesn't
+    fix this either - `from X import Y` and `X.Y` both still just read a value that was set once
+    by the `os.getenv()` call above. Only a function that re-reads the environment on every call
+    is actually live; callers that need a .env change to take effect without a process restart
+    should call this instead of importing the constants above directly.
+
+    Also re-reads the .env FILE itself (override=True), not just os.environ - the module-level
+    `load_dotenv()` above runs exactly once, at this module's own first import, so a key added
+    to the .env file afterward (the realistic way someone actually "adds a key" during local
+    dev, vs. exporting a shell env var) never reaches os.environ at all until something calls
+    load_dotenv() again. override=True so a since-changed value in the file actually replaces
+    whatever's already in os.environ, rather than load_dotenv()'s default of leaving an
+    existing entry alone."""
+    load_dotenv(override=True)
+    return {
+        "api_key": os.getenv("CRAWLER_LLM_API_KEY"),
+        "base_url": os.getenv("CRAWLER_LLM_BASE_URL", "https://api.groq.com/openai/v1"),
+        "model": os.getenv("CRAWLER_LLM_MODEL", "openai/gpt-oss-120b"),
+        "fallback_api_key": os.getenv("CRAWLER_LLM_FALLBACK_API_KEY"),
+        "fallback_base_url": os.getenv("CRAWLER_LLM_FALLBACK_BASE_URL"),
+        "fallback_model": os.getenv("CRAWLER_LLM_FALLBACK_MODEL"),
+        "extra_fallbacks": _numbered_llm_fallbacks(),
+    }
+
+
 # views/ai_assistant.py's chat — a SEPARATE provider namespace from CRAWLER_LLM_* above:
 # a different use case (ad hoc user Q&A, not a batch crawler) with its own quota, even if
 # pointed at the same account. No default base_url (unlike the crawlers' Groq default):
