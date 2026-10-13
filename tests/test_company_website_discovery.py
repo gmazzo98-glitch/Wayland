@@ -115,7 +115,16 @@ def test_domain_matches_company_accepts_a_short_distinctive_token():
     assert wd._domain_matches_company("amplia-eng.it", []) is False
 
 
-def test_discover_website_skips_blocked_domains_and_picks_the_vat_verified_candidate(monkeypatch):
+@pytest.fixture
+def db_session(tmp_path):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'wd.db').as_posix()}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    yield session
+    session.close()
+
+
+def test_discover_website_skips_blocked_domains_and_picks_the_vat_verified_candidate(monkeypatch, db_session):
     c = _company()
     rows = [
         {"company_id": "c1", "url": "https://www.linkedin.com/company/amplia", "domain": "linkedin.com",
@@ -128,7 +137,7 @@ def test_discover_website_skips_blocked_domains_and_picks_the_vat_verified_candi
     monkeypatch.setattr(wd, "run_ts_crawler", lambda name, input_rows, **kw: rows)
     monkeypatch.setattr(wd, "rows_for_company", lambda rows, company_id: rows)
 
-    result = wd.discover_website(c)
+    result = wd.discover_website(c, db_session)
 
     assert result["website_url"] == "https://amplia-eng.it/"
     assert result["confidence"] == "vat"
@@ -137,37 +146,140 @@ def test_discover_website_skips_blocked_domains_and_picks_the_vat_verified_candi
     assert rejected["ampliaspa.it"] == "no verified match (name/VAT/location)"
 
 
-def test_discover_website_accepts_nothing_when_no_candidate_is_verified(monkeypatch):
+def test_discover_website_accepts_nothing_when_no_candidate_is_verified(monkeypatch, db_session):
     c = _company()
     rows = [{"company_id": "c1", "url": "https://unrelated.example", "domain": "unrelated.example",
              "title": "x", "page_text": "nothing relevant here", "error": None}]
     monkeypatch.setattr(wd, "run_ts_crawler", lambda name, input_rows, **kw: rows)
     monkeypatch.setattr(wd, "rows_for_company", lambda rows, company_id: rows)
 
-    result = wd.discover_website(c)
+    result = wd.discover_website(c, db_session)
     assert result["website_url"] is None
     assert result["confidence"] is None
 
 
-def test_discover_website_records_a_crawler_failure_without_raising(monkeypatch):
+def test_discover_website_records_a_crawler_failure_without_raising(monkeypatch, db_session):
     from scrapers.node_crawler_base import CrawlerRunError
 
     def boom(name, input_rows, **kw):
         raise CrawlerRunError("website-discovery-crawler timed out after 90s")
 
     monkeypatch.setattr(wd, "run_ts_crawler", boom)
-    result = wd.discover_website(_company())
+    result = wd.discover_website(_company(), db_session)
     assert result["website_url"] is None
     assert "website-discovery-crawler failed" in result["candidates"][0]["error"]
 
 
-@pytest.fixture
-def db_session(tmp_path):
-    engine = create_engine(f"sqlite:///{(tmp_path / 'wd.db').as_posix()}", connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
-    session = sessionmaker(bind=engine)()
-    yield session
-    session.close()
+def test_extract_parent_mentions_from_the_real_amplia_text_english_and_italian():
+    english = ("Amplia Engineering & Equipment was established in 2025 from the combination of a "
+               "new industrial vision and the expertise of professionals with extensive experience "
+               "in major infrastructure projects worldwide. Today, this expertise is brought "
+               "together within Amplia Infrastructures, part of the Autostrade per l'Italia Group.")
+    italian = ("Amplia Engineering & Equipment nasce nel 2025 dall'incontro tra una nuova visione "
+               "industriale e il know-how di professionisti che hanno maturato esperienza su grandi "
+               "progetti infrastrutturali a livello internazionale. Queste competenze oggi "
+               "confluiscono in Amplia Infrastructures, società del Gruppo Autostrade per l'Italia.")
+    assert wd._extract_parent_mentions(english) == ["Amplia Infrastructures", "Autostrade per l'Italia"]
+    assert wd._extract_parent_mentions(italian) == ["Amplia Infrastructures", "Autostrade per l'Italia"]
+
+
+def test_extract_parent_mentions_from_the_real_emag_text():
+    assert wd._extract_parent_mentions("All Locations worldwide - EMAG Group") == ["EMAG"]
+
+
+def test_extract_parent_mentions_finds_nothing_in_ordinary_prose():
+    assert wd._extract_parent_mentions("We make high quality industrial valves since 1980.") == []
+
+
+def test_extract_parent_mentions_handles_a_real_curly_apostrophe():
+    """Live bug: the real amplia-eng.it page (fetched fresh, not hand-typed) uses the curly
+    right single quote U+2019 throughout ("l’Italia", "dall’incontro"), not the
+    ASCII apostrophe every other test here happens to use. A straight-quote-only character
+    class silently broke the chain one word early: 'Autostrade' alone instead of 'Autostrade
+    per l’Italia'."""
+    text = ("Gruppo Autostrade per l’Italia\nAmplia Engineering & Equipment nasce nel 2025 "
+            "dall’incontro tra una nuova visione industriale... Queste competenze oggi "
+            "confluiscono in Amplia Infrastructures, società del Gruppo Autostrade per "
+            "l’Italia.")
+    assert wd._extract_parent_mentions(text) == ["Amplia Infrastructures", "Autostrade per l’Italia"]
+
+
+def test_extract_parent_mentions_does_not_chain_across_navigation_menu_lines():
+    """Live bug: page_text comes from the live page's innerText, which puts each nav/menu
+    item on its own line. A newline-tolerant word separator chained straight through EMAG's
+    real navigation bar into the captured name ("EMAG\\nContatti\\nNewsletter\\nMedia
+    Center" instead of just "EMAG")."""
+    text = "EMAG\nContatti\nNewsletter\nMedia Center\nAll Locations worldwide - EMAG Group"
+    assert wd._extract_parent_mentions(text) == ["EMAG"]
+
+
+def test_match_parent_company_requires_exact_token_equality_not_just_overlap(db_session):
+    """Live bug found during this fix's own validation: this dataset has BOTH 'EMAG SU
+    S.R.L.' and 'EMAG MILANO S.R.L.' as separate, real, unrelated companies. A subset/overlap
+    match on the shared "EMAG" brand token would wrongly link one as the other's parent."""
+    db_session.add_all([
+        Company(id="su", legal_name="EMAG SU S.R.L.", registration_number="IT00000000010"),
+        Company(id="milano", legal_name="EMAG MILANO S.R.L.", registration_number="IT00000000011"),
+        Company(id="holding", legal_name="BigCo Holding S.p.A.", registration_number="IT00000000012"),
+    ])
+    db_session.commit()
+
+    assert wd._match_parent_company(db_session, "EMAG", exclude_id="su") is None
+    match = wd._match_parent_company(db_session, "BigCo Holding", exclude_id="su")
+    assert match is not None and match.id == "holding"
+    assert wd._match_parent_company(db_session, "Nonexistent Group", exclude_id="su") is None
+
+
+def test_discover_website_still_accepts_a_vat_verified_page_that_also_mentions_a_parent(monkeypatch, db_session):
+    """AMPLIA's own real page: specific VAT evidence wins even though the same page discloses
+    a parent relationship - this is genuinely the company's own dedicated site."""
+    c = _company()
+    rows = [{"company_id": "c1", "url": "https://amplia-eng.it/", "domain": "amplia-eng.it",
+             "title": "Amplia", "error": None,
+             "page_text": "Amplia Engineering & Equipment s.r.l. P.IVA: 03146140300. "
+                           "Part of the Autostrade per l'Italia Group."}]
+    monkeypatch.setattr(wd, "run_ts_crawler", lambda name, input_rows, **kw: rows)
+    monkeypatch.setattr(wd, "rows_for_company", lambda rows, company_id: rows)
+
+    result = wd.discover_website(c, db_session)
+    assert result["website_url"] == "https://amplia-eng.it/"
+    assert result["confidence"] == "vat"
+    assert result["parent"]["name"] == "Autostrade per l'Italia"
+    assert result["parent"]["matched_company_id"] is None  # not in our DB - disclosed, not linked
+
+
+def test_discover_website_treats_a_weakly_verified_parent_group_page_as_parent_not_own_site(monkeypatch, db_session):
+    """EMAG SU S.R.L.'s real case: emag.com's generic "worldwide locations" page only clears
+    name_and_location (no VAT), and explicitly reads as being about the parent group - must
+    NOT become this subsidiary's own website_url."""
+    c = _company(legal_name="EMAG SU S.R.L.", registration_number="IT00000000010",
+                  external_ref_id="IT00000000010", province="Milano", region="Lombardia")
+    rows = [{"company_id": "c1", "url": "https://www.emag.com/it/contatti/sedi/", "domain": "emag.com",
+             "title": "EMAG", "error": None,
+             "page_text": "All Locations worldwide - EMAG Group. Emag Su Milano, Italy."}]
+    monkeypatch.setattr(wd, "run_ts_crawler", lambda name, input_rows, **kw: rows)
+    monkeypatch.setattr(wd, "rows_for_company", lambda rows, company_id: rows)
+
+    result = wd.discover_website(c, db_session)
+    assert result["website_url"] is None
+    assert result["parent"]["name"] == "EMAG"
+    rejected = {cand["domain"]: cand.get("rejected") for cand in result["candidates"]}
+    assert rejected["emag.com"] == "parent/group page, not a dedicated site for this company"
+
+
+def test_discover_website_links_parent_company_id_when_the_parent_is_a_real_db_match(monkeypatch, db_session):
+    db_session.add(Company(id="parent1", legal_name="BigCo Holding S.p.A.", registration_number="IT00000000099"))
+    db_session.commit()
+    c = _company(id="child1")
+    rows = [{"company_id": "child1", "url": "https://unrelated.example", "domain": "unrelated.example",
+             "title": "x", "error": None,
+             "page_text": "Nothing about Amplia here, but it is a member of BigCo Holding."}]
+    monkeypatch.setattr(wd, "run_ts_crawler", lambda name, input_rows, **kw: rows)
+    monkeypatch.setattr(wd, "rows_for_company", lambda rows, company_id: rows)
+
+    result = wd.discover_website(c, db_session)
+    assert result["parent"]["matched_company_id"] == "parent1"
+    assert result["parent"]["matched_legal_name"] == "BigCo Holding S.p.A."
 
 
 def test_ensure_website_discovered_noops_when_a_url_is_already_on_file(db_session):
@@ -216,3 +328,23 @@ def test_ensure_website_discovered_leaves_website_url_unset_when_nothing_is_veri
     assert company.website_url is None
     rec = db_session.query(RawImportRecord).filter_by(company_id="c1", dataset_name=wd.DATASET_NAME).first()
     assert rec is not None  # the audit trail still records "we looked and found nothing confident"
+
+
+def test_ensure_website_discovered_links_parent_company_id_on_a_real_db_match(monkeypatch, db_session):
+    parent = Company(id="parent1", legal_name="BigCo Holding S.p.A.", registration_number="IT00000000099")
+    company = Company(id="c1", legal_name="AMPLIA ENGINEERING & EQUIPMENT S.R.L.",
+                       registration_number="IT31461403000", external_ref_id="IT03146140300",
+                       province="Udine", country="Italy", website_url=None)
+    db_session.add_all([parent, company])
+    db_session.commit()
+
+    rows = [{"company_id": "c1", "url": "https://unrelated.example", "domain": "unrelated.example",
+             "title": "x", "error": None,
+             "page_text": "No VAT or name match here, but it is a member of BigCo Holding."}]
+    monkeypatch.setattr(wd, "run_ts_crawler", lambda name, input_rows, **kw: rows)
+    monkeypatch.setattr(wd, "rows_for_company", lambda rows, company_id: rows)
+
+    wd.ensure_website_discovered(company, db_session)
+
+    assert company.parent_company_id == "parent1"
+    assert company.website_url is None  # the unrelated candidate still isn't verified as ITS OWN site

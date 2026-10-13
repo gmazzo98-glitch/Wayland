@@ -2058,7 +2058,11 @@ additions from the live-verification follow-up),
 `main.ts`/`search.ts` further revised for the robots.txt fallback/skip-reporting fix and the
 blocklist additions),
 `company_service.py` (import + `_try_discover_website` + 2 call sites),
-`tests/test_company_website_discovery.py` (new, 13 tests),
+`views/company_detail.py` (the "🏢 Parent / Group Relationship" card in
+`_render_crawled_intelligence`),
+`tests/test_company_website_discovery.py` (grew to 27 tests across all three follow-ups),
+`tests/test_company_detail_parent_card.py` (new, 4 `streamlit.testing.v1.AppTest` smoke
+tests),
 `tests/test_phase7_batch.py` (gave the shared test fixture's companies a `website_url` so the
 new pre-step no-ops instead of making real calls — that file's own stated goal is "No crawler
 is spawned"). Bundle rebuilt via `scripts/build_worker_bundle.py` (twice — once for the initial
@@ -2105,15 +2109,86 @@ companies (PEZZORGNA, CO.ME.SCA., TEKNO SERVICE) are unaffected. The three wrong
 `website_url` values were reverted to `NULL` (via the Neon MCP tool, confirmed before and
 after) before re-running.
 
-**One disclosed, NOT-fully-solved gray-area case, left as-is deliberately:** EMAG SU S.R.L.
-→ `emag.com` (name_and_location) still gets accepted after the fix, because "emag" genuinely
-is a substring of its own domain. `emag.com/it/contatti/sedi/` is EMAG Group's real
+**One gray-area case left open at that point:** EMAG SU S.R.L. → `emag.com`
+(name_and_location) still got accepted after the domain-correlation fix, because "emag"
+genuinely is a substring of its own domain. `emag.com/it/contatti/sedi/` is EMAG Group's real
 "worldwide locations" page, which very plausibly lists this company as its real Italian
 subsidiary — not a random/unrelated false positive like the three above, but also not a
 dedicated site: attributing EMAG Group's entire international product catalog/jobs/digital
-footprint to one small Italian subsidiary (the same category of risk the AMPLIA case itself
-warns about, re parent vs. subsidiary) is a real, acknowledged limitation of the current
-domain-correlation check, not silently claimed as solved.
+footprint to one small Italian subsidiary is the same parent-vs-subsidiary risk the AMPLIA
+case itself was built around.
+
+**2026-10-13 third follow-up — the human pushed back on this specific result ("not really
+that good of a result... if there is a parent detected, it should clearly state so and give
+info about the parent... create a link between the two") and asked for the EMAG gray area to
+actually be resolved, not just disclosed.** Built parent/group-relationship detection and
+linking:
+
+- `_extract_parent_mentions(page_text)` — a best-effort scan for phrasings a page commonly
+  uses to disclose being part of a larger group (Italian + English: "part of/member of/
+  subsidiary of X", "parte di/filiale di/controllata da X", "X Group"/"Gruppo X"). Precision
+  here matters less than it looks, since every extraction still has to clear
+  `_match_parent_company`'s strict check before anything gets linked or shown as matched.
+- `_match_parent_company(db, name, exclude_id)` — queries this project's OWN `companies`
+  table for a row whose name (legal-form stripped) exactly token-matches the extracted name.
+  **Exact match, not subset/overlap — found necessary live**: this dataset has BOTH "EMAG SU
+  S.R.L." and "EMAG MILANO S.R.L." as separate, real, unrelated companies sharing the "EMAG"
+  brand root. A subset match (which the first draft of this used) would have linked one as
+  the other's "parent" when they are actually unrelated siblings under a common group that
+  isn't itself in this database. Caught and fixed before this ever reached the live database,
+  by testing the fix against real data rather than just the motivating example.
+- `discover_website()` now splits on confidence tier when a parent mention is found: a `vat`
+  match is specific enough to accept the page as the company's own site even though it ALSO
+  discloses a parent (AMPLIA's real case — `amplia-eng.it` happily discloses being part of
+  Amplia Infrastructures/the Autostrade per l'Italia Group right in its own footer, next to
+  its own VAT). A weaker `name_and_location` match on a page that explicitly reads as being
+  about a parent/group is instead classified as "parent detected, not a dedicated site for
+  this company" — this is the fix for EMAG SU's exact case: `emag.com` is no longer accepted
+  as its `website_url`.
+- `ensure_website_discovered()` sets `company.parent_company_id` (an existing, previously
+  entirely unpopulated schema field — `models.Company.parent`/`.subsidiaries`) whenever a
+  confident DB match is found. `views/company_detail.py`'s Crawled Intelligence section gained
+  a new "🏢 Parent / Group Relationship" card: when `parent_company_id` is set, it shows the
+  parent's own NEED/READINESS scores and a button that jumps straight to the parent's own
+  Company Intelligence page (pre-selects it in `detail_company_select`, clears any active
+  country filter, reruns); when a parent was mentioned but not matched to any row here, it
+  shows the plain disclosure instead, with no button.
+
+**Two more real bugs found and fixed while verifying this against the REAL, live-fetched
+page text (not hand-typed approximations of it) — a reminder that live verification catches
+things synthetic tests don't:**
+1. The name-phrase regex chained across newlines: `page_text` comes from the live page's
+   `innerText`, which puts each navigation/menu item on its own line, and a newline-tolerant
+   word separator chained straight through EMAG's real nav bar into the captured name
+   (`"EMAG\nContatti\nNewsletter\nMedia Center"` instead of just `"EMAG"`). Fixed by
+   restricting the phrase's own internal word separator to same-line whitespace only.
+2. The real `amplia-eng.it` page uses the curly right single quote (U+2019) throughout
+   ("l'Italia", "dall'incontro" — the typographically-correct form a real CMS renders), not
+   the ASCII apostrophe every hand-typed test here happened to use. The character class only
+   recognized the ASCII form, so the proper-noun chain silently broke one word early:
+   "Autostrade" alone instead of "Autostrade per l'Italia". Caught by fetching the real page
+   fresh and running extraction against the actual bytes, not a manually retyped copy of it.
+
+**Live-verified end to end after both fixes:** re-ran the real company_website_discovery pass
+for EMAG SU S.R.L. (via PowerShell, same network-path reason as throughout this ticket) —
+`website_url` correctly stays unset, and the stored result now shows `"parent": {"name":
+"EMAG", "matched_company_id": null}`, correctly unmatched (EMAG Group itself isn't a company
+row in this SME-focused dataset; only its two real subsidiaries, EMAG SU and EMAG MILANO,
+are). Also re-ran a fresh discovery pass for AMPLIA ENGINEERING & EQUIPMENT S.R.L. itself (the
+original motivating example) — confirmed the fresh result still finds the exact same,
+already-verified `website_url` before touching anything (a safety check that refused to
+overwrite otherwise), extracted `"Autostrade per l'Italia"` as the disclosed parent mention,
+correctly unmatched in this dataset too, and backfilled AMPLIA's own stored audit record with
+it so the new card is visible for the user's own original example right now, not only for
+companies discovered after this fix.
+
+The new UI card was verified with `streamlit.testing.v1.AppTest` (`tests/
+test_company_detail_parent_card.py`) rather than the live browser, since the running app sits
+behind this deployment's own password gate (`access_control.py`) that this session doesn't
+have the credentials for — confirmed the card renders with the parent's real scores and a
+working jump button when matched, renders the plain disclosure with no button when mentioned
+but unmatched, and doesn't appear at all when nothing was ever found (including a check that
+the jump button's click actually writes the two expected `st.session_state` keys).
 
 ---
 

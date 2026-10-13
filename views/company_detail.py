@@ -1471,6 +1471,34 @@ def _render_crawled_intelligence(db: Session, company: Company) -> None:
                 st.markdown(f"- **{label}**: {status}")
         sections.append(("🥊 Competitor Benchmarks", _render_competitors))
 
+    # company.parent_company_id (set by scrapers/company_website_discovery.py once a page
+    # explicitly discloses the relationship AND the named parent matches a real company row
+    # here - never a guess) is the current, authoritative state; the crawler_website_discovery
+    # blob's own "parent" field is only a point-in-time snapshot of the run that found it, so
+    # it's the fallback for "mentioned but not (yet, or ever) matched to a DB row" only.
+    parent_company = company.parent if company.parent_company_id else None
+    parent_mention = (records.get("crawler_website_discovery") or {}).get("parent")
+    if parent_company or parent_mention:
+        def _render_parent(parent_company=parent_company, parent_mention=parent_mention):
+            if parent_company:
+                st.markdown(f"🔗 Linked as a subsidiary of **{parent_company.legal_name}** — already in this database.")
+                c1, c2 = st.columns(2)
+                c1.metric("Parent's NEED", f"{parent_company.need_score:.0f}" if parent_company.need_score is not None else "—")
+                c2.metric("Parent's READINESS", f"{parent_company.readiness_score:.0f}" if parent_company.readiness_score is not None else "—")
+                if st.button(f"→ Open {parent_company.legal_name}", key="jump_to_parent_company"):
+                    flags = {"Germany": "🇩🇪", "Italy": "🇮🇹"}
+                    label = (f"{parent_company.legal_name} ({parent_company.registration_number}) — "
+                             f"{flags.get(parent_company.country, '🌐')} {parent_company.country} [{parent_company.segment}]")
+                    st.session_state["detail_country_filter"] = "All Countries"
+                    st.session_state["detail_company_select"] = label
+                    st.rerun()
+            elif parent_mention and parent_mention.get("name"):
+                st.markdown(
+                    f"This company's crawled pages mention being part of **{parent_mention['name']}** — "
+                    "not found as a separate company in this database."
+                )
+        sections.append(("🏢 Parent / Group Relationship", _render_parent))
+
     if not sections:
         return
     with st.expander(f"🕷️ Crawled Intelligence ({len(sections)} source group(s) with data)", expanded=False):
