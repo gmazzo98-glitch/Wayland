@@ -12,11 +12,24 @@ from sqlalchemy.orm import sessionmaker
 
 import assistant_llm
 import company_service
+import config
 from indicators import seed_indicator_definitions
 from models import Base, Company, SignalRecord
 from painpoints import seed_pain_point_definitions
 
 NOW = datetime.utcnow()
+
+
+def _patch_settings(monkeypatch, api_key=None, base_url=None, model=None,
+                     fallback_api_key=None, fallback_base_url=None, fallback_model=None):
+    """assistant_llm.py reads provider settings via config.assistant_llm_settings(), called
+    fresh on every turn (not frozen module constants — see that function's docstring), so
+    controlling what it sees means monkeypatching this function, not attributes that no
+    longer exist on assistant_llm at all."""
+    monkeypatch.setattr(config, "assistant_llm_settings", lambda: {
+        "api_key": api_key, "base_url": base_url, "model": model,
+        "fallback_api_key": fallback_api_key, "fallback_base_url": fallback_base_url, "fallback_model": fallback_model,
+    })
 
 
 @pytest.fixture()
@@ -162,18 +175,14 @@ def _assistant_message(content=None, tool_calls=None):
 
 
 def test_is_configured_reflects_the_three_settings(db, monkeypatch):
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_API_KEY", None)
+    _patch_settings(monkeypatch)
     assert assistant_llm.is_configured() is False
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_API_KEY", "key")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_BASE_URL", "https://example.test/v1")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_MODEL", "some-model")
+    _patch_settings(monkeypatch, api_key="key", base_url="https://example.test/v1", model="some-model")
     assert assistant_llm.is_configured() is True
 
 
 def test_run_assistant_turn_executes_a_tool_call_then_returns_the_final_answer(db, monkeypatch):
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_API_KEY", "key")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_BASE_URL", "https://example.test/v1")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_MODEL", "some-model")
+    _patch_settings(monkeypatch, api_key="key", base_url="https://example.test/v1", model="some-model")
 
     company = make_company(db, "Loop Co", "IT00000000070")
     set_signal(db, company, "materials_cost", 61.0)
@@ -207,9 +216,7 @@ def test_run_assistant_turn_executes_a_tool_call_then_returns_the_final_answer(d
 
 
 def test_run_assistant_turn_stops_at_max_rounds_instead_of_looping_forever(db, monkeypatch):
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_API_KEY", "key")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_BASE_URL", "https://example.test/v1")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_MODEL", "some-model")
+    _patch_settings(monkeypatch, api_key="key", base_url="https://example.test/v1", model="some-model")
 
     call_count = {"n": 0}
 
@@ -229,7 +236,7 @@ def test_run_assistant_turn_stops_at_max_rounds_instead_of_looping_forever(db, m
 
 
 def test_run_assistant_turn_raises_when_not_configured(db, monkeypatch):
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_API_KEY", None)
+    _patch_settings(monkeypatch)
     with pytest.raises(RuntimeError):
         assistant_llm.run_assistant_turn([{"role": "user", "content": "hi"}], db)
 
@@ -237,12 +244,10 @@ def test_run_assistant_turn_raises_when_not_configured(db, monkeypatch):
 # ---- primary -> fallback provider switching --------------------------------------------------
 
 def _configure_primary_and_fallback(monkeypatch):
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_API_KEY", "primary-key")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_BASE_URL", "https://primary.test/v1")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_MODEL", "primary-model")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_FALLBACK_API_KEY", "fallback-key")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_FALLBACK_BASE_URL", "https://fallback.test/v1")
-    monkeypatch.setattr(assistant_llm, "ASSISTANT_LLM_FALLBACK_MODEL", "fallback-model")
+    _patch_settings(
+        monkeypatch, api_key="primary-key", base_url="https://primary.test/v1", model="primary-model",
+        fallback_api_key="fallback-key", fallback_base_url="https://fallback.test/v1", fallback_model="fallback-model",
+    )
 
 
 def test_run_assistant_turn_falls_back_when_primary_returns_429(db, monkeypatch):

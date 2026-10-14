@@ -9,6 +9,11 @@ can ever call, each a thin wrapper around an already-trusted company_service.py 
 — no eval, no raw SQL, nothing reachable beyond that list. This is the first multi-turn
 tool-calling loop in this codebase's Python side (the TypeScript crawlers' llm.ts files use
 a single tool_choice-pinned call for extraction, never a multi-round loop).
+
+Provider settings are read via config.assistant_llm_settings() FRESH on every call, never via
+`from config import ASSISTANT_LLM_API_KEY`-style module-level constants — see that function's
+docstring (mirrors crawler_llm_settings(), added for the identical bug: a key added to .env
+after this process was already running would otherwise never be seen without a restart).
 """
 
 import json
@@ -18,10 +23,7 @@ import requests
 from sqlalchemy.orm import Session
 
 import company_service
-from config import (
-    ASSISTANT_LLM_API_KEY, ASSISTANT_LLM_BASE_URL, ASSISTANT_LLM_MODEL,
-    ASSISTANT_LLM_FALLBACK_API_KEY, ASSISTANT_LLM_FALLBACK_BASE_URL, ASSISTANT_LLM_FALLBACK_MODEL,
-)
+import config
 from indicators import fetch_indicator_defs
 
 # A 429/5xx is treated the same as a connection error: try the next provider rather than
@@ -81,13 +83,14 @@ TOOLS = [
 
 def _providers() -> List[Tuple[str, str, str]]:
     """[(api_key, base_url, model), ...] to try in order — primary then fallback, whichever
-    are fully configured. Mirrors config.py's CRAWLER_LLM_FALLBACK_* pattern for the crawlers,
-    in the assistant's own separate ASSISTANT_LLM_* namespace."""
+    are fully configured, read fresh via config.assistant_llm_settings() every call (never a
+    frozen import-time snapshot — see the module docstring)."""
+    s = config.assistant_llm_settings()
     providers = []
-    if ASSISTANT_LLM_API_KEY and ASSISTANT_LLM_BASE_URL and ASSISTANT_LLM_MODEL:
-        providers.append((ASSISTANT_LLM_API_KEY, ASSISTANT_LLM_BASE_URL, ASSISTANT_LLM_MODEL))
-    if ASSISTANT_LLM_FALLBACK_API_KEY and ASSISTANT_LLM_FALLBACK_BASE_URL and ASSISTANT_LLM_FALLBACK_MODEL:
-        providers.append((ASSISTANT_LLM_FALLBACK_API_KEY, ASSISTANT_LLM_FALLBACK_BASE_URL, ASSISTANT_LLM_FALLBACK_MODEL))
+    if s["api_key"] and s["base_url"] and s["model"]:
+        providers.append((s["api_key"], s["base_url"], s["model"]))
+    if s["fallback_api_key"] and s["fallback_base_url"] and s["fallback_model"]:
+        providers.append((s["fallback_api_key"], s["fallback_base_url"], s["fallback_model"]))
     return providers
 
 

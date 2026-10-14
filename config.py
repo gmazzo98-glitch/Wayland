@@ -203,6 +203,29 @@ ASSISTANT_LLM_FALLBACK_API_KEY = os.getenv("ASSISTANT_LLM_FALLBACK_API_KEY")
 ASSISTANT_LLM_FALLBACK_BASE_URL = os.getenv("ASSISTANT_LLM_FALLBACK_BASE_URL")
 ASSISTANT_LLM_FALLBACK_MODEL = os.getenv("ASSISTANT_LLM_FALLBACK_MODEL")
 
+
+def assistant_llm_settings() -> dict:
+    """Fresh read of ASSISTANT_LLM_*, via get_config_var() (env var, falling back to
+    st.secrets — see that function above) rather than os.getenv() directly, and re-reading the
+    .env FILE first (override=True) — the exact same restart-free rationale as
+    crawler_llm_settings() above (see its docstring for the full explanation): the module-level
+    constants right above this function are each only ever set ONCE, the first time config.py
+    is imported, so a key added to .env afterward (adding it mid-session, a long-running
+    Streamlit process that was already up when the key was added, or a key set only in
+    Streamlit Cloud's Secrets rather than a local .env file at all) would never be seen without
+    this. assistant_llm.py calls this fresh on every chat turn instead of importing the
+    constants above directly."""
+    load_dotenv(override=True)
+    return {
+        "api_key": get_config_var("ASSISTANT_LLM_API_KEY"),
+        "base_url": get_config_var("ASSISTANT_LLM_BASE_URL"),
+        "model": get_config_var("ASSISTANT_LLM_MODEL"),
+        "fallback_api_key": get_config_var("ASSISTANT_LLM_FALLBACK_API_KEY"),
+        "fallback_base_url": get_config_var("ASSISTANT_LLM_FALLBACK_BASE_URL"),
+        "fallback_model": get_config_var("ASSISTANT_LLM_FALLBACK_MODEL"),
+    }
+
+
 # digital-maturity-crawler's visual-assessment phase (homepage screenshot -> vision LLM) — a
 # SEPARATE provider namespace from CRAWLER_LLM_* above, even though both commonly point at the
 # same Groq account: gpt-oss-120b (the text crawlers' default) is not vision-capable, so the two
