@@ -8,6 +8,7 @@ thresholds be edited; it contains no detection logic of its own.
 """
 
 from collections import defaultdict
+from datetime import datetime
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -225,7 +226,7 @@ def _portfolio_summary(companies: dict, pain_defs: list) -> list:
 # Page
 # =============================================================================================
 
-def _render_portfolio_tab(companies: dict, pain_defs: list):
+def _render_portfolio_tab(db: Session, companies: dict, pain_defs: list):
     all_rows = list(companies.values())
     col_a, col_b = st.columns(2)
     countries = sorted({c["country"] for c in all_rows})
@@ -313,6 +314,26 @@ def _render_portfolio_tab(companies: dict, pain_defs: list):
             "Need": st.column_config.NumberColumn(format="%.1f"), "Readiness": st.column_config.NumberColumn(format="%.1f"),
         })
         st.caption("Open a company on **🏢 Company Intelligence** (search by registration number) for the full evidence behind each row.")
+
+        current_status = dict(db.query(Company.id, Company.shortlist_status).filter(Company.id.in_([c["id"] for c in rows])).all())
+        options = {
+            f"{c['name']} ({c['reg']})" + (f" — already {current_status.get(c['id'])}" if current_status.get(c["id"]) != "candidate" else ""): c["id"]
+            for c in rows
+        }
+        picked = st.multiselect(
+            "⭐ Add to shortlist for in-depth analysis", list(options), key="pp_shortlist_pick",
+            help="Flags the company for the dedicated 💰 Shortlist Gate & Paid Pulls workflow and the full "
+                 "per-company view on 🏢 Company Intelligence — same status every other shortlisting action in "
+                 "this app sets, nothing pain-point-specific about it.")
+        if st.button("Add selected to shortlist", disabled=not picked, key="pp_shortlist_add"):
+            ids = {options[label] for label in picked}
+            for comp in db.query(Company).filter(Company.id.in_(ids)).all():
+                comp.shortlist_status = "shortlisted"
+                if not comp.shortlisted_at:
+                    comp.shortlisted_at = datetime.utcnow()
+            db.commit()
+            st.success(f"Added {len(ids)} compan{'y' if len(ids) == 1 else 'ies'} to the shortlist.")
+            st.rerun()
 
 
 def _render_catalog_tab(db: Session):
@@ -473,7 +494,7 @@ def render_pain_points_page(db: Session):
     )
     tab_port, tab_cat, tab_gaps = st.tabs(["📊 Portfolio", "🧩 Pain-point catalog", "🕳️ Data gaps & new indicators"])
     with tab_port:
-        _render_portfolio_tab(data["companies"], pain_defs)
+        _render_portfolio_tab(db, data["companies"], pain_defs)
     with tab_cat:
         _render_catalog_tab(db)
     with tab_gaps:
