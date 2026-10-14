@@ -166,15 +166,20 @@ def crawler_llm_settings() -> dict:
     dev, vs. exporting a shell env var) never reaches os.environ at all until something calls
     load_dotenv() again. override=True so a since-changed value in the file actually replaces
     whatever's already in os.environ, rather than load_dotenv()'s default of leaving an
-    existing entry alone."""
+    existing entry alone.
+
+    Reads through get_config_var() (env var, falling back to st.secrets), not os.getenv()
+    directly, for the same reason assistant_llm_settings() below does: a key set only in
+    Streamlit Cloud's Secrets panel (no local .env file exists there at all - it's gitignored
+    and never deployed) would otherwise never be seen, identically to the restart bug above."""
     load_dotenv(override=True)
     return {
-        "api_key": os.getenv("CRAWLER_LLM_API_KEY"),
-        "base_url": os.getenv("CRAWLER_LLM_BASE_URL", "https://api.groq.com/openai/v1"),
-        "model": os.getenv("CRAWLER_LLM_MODEL", "openai/gpt-oss-120b"),
-        "fallback_api_key": os.getenv("CRAWLER_LLM_FALLBACK_API_KEY"),
-        "fallback_base_url": os.getenv("CRAWLER_LLM_FALLBACK_BASE_URL"),
-        "fallback_model": os.getenv("CRAWLER_LLM_FALLBACK_MODEL"),
+        "api_key": get_config_var("CRAWLER_LLM_API_KEY"),
+        "base_url": get_config_var("CRAWLER_LLM_BASE_URL", "https://api.groq.com/openai/v1"),
+        "model": get_config_var("CRAWLER_LLM_MODEL", "openai/gpt-oss-120b"),
+        "fallback_api_key": get_config_var("CRAWLER_LLM_FALLBACK_API_KEY"),
+        "fallback_base_url": get_config_var("CRAWLER_LLM_FALLBACK_BASE_URL"),
+        "fallback_model": get_config_var("CRAWLER_LLM_FALLBACK_MODEL"),
         "extra_fallbacks": _numbered_llm_fallbacks(),
     }
 
