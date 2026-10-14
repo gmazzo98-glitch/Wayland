@@ -116,13 +116,29 @@ def render_paid_shortlist_gate_page(db: Session):
 
     st.markdown("---")
 
-    # In-depth actions for one shortlisted company
-    st.subheader("🔬 In-Depth Analysis for a Shortlisted Company")
-
     shortlisted_companies = [c for c in companies if c.shortlist_status in ("shortlisted", "in_pilot")]
     if not shortlisted_companies:
         st.info("No companies currently shortlisted. Qualify candidates above first to unlock these actions.")
         return
+
+    # Quick removal — the inverse of the "add to shortlist" action on Pain Points, same
+    # shortlist_status field every other shortlisting control in this app already uses. Sets
+    # 'candidate' (back to the pool), never 'rejected' — a stronger status this action doesn't claim.
+    st.subheader("➖ Remove from Shortlist")
+    remove_options = {f"{c.legal_name} ({c.registration_number})": c for c in shortlisted_companies}
+    picked_for_removal = st.multiselect("Select companies to remove", list(remove_options), key="shortlist_remove_pick")
+    if st.button("Remove selected from shortlist", disabled=not picked_for_removal, key="shortlist_remove_btn"):
+        removed = [remove_options[label] for label in picked_for_removal]
+        for comp in removed:
+            comp.shortlist_status = "candidate"
+        db.commit()
+        st.success(f"Removed {len(removed)} compan{'y' if len(removed) == 1 else 'ies'} from the shortlist.")
+        st.rerun()
+
+    st.markdown("---")
+
+    # In-depth actions for one shortlisted company
+    st.subheader("🔬 In-Depth Analysis for a Shortlisted Company")
 
     comp_options = {f"{c.legal_name} ({c.registration_number})": c for c in shortlisted_companies}
     selected_comp_name = st.selectbox("Select Shortlisted Target", list(comp_options.keys()))
