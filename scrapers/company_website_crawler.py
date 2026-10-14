@@ -241,7 +241,21 @@ def _years_since(date_str: str):
     return days / 365.25 if days >= 0 else None
 
 
-def sync_company_website(company, db_session: Session) -> dict:
+DEEP_RUN_TIMEOUT = 600           # vs. the standard 170s — see DEEP_MAX_PAGES_PER_DOMAIN below
+DEEP_ADAPTER_TIMEOUT = 630       # vs. the standard 190s (run_adapter's own wrapper timeout)
+# Strings: subprocess env values must be, like every other key in the `env` dict below.
+DEEP_MAX_PAGES_PER_DOMAIN = "40"  # vs. main.ts's default 15
+DEEP_LLM_CONCURRENCY = "5"        # vs. main.ts's default 3 - a measured bump, not a big one: main.ts's
+                                   # own comment already documents a 42% 429 rate at higher LLM
+                                   # concurrency on Groq's free tier, so this needs real-world
+                                   # verification against an actual deep run, not just trusting the number.
+
+
+def sync_company_website(company, db_session: Session, deep: bool = False) -> dict:
+    """deep=True requests a one-off deeper pass for this single call only (more pages, more
+    concurrent LLM extraction, more time) - see views/paid_shortlist_gate.py's "Run deep-dive
+    crawl" button, the only caller that sets it. Never set by the standard Phase 7 batch path
+    (plan_source_steps/run_company_phases), which always calls this with the default."""
     captured = {}
     # A fresh read, not the module-level CRAWLER_LLM_* constants - those are frozen at
     # whatever config.py's own import-time os.getenv() call saw, which for a long-running
@@ -272,12 +286,17 @@ def sync_company_website(company, db_session: Session) -> dict:
                     env[f"LLM_FALLBACK{extra['suffix']}_BASE_URL"] = extra["base_url"]
                 if extra["model"]:
                     env[f"LLM_FALLBACK{extra['suffix']}_MODEL"] = extra["model"]
+        if deep:
+            env["MAX_PAGES_PER_DOMAIN"] = DEEP_MAX_PAGES_PER_DOMAIN
+            env["LLM_CONCURRENCY"] = DEEP_LLM_CONCURRENCY
         # The crawl is bound by the free tier's token bucket (8k + 133 tokens/s, ~19k tokens for a
         # 14-page company = ~80-110s measured), so it needs real headroom: 170s, of which the
         # crawler itself stops at 140s (node_crawler_base.SOFT_DEADLINE_MARGIN) and writes the pages
         # it has read, flagged incomplete. It used to be killed at 130s with nothing to show for it.
+        # deep=True asks main.ts for ~2.7x the pages (see DEEP_MAX_PAGES_PER_DOMAIN), so it gets
+        # proportionally more wall-clock room too (DEEP_RUN_TIMEOUT) rather than the standard 170s.
         rows = run_ts_crawler(CRAWLER_DIR, [{"company_id": c.id, "homepage_url": c.website_url}],
-                               env_overrides=env, run_timeout=170)
+                               env_overrides=env, run_timeout=DEEP_RUN_TIMEOUT if deep else 170)
         matches = rows_for_company(rows, c.id)
         if not matches:
             raise CrawlerRunError("company-website-crawler returned no row for this company")
@@ -308,7 +327,7 @@ def sync_company_website(company, db_session: Session) -> dict:
     result = run_adapter(
         db_session, company, SOURCE_NAME, PHASE,
         credentials_ok=bool(company.website_url and llm["api_key"]),
-        fetch_live=_fetch_live, simulate=_simulate, timeout=190,
+        fetch_live=_fetch_live, simulate=_simulate, timeout=DEEP_ADAPTER_TIMEOUT if deep else 190,
     )
 
     if captured.get("row"):

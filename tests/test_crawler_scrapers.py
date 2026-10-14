@@ -19,6 +19,7 @@ import requests
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import config
 from models import Base, Company, RawImportRecord, SignalRecord
 from scrapers import node_crawler_base
 from scrapers.node_crawler_base import CrawlerRunError, rows_for_company, save_crawler_blob
@@ -344,6 +345,69 @@ def test_company_website_stores_trend_needs_prior_snapshot(memory_session, compa
 
     trend = company_website_crawler._stores_trend(memory_session, company, 12)
     assert trend == pytest.approx(20.0)  # (12-10)/10 * 100
+
+
+def _crawler_db(tmp_path):
+    """A file-based SQLite engine, not :memory: — run_adapter's _call_with_hard_timeout runs
+    fetch_live in a background thread (adapters/base.py), and a bare :memory: database is only
+    visible to the connection that created it, so a threaded re-fetch of the company sees "no
+    such table: companies". test_job_postings_no_careers_url_skips_subprocess (above) hits the
+    same constraint for the same reason."""
+    engine = create_engine(f"sqlite:///{(tmp_path / 'test.db').as_posix()}",
+                            connect_args={"check_same_thread": False, "timeout": 30})
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    comp = Company(legal_name="Test GmbH", registration_number="TESTREG-1", website_url="https://example.com")
+    session.add(comp)
+    session.commit()
+    return session, comp
+
+
+def test_sync_company_website_deep_requests_a_bigger_budget(tmp_path, monkeypatch):
+    """views/paid_shortlist_gate.py's "Run deep-dive crawl" button is the only caller that ever
+    sets deep=True - confirms it actually asks main.ts for more (env) and gives it more time
+    (run_timeout), not just a no-op flag."""
+    session, comp = _crawler_db(tmp_path)
+    monkeypatch.setattr(config, "crawler_llm_settings", lambda: {
+        "api_key": "key", "base_url": "https://example.test/v1", "model": "some-model",
+        "fallback_api_key": None, "fallback_base_url": None, "fallback_model": None, "extra_fallbacks": [],
+    })
+    calls = []
+
+    def fake_ts(*args, **kwargs):
+        calls.append(kwargs)
+        return [{"company_id": comp.id, "field_status": {}}]
+
+    monkeypatch.setattr(company_website_crawler, "run_ts_crawler", fake_ts)
+
+    company_website_crawler.sync_company_website(comp, session, deep=True)
+
+    assert len(calls) == 1
+    assert calls[0]["run_timeout"] == company_website_crawler.DEEP_RUN_TIMEOUT
+    assert calls[0]["env_overrides"]["MAX_PAGES_PER_DOMAIN"] == company_website_crawler.DEEP_MAX_PAGES_PER_DOMAIN
+    assert calls[0]["env_overrides"]["LLM_CONCURRENCY"] == company_website_crawler.DEEP_LLM_CONCURRENCY
+
+
+def test_sync_company_website_default_is_unchanged_from_before_deep_existed(tmp_path, monkeypatch):
+    session, comp = _crawler_db(tmp_path)
+    monkeypatch.setattr(config, "crawler_llm_settings", lambda: {
+        "api_key": "key", "base_url": "https://example.test/v1", "model": "some-model",
+        "fallback_api_key": None, "fallback_base_url": None, "fallback_model": None, "extra_fallbacks": [],
+    })
+    calls = []
+
+    def fake_ts(*args, **kwargs):
+        calls.append(kwargs)
+        return [{"company_id": comp.id, "field_status": {}}]
+
+    monkeypatch.setattr(company_website_crawler, "run_ts_crawler", fake_ts)
+
+    company_website_crawler.sync_company_website(comp, session)  # deep defaults to False
+
+    assert len(calls) == 1
+    assert calls[0]["run_timeout"] == 170
+    assert "MAX_PAGES_PER_DOMAIN" not in calls[0]["env_overrides"]
+    assert "LLM_CONCURRENCY" not in calls[0]["env_overrides"]
 
 
 def test_job_postings_derive_signals_digital_lead_keyword_match():
