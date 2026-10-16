@@ -222,25 +222,42 @@ async function startUpdate(manifest, workerInfo) {
   // detached/new-process-group flags, which only govern process-group membership, not
   // console ownership.
   //
-  // Fix: don't depend on an async child surviving this process's exit at all. Launch it
-  // with PowerShell's own Start-Process instead (no -Wait) - the same mechanism this file
-  // already relies on successfully elsewhere (Start-InstalledWorker, below, launches the
-  // final worker.mjs after a completed update and that persists fine across logouts) -
-  // and call it with spawnSync so THIS process waits the (near-instant) moment it takes
-  // for Start-Process to confirm the new process exists before exiting. By the time this
-  // process calls process.exit(0), the updater is already its own independent process;
-  // nothing async is left to race. Same root-cause methodology as the three updater bugs
-  // already documented under docs/CRAWLER_ROADMAP.md T23: run it un-detached and watch
-  // what actually happens, don't guess from the symptom alone - confirmed by tight
-  // process-tree polling across two failed attempts, not assumed from the first fix.
+  // First fix: PowerShell's own Start-Process (no -Wait), called via spawnSync so this
+  // process waits for it to confirm the new process exists before exiting - the same
+  // mechanism Start-InstalledWorker (below) already relies on for launching the final
+  // worker.mjs after a completed update, which persists fine across logouts. Tested sound
+  // in isolation (console-less VBS launch, matching how start-worker.vbs launches this
+  // process) - but STILL died within ~1s in the one real deployment it was tried against,
+  // confirmed by the same tight process-tree polling that found the console-ownership bug
+  // above. Start-Process still goes through this process's own console/job chain somehow;
+  // it's not the clean break it looks like.
+  //
+  // Second fix: WMI's Win32_Process.Create. This doesn't fork off this process's tree at
+  // all - the resulting process's parent is the WMI provider host (WmiPrvSE.exe), not this
+  // process, so there's nothing here for it to inherit or die with. Verified the same way
+  // as both previous attempts: console-less isolated launch, 8s delay, parent long gone -
+  // survived. Same root-cause methodology as the three other updater bugs already
+  // documented under docs/CRAWLER_ROADMAP.md T23: run it for real and watch what actually
+  // happens, don't assume from one isolated pass - that's what sank the first two fixes.
   const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+  const winArgQuote = (arg) => {
+    let result = '"', backslashes = 0;
+    for (const ch of String(arg)) {
+      if (ch === '\\') { backslashes++; continue; }
+      if (ch === '"') { result += '\\'.repeat(backslashes * 2 + 1) + '"'; backslashes = 0; continue; }
+      result += '\\'.repeat(backslashes) + ch;
+      backslashes = 0;
+    }
+    return result + '\\'.repeat(backslashes * 2) + '"';
+  };
   const updaterArgs = [
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updaterPath,
     '-Dir', ROOT, '-ZipPath', zipPath, '-ExpectedBuild', manifest.build,
     '-ParentPid', String(process.pid), '-WorkerInfoBase64', Buffer.from(JSON.stringify(workerInfo)).toString('base64'),
   ];
-  const launchCommand = `Start-Process -FilePath 'powershell.exe' -ArgumentList @(${updaterArgs.map(psQuote).join(',')}) -WindowStyle Hidden`;
-  const launch = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchCommand], { windowsHide: true });
+  const updaterCommandLine = ['powershell.exe', ...updaterArgs].map(winArgQuote).join(' ');
+  const launchScript = `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=${psQuote(updaterCommandLine)}}; if ($r.ReturnValue -ne 0) { Write-Error "WMI process creation failed with code $($r.ReturnValue)"; exit 1 }`;
+  const launch = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchScript], { windowsHide: true });
   if (launch.status !== 0) {
     throw new Error(`could not launch the updater: ${(launch.stderr?.toString().trim() || launch.error?.message || `exit ${launch.status}`)}`);
   }
