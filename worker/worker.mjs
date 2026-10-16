@@ -212,7 +212,16 @@ async function startUpdate(manifest, workerInfo) {
   } });
   log(`update ${VERSION_INFO.build} -> ${manifest.build} downloaded and verified; handing over to updater`);
 
-  const child = spawn('powershell.exe', [
+  // Plain spawn(..., {detached:true}) does not reliably survive this process's own exit
+  // on this platform - confirmed by direct testing (the exact symptom: the updater was
+  // being silently killed before it ever wrote its first log line, every single time,
+  // leaving the worker stuck at "Starting installer" with no error anywhere). Routing
+  // through cmd.exe's own `start` gives the child a genuinely independent process that
+  // isn't torn down when this one exits - same class of fix as docs/CRAWLER_ROADMAP.md
+  // T23's other three updater bugs, found and fixed the same way (run it un-detached and
+  // watch what actually happens, don't guess from the symptom alone).
+  const child = spawn('cmd.exe', [
+    '/d', '/c', 'start', '""', '/min', 'powershell.exe',
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updaterPath,
     '-Dir', ROOT, '-ZipPath', zipPath, '-ExpectedBuild', manifest.build,
     '-ParentPid', String(process.pid), '-WorkerInfoBase64', Buffer.from(JSON.stringify(workerInfo)).toString('base64'),
