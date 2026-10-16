@@ -212,25 +212,38 @@ async function startUpdate(manifest, workerInfo) {
   } });
   log(`update ${VERSION_INFO.build} -> ${manifest.build} downloaded and verified; handing over to updater`);
 
-  // Plain spawn(..., {detached:true}) does not reliably survive this process's own exit
-  // on this platform - confirmed by direct testing (the exact symptom: the updater was
-  // being silently killed before it ever wrote its first log line, every single time,
-  // leaving the worker stuck at "Starting installer" with no error anywhere). Routing
-  // through cmd.exe's own `start` gives the child a genuinely independent process that
-  // isn't torn down when this one exits - same class of fix as docs/CRAWLER_ROADMAP.md
-  // T23's other three updater bugs, found and fixed the same way (run it un-detached and
-  // watch what actually happens, don't guess from the symptom alone).
-  const child = spawn('cmd.exe', [
-    '/d', '/c', 'start', '""', '/min', 'powershell.exe',
+  // Neither plain spawn(..., {detached:true}) nor routing it through cmd.exe's own
+  // `start` survives this process's own exit reliably on this platform - confirmed by
+  // direct testing both ways (the exact symptom both times: the updater silently killed
+  // before it ever wrote its first log line). Tight process-tree polling during a real
+  // update caught it precisely: this process (node.exe) has its own hidden console, and
+  // whatever `start` launches stays attached to THAT console rather than getting a truly
+  // independent one - so it dies with the console when this process exits, regardless of
+  // detached/new-process-group flags, which only govern process-group membership, not
+  // console ownership.
+  //
+  // Fix: don't depend on an async child surviving this process's exit at all. Launch it
+  // with PowerShell's own Start-Process instead (no -Wait) - the same mechanism this file
+  // already relies on successfully elsewhere (Start-InstalledWorker, below, launches the
+  // final worker.mjs after a completed update and that persists fine across logouts) -
+  // and call it with spawnSync so THIS process waits the (near-instant) moment it takes
+  // for Start-Process to confirm the new process exists before exiting. By the time this
+  // process calls process.exit(0), the updater is already its own independent process;
+  // nothing async is left to race. Same root-cause methodology as the three updater bugs
+  // already documented under docs/CRAWLER_ROADMAP.md T23: run it un-detached and watch
+  // what actually happens, don't guess from the symptom alone - confirmed by tight
+  // process-tree polling across two failed attempts, not assumed from the first fix.
+  const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+  const updaterArgs = [
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updaterPath,
     '-Dir', ROOT, '-ZipPath', zipPath, '-ExpectedBuild', manifest.build,
     '-ParentPid', String(process.pid), '-WorkerInfoBase64', Buffer.from(JSON.stringify(workerInfo)).toString('base64'),
-  ], { detached: true, windowsHide: true, stdio: 'ignore' });
-  await new Promise((resolve, reject) => {
-    child.once('spawn', resolve);
-    child.once('error', reject);
-  });
-  child.unref();
+  ];
+  const launchCommand = `Start-Process -FilePath 'powershell.exe' -ArgumentList @(${updaterArgs.map(psQuote).join(',')}) -WindowStyle Hidden`;
+  const launch = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchCommand], { windowsHide: true });
+  if (launch.status !== 0) {
+    throw new Error(`could not launch the updater: ${(launch.stderr?.toString().trim() || launch.error?.message || `exit ${launch.status}`)}`);
+  }
   process.exit(0);
 }
 
