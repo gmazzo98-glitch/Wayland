@@ -151,6 +151,20 @@ def collect(crawlers_dir: Path):
         entries.append((f"worker/{name}", WORKER_SRC / name))
     for src, dest in ROOT_FILES.items():
         entries.append((dest, WORKER_SRC / src))
+    entries.extend(collect_wayback_timeline(crawlers_dir.parent))
+    return entries
+
+
+def collect_wayback_timeline(scraper_root: Path):
+    """Plain Python source only (no data/ or tests/) - company input and output both
+    live outside the bundle entirely (see worker.mjs's startWaybackTimeline), so there
+    is nothing else here to ship or keep in sync."""
+    src_dir = scraper_root / "tools" / "wayback_timeline"
+    if not src_dir.is_dir():
+        return []
+    entries = []
+    for f in sorted(src_dir.glob("*.py")):
+        entries.append((f"tools/wayback_timeline/{f.name}", f))
     return entries
 
 

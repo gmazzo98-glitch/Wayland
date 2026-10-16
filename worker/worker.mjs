@@ -24,6 +24,14 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = process.env.VIENNA_WORKER_HOME ? path.resolve(process.env.VIENNA_WORKER_HOME) : path.resolve(HERE, '..');
 const CRAWLERS_DIR = path.join(ROOT, 'crawlers');
+// A plain Python tool, not one of the Node crawlers above — bundled and dispatched
+// separately (see executeWaybackTimeline below) because it runs for hours, not minutes,
+// and must never occupy one of the maxParallel crawl slots or hit runTask's 900s cap.
+// Kept nested under tools/ in the bundle too, matching the Scraper repo's own layout
+// exactly, since the tool's source imports as `tools.wayback_timeline.*` (absolute,
+// matching how it's run and tested there) - flattening the path here would break them.
+const WAYBACK_DIR = path.join(ROOT, 'tools', 'wayback_timeline');
+const WAYBACK_OUTPUT_DIR = path.join(os.homedir(), 'WaybackTimelineOutput');
 const BROWSERS_DIR = path.join(ROOT, 'browsers');
 const LOG_FILE = path.join(ROOT, 'worker.log');
 const STATUS_FILE = path.join(ROOT, 'status.json');
@@ -348,6 +356,79 @@ async function runTask(task) {
   }
 }
 
+// ---- wayback_timeline: a Python tool, dispatched fire-and-forget, never awaited here ------------
+//
+// Unlike a crawl task, "run" isn't the unit of work the server asks for — "start" and "stop"
+// are. The Python process manages its own lifecycle (resumable, RAM-gated, stoppable via its
+// own STOP file; see tools/wayback_timeline/ram_guard.py in the Scraper repo this is bundled
+// from). The worker's job is just: act on the request immediately, report back immediately,
+// and separately surface its live status on every heartbeat — never block a claim slot on it.
+
+function waybackTimelineInfo() {
+  const available = fs.existsSync(WAYBACK_DIR);
+  try {
+    const pidFile = path.join(WAYBACK_OUTPUT_DIR, 'running.pid');
+    let running = false, pid = null;
+    if (fs.existsSync(pidFile)) {
+      pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+      try { process.kill(pid, 0); running = true; } catch { running = false; }
+    }
+    let done = 0, total = 0, hits = 0;
+    const statePath = path.join(WAYBACK_OUTPUT_DIR, 'state.json');
+    if (fs.existsSync(statePath)) {
+      const entries = Object.values(readJson(statePath));
+      total = entries.length;
+      done = entries.filter((e) => e.done).length;
+      hits = entries.filter((e) => e.first_hit).length;
+    }
+    return { available, running, pid: running ? pid : null, done, total, hits };
+  } catch (e) {
+    return { available, running: false, error: String(e.message).slice(0, 200) };
+  }
+}
+
+function startWaybackTimeline(task) {
+  if (!fs.existsSync(WAYBACK_DIR)) throw new Error('wayback_timeline is not present in this install');
+  if (waybackTimelineInfo().running) return { already_running: true };
+  // The company list travels with the task request (same convention the existing
+  // crawlers use for kind='csv' input), not a static bundled file - the app dispatching
+  // this may have no filesystem in common with this machine at all, so the CSV the user
+  // last edited in the panel is what's authoritative, always sent fresh at Start time.
+  const inputCsv = String((task.request || {}).input_csv || '');
+  if (!inputCsv.trim()) throw new Error('no company list in this request');
+  fs.mkdirSync(WAYBACK_OUTPUT_DIR, { recursive: true });
+  const companiesPath = path.join(WAYBACK_OUTPUT_DIR, 'companies.csv');
+  fs.writeFileSync(companiesPath, inputCsv, 'utf8');
+  const child = spawn('python', [
+    '-m', 'tools.wayback_timeline.timeline_builder', '--input', companiesPath,
+  ], { cwd: ROOT, detached: true, stdio: 'ignore', windowsHide: true });
+  child.unref();
+  return { started: true, pid: child.pid };
+}
+
+function stopWaybackTimeline() {
+  fs.mkdirSync(WAYBACK_OUTPUT_DIR, { recursive: true });
+  fs.writeFileSync(path.join(WAYBACK_OUTPUT_DIR, 'STOP'), 'requested via Vienna worker task');
+  return { stop_requested: true };
+}
+
+async function executeWaybackTimeline(task) {
+  log(`task ${task.id}: wayback_timeline ${task.kind}`);
+  let result, ok = true, error = null;
+  try {
+    if (task.kind === 'start') result = startWaybackTimeline(task);
+    else if (task.kind === 'stop') result = stopWaybackTimeline();
+    else throw new Error(`unknown wayback_timeline kind '${task.kind}'`);
+  } catch (e) {
+    ok = false;
+    error = String(e.message).slice(0, 3900);
+    log(`task ${task.id}: wayback_timeline ${task.kind} failed: ${error}`);
+  }
+  try {
+    await rpc('vienna_worker_complete', { p_token: CONFIG.token, p_task_id: task.id, p_ok: ok, p_result: result || null, p_error: error });
+  } catch (e2) { log(`task ${task.id}: could not report the result: ${e2.message}`); }
+}
+
 // ---- main loop -----------------------------------------------------------------------------------
 
 function acquireSingleInstance() {
@@ -391,7 +472,7 @@ async function main() {
       protocol: PROTOCOL, version: VERSION_INFO.version, build: VERSION_INFO.build,
       node: process.versions.node, os: `${os.platform()} ${os.release()}`, host: os.hostname(),
       busy: running, max_parallel: maxParallel, checks: selfTestReport.checks, selftest_at: selfTestReport.at,
-      auto_update: true,
+      auto_update: true, wayback_timeline: waybackTimelineInfo(),
       ...(failure ? { update_error: failure } : {}),
     };
   };
@@ -419,6 +500,7 @@ async function main() {
   };
 
   const execute = async (task) => {
+    if (task.crawler === 'wayback_timeline') { void executeWaybackTimeline(task); return; }
     running += 1;
     log(`task ${task.id}: ${task.crawler} started`);
     try {

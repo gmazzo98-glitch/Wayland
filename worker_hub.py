@@ -387,3 +387,17 @@ def run_remote(worker_id: str, crawler: str, kind: str, request: Dict[str, Any],
         finally:
             db.close()
 
+
+def queue_wayback_action(db, worker_id: str, kind: str, input_csv: Optional[str] = None) -> None:
+    """Queues a wayback_timeline start/stop as fire-and-forget - unlike run_remote, this
+    never blocks waiting for a result. The worker (worker.mjs's executeWaybackTimeline)
+    claims it within a couple of seconds, acts immediately (spawns or signals a local
+    process that runs for hours on its own), and reports done right away. Status after
+    that comes from the worker's own heartbeat info ('wayback_timeline' key), not this
+    task's result - read it the same way crawler_setup.py reads w.info.get('busy')."""
+    request: Dict[str, Any] = {"input_csv": input_csv} if input_csv is not None else {}
+    task = CrawlerTask(worker_id=worker_id, crawler="wayback_timeline", kind=kind,
+                       status="queued", request=request)
+    db.add(task)
+    db.commit()
+

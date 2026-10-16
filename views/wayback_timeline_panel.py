@@ -1,219 +1,151 @@
 """
-Wayback Timeline — settings/status panel for the standalone, opportunistic
-tool in the Scraper repo (tools/wayback_timeline/) that walks a company's
-Wayback Machine history with the local Ollama model to find when a claim
-(online store, sustainability commitment, named certification) first
-appeared on its homepage.
+Wayback Timeline — settings/status panel for the standalone, opportunistic tool in the
+Scraper repo (tools/wayback_timeline/) that walks a company's Wayback Machine history
+with the local Ollama model to find when a claim (online store, sustainability
+commitment, named certification) first appeared on its homepage.
 
-Unlike Crawler Setup (views/crawler_setup.py), this is NOT the distributed,
-database-backed worker system for friend PCs — that exists because a
-hosted Vienna instance has no Scraper folder of its own and can't start
-programs on a viewer's computer. This tool is simpler on purpose: it only
-ever runs on whichever single machine has Ollama and the Scraper repo, and
-that is checked honestly below, same "local_crawlers_available()" honesty
-convention as crawler_setup.py — if this page is being viewed from a
-different machine than the one that has them, it says so and stops, rather
-than pretending Start/Stop would do anything.
+Unlike Crawler Setup, there is no separate install step here: wayback_timeline rides the
+SAME installed Vienna Crawler Worker, bundled alongside the Node crawlers (see
+scripts/build_worker_bundle.py's collect_wayback_timeline). But it is dispatched
+differently, because it runs for hours, not minutes:
 
-Process control here is local-process control (subprocess.Popen / a STOP
-file the tool already respects), not a queued job — intentionally, since
-the whole point of this tool is "run it on this one machine, whenever it's
-convenient," not a distributed queue.
+  - Start/Stop are fire-and-forget tasks (worker_hub.queue_wayback_action), never
+    run_remote's blocking wait-for-result — the worker claims one, acts immediately
+    (spawns or signals a local process that keeps running on its own), and reports done
+    right away. A multi-hour wait on a CrawlerTask would fight the 900s cap built into
+    the worker's normal crawl-task path, and there is nothing to return anyway: the
+    Python tool is resumable/stoppable/RAM-gated by itself (tools/wayback_timeline/
+    ram_guard.py), the worker does not babysit it.
+  - Status comes from the worker's own heartbeat 'info' (worker.mjs's
+    waybackTimelineInfo), read the exact way crawler_setup.py already reads
+    info.get('busy') etc. — not from a task result.
+  - The company list has nowhere to live that both a hosted app and the worker's own
+    machine can both reach, so it travels WITH every start request (request.input_csv,
+    the same convention the existing crawlers already use for CSV input) rather than a
+    shared file. The most recently dispatched list is read back from that task row to
+    pre-fill the editor, which is simple but not a settings table — editing here always
+    requires picking a worker, even if there is only one.
 """
 from __future__ import annotations
 
-import csv
-import ctypes
-import json
-import subprocess
-import sys
-import time
-import urllib.request
-from pathlib import Path
+import io
 from typing import Optional
 
 import pandas as pd
 import streamlit as st
 
-# Sibling repo to this one, and the tool's own default output location
-# (outside OneDrive on purpose — see tools/wayback_timeline/timeline_builder.py
-# for why). Both are duplicated constants, not imported, by the same
-# decoupling principle the tool itself follows: this page must still render
-# a clear, honest "not available here" message even if that repo is absent.
-SCRAPER_REPO = Path(r"C:\Users\gmazz\OneDrive\Documents\Altro\Wayland\Scraper")
-OUTPUT_DIR = Path.home() / "WaybackTimelineOutput"
-COMPANIES_CSV = SCRAPER_REPO / "tools" / "wayback_timeline" / "data" / "companies.csv"
-OLLAMA_URL = "http://localhost:11434"
+import worker_hub
+import worker_installer
+from models import CrawlerTask, CrawlerWorker
+from worker_hub import list_workers, worker_status
+
+DEFAULT_COMPANIES = pd.DataFrame(
+    [{"company_id": "illy", "homepage_url": "https://www.illy.com"},
+     {"company_id": "brembo", "homepage_url": "https://www.brembo.com"}]
+)
 
 
-def _ollama_reachable() -> bool:
-    try:
-        urllib.request.urlopen(OLLAMA_URL, timeout=1.5)
-        return True
-    except Exception:
-        return False
+def _usable_workers(db) -> list[CrawlerWorker]:
+    expected = worker_installer.bundle_info()
+    out = []
+    for w in list_workers(db):
+        db.refresh(w)
+        status = worker_status(w, expected)
+        if status["usable"]:
+            out.append(w)
+    return out
 
 
-def _tool_available() -> bool:
-    """Honest availability check, same convention as local_crawlers_available()
-    in crawler_setup.py: both the code and the model have to be reachable
-    from wherever THIS Streamlit process is actually running."""
-    return SCRAPER_REPO.exists() and (SCRAPER_REPO / "tools" / "wayback_timeline").exists()
+def _wb_info(w: CrawlerWorker) -> dict:
+    return (w.info or {}).get("wayback_timeline") or {}
 
 
-def _pid_alive(pid: int) -> bool:
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not handle:
-        return False
-    ctypes.windll.kernel32.CloseHandle(handle)
-    return True
+def _last_companies_csv(db, worker_id: str) -> Optional[str]:
+    task = (db.query(CrawlerTask)
+            .filter_by(worker_id=worker_id, crawler="wayback_timeline", kind="start")
+            .order_by(CrawlerTask.id.desc()).first())
+    if task and task.request and task.request.get("input_csv"):
+        return task.request["input_csv"]
+    return None
 
 
-def _running_pid() -> Optional[int]:
-    pid_file = OUTPUT_DIR / "running.pid"
-    if not pid_file.exists():
-        return None
-    try:
-        pid = int(pid_file.read_text(encoding="utf-8").strip())
-    except (ValueError, OSError):
-        return None
-    return pid if _pid_alive(pid) else None
-
-
-def _read_state() -> dict:
-    state_file = OUTPUT_DIR / "state.json"
-    if not state_file.exists():
-        return {}
-    try:
-        return json.loads(state_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def _read_hits() -> list[dict]:
-    hits_file = OUTPUT_DIR / "timeline_hits.jsonl"
-    if not hits_file.exists():
-        return []
-    hits = []
-    for line in hits_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
-            try:
-                hits.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return hits
-
-
-def _start() -> Optional[str]:
-    """Launches the tool detached, so it keeps running after this Streamlit
-    page (or the whole app) is closed — same "survives the viewer leaving"
-    property the crawler worker has, just via a plain local process instead
-    of a background service. Returns an error string, or None on success."""
-    if not COMPANIES_CSV.exists():
-        return f"No company list yet at {COMPANIES_CSV} — add one below first."
-    try:
-        CREATE_NEW_PROCESS_GROUP = 0x00000200
-        DETACHED_PROCESS = 0x00000008
-        subprocess.Popen(
-            [sys.executable, "-m", "tools.wayback_timeline.timeline_builder",
-             "--input", str(COMPANIES_CSV)],
-            cwd=str(SCRAPER_REPO),
-            creationflags=CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        return None
-    except OSError as e:
-        return f"Couldn't start it: {e}"
-
-
-def _stop() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    (OUTPUT_DIR / "STOP").write_text("requested from Wayback Timeline panel", encoding="utf-8")
-
-
-def render_wayback_timeline_page(db) -> None:  # noqa: ARG001 — db unused, kept for call-site consistency
+def render_wayback_timeline_page(db) -> None:
     st.title("🕰️ Wayback Timeline")
     st.caption(
         "A standalone, opportunistic pass: reads a company's Wayback Machine history with the "
         "local model and finds when claims like an online store or a sustainability commitment "
-        "first appeared on its homepage. Runs only on this one machine, only when you start it — "
-        "nothing else in this app depends on it."
+        "first appeared on its homepage. Runs on a computer with the Vienna Crawler Worker "
+        "installed — nothing else in this app depends on it."
     )
 
-    if not _tool_available():
-        st.warning(
-            f"The tool isn't reachable from this server — expected it at `{SCRAPER_REPO}`. "
-            "This page only works when Vienna is running on the same machine that has the Scraper "
-            "repo and Ollama (see Crawler Setup's own note about hosted vs local for why).",
-            icon="⚠️",
-        )
+    workers = _usable_workers(db)
+    available = [w for w in workers if _wb_info(w).get("available")]
+    if not available:
+        if not workers:
+            st.warning("No computer is set up to run crawls yet. Open **🖥️ Crawler Setup** to install the "
+                      "worker on one.", icon="⚠️")
+        else:
+            st.warning(
+                "A worker is online, but none of them have wayback_timeline yet — it ships with the crawler "
+                "bundle, so it arrives on each computer's next auto-update (checked every 5 minutes) after "
+                "this was deployed. Check back shortly.", icon="⚠️"
+            )
         return
 
-    _render_status()
+    names = {w.id: w.name for w in available}
+    worker_id = available[0].id if len(available) == 1 else st.selectbox(
+        "Computer", list(names), format_func=lambda i: names[i], key="wb_worker_choice")
+
+    _render_status(db, worker_id, names[worker_id])
     st.markdown("---")
-    _render_companies()
-    st.markdown("---")
-    _render_hits()
+    _render_companies(db, worker_id)
 
 
 @st.fragment(run_every=4)
-def _render_status() -> None:
-    ollama_ok = _ollama_reachable()
-    pid = _running_pid()
+def _render_status(db, worker_id: str, worker_name: str) -> None:
+    w = db.get(CrawlerWorker, worker_id)
+    if w is None:
+        st.info("That computer was removed.")
+        return
+    db.refresh(w)
+    info = _wb_info(w)
+    running = bool(info.get("running"))
 
     cols = st.columns([2, 1])
     with cols[0]:
-        if pid:
-            st.success(f"🟢 Running (process {pid})", icon="🟢")
+        if running:
+            st.success(f"🟢 Running on **{worker_name}** (process {info.get('pid')})", icon="🟢")
         else:
-            st.info("⚪ Not running right now", icon="⚪")
-        if not ollama_ok:
-            st.caption("⚠️ Ollama isn't responding on localhost:11434 — a run would fail to start.")
+            st.info(f"⚪ Not running on **{worker_name}**", icon="⚪")
+        total = info.get("total") or 0
+        if total:
+            st.caption(f"{info.get('done', 0)} of {total} company/claim pairs checked · "
+                      f"{info.get('hits', 0)} confirmed")
     with cols[1]:
-        if pid:
+        if running:
             if st.button("Stop", type="secondary", width="stretch"):
-                _stop()
-                st.caption("Stop requested — it finishes the snapshot it's on, saves, then exits.")
+                worker_hub.queue_wayback_action(db, worker_id, "stop")
+                st.caption("Stop requested — the worker signals it within a few seconds; it finishes "
+                          "the snapshot it's on, saves, then exits.")
         else:
-            if st.button("Start", type="primary", width="stretch", disabled=not ollama_ok):
-                error = _start()
-                if error:
-                    st.error(error)
+            if st.button("Start", type="primary", width="stretch"):
+                csv_text = st.session_state.get("wb_companies_csv")
+                if not csv_text:
+                    st.error("Add at least one company below first.")
                 else:
-                    st.rerun()
-
-    state = _read_state()
-    if state:
-        done = sum(1 for e in state.values() if e.get("done"))
-        with_hit = sum(1 for e in state.values() if e.get("first_hit"))
-        st.caption(f"{done} of {len(state)} company/claim pairs checked so far · {with_hit} confirmed")
+                    worker_hub.queue_wayback_action(db, worker_id, "start", input_csv=csv_text)
+                    st.caption("Start requested — the worker claims it within a couple of seconds.")
 
 
-def _render_companies() -> None:
+def _render_companies(db, worker_id: str) -> None:
     st.subheader("Companies")
-    st.caption(f"Edited here, saved straight to `{COMPANIES_CSV.name}` — the same file the tool reads.")
-    if COMPANIES_CSV.exists():
-        df = pd.read_csv(COMPANIES_CSV)
+    st.caption("Sent fresh with every Start — this computer has nowhere else to read the list from.")
+
+    existing_csv = _last_companies_csv(db, worker_id)
+    if existing_csv:
+        df = pd.read_csv(io.StringIO(existing_csv))
     else:
-        df = pd.DataFrame(columns=["company_id", "homepage_url"])
+        df = DEFAULT_COMPANIES
 
-    edited = st.data_editor(df, num_rows="dynamic", width="stretch", key="wayback_companies_editor")
-    if st.button("Save company list"):
-        COMPANIES_CSV.parent.mkdir(parents=True, exist_ok=True)
-        edited.to_csv(COMPANIES_CSV, index=False)
-        st.success(f"Saved {len(edited)} companies.")
-
-
-def _render_hits() -> None:
-    st.subheader("Confirmed so far")
-    hits = _read_hits()
-    if not hits:
-        st.caption("Nothing confirmed yet.")
-        return
-    for h in sorted(hits, key=lambda x: x.get("date", ""), reverse=True):
-        with st.container(border=True):
-            st.markdown(f"**{h.get('company_id')}** — {h.get('claim_id')} — first seen **{h.get('date')}**")
-            st.caption(h.get("quote", ""))
-            st.markdown(f"[View on Wayback Machine]({h.get('replay_url')})")
+    edited = st.data_editor(df, num_rows="dynamic", width="stretch", key="wb_companies_editor")
+    st.session_state["wb_companies_csv"] = edited.to_csv(index=False)
