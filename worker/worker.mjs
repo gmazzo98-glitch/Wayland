@@ -403,6 +403,21 @@ async function runTask(task) {
 // from). The worker's job is just: act on the request immediately, report back immediately,
 // and separately surface its live status on every heartbeat — never block a claim slot on it.
 
+// The Python process's own stdout/stderr used to go to stdio:'ignore' - fine while it's
+// running, but when it refuses to start at all (e.g. the RAM gate in ram_guard.py) or
+// crashes on an unhandled exception, that reason vanished into nothing. The app showed a
+// bare "Not running" with no way to tell "never tried" from "tried and refused" apart.
+// Redirect to a log file instead and surface its last line in the heartbeat, so the one
+// thing standing between "Start" and an actual run is visible from the app, not something
+// that needs a live SSH session into this machine to diagnose.
+function waybackTimelineLastLog() {
+  try {
+    const text = fs.readFileSync(path.join(WAYBACK_OUTPUT_DIR, 'run.log'), 'utf8');
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    return lines.length ? lines[lines.length - 1].slice(0, 300) : null;
+  } catch { return null; }
+}
+
 function waybackTimelineInfo() {
   const available = fs.existsSync(WAYBACK_DIR);
   try {
@@ -420,7 +435,7 @@ function waybackTimelineInfo() {
       done = entries.filter((e) => e.done).length;
       hits = entries.filter((e) => e.first_hit).length;
     }
-    return { available, running, pid: running ? pid : null, done, total, hits };
+    return { available, running, pid: running ? pid : null, done, total, hits, lastLog: waybackTimelineLastLog() };
   } catch (e) {
     return { available, running: false, error: String(e.message).slice(0, 200) };
   }
@@ -438,9 +453,11 @@ function startWaybackTimeline(task) {
   fs.mkdirSync(WAYBACK_OUTPUT_DIR, { recursive: true });
   const companiesPath = path.join(WAYBACK_OUTPUT_DIR, 'companies.csv');
   fs.writeFileSync(companiesPath, inputCsv, 'utf8');
+  const logFd = fs.openSync(path.join(WAYBACK_OUTPUT_DIR, 'run.log'), 'w');
   const child = spawn('python', [
-    '-m', 'tools.wayback_timeline.timeline_builder', '--input', companiesPath,
-  ], { cwd: ROOT, detached: true, stdio: 'ignore', windowsHide: true });
+    '-u', '-m', 'tools.wayback_timeline.timeline_builder', '--input', companiesPath,
+  ], { cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd], windowsHide: true });
+  fs.closeSync(logFd);
   child.unref();
   return { started: true, pid: child.pid };
 }

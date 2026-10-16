@@ -121,6 +121,9 @@ def _render_status(db, worker_id: str, worker_name: str) -> None:
         if total:
             st.caption(f"{info.get('done', 0)} of {total} company/claim pairs checked · "
                       f"{info.get('hits', 0)} confirmed")
+        last_log = info.get("lastLog")
+        if last_log and not running:
+            st.caption(f"Last run's final line: {last_log}")
     with cols[1]:
         if running:
             if st.button("Stop", type="secondary", width="stretch"):
