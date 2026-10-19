@@ -347,3 +347,89 @@ def test_accounts_age_flag_is_calibrated_to_the_filing_calendar():
     assert [f["level"] for f in stale] == ["risk"] and "stale" in stale[0]["chip"]
     every = dd.flags(dd.financial_statement(AIDA_BLOB), {"distress_procedure": (1.0, "present")}, today=date(2026, 10, 19))
     assert all(f["chip"] and len(f["chip"]) <= 30 for f in every)
+
+
+# ------------------------------------------------------------------- one home per feature (no cloned pages)
+
+EXPECTED_NAV = ["⚙️ Pipeline & Source Health", "🏢 Company Intelligence", "🎯 Targets & Shortlist", "📊 Portfolio Analysis",
+                "⚖️ Indicator Weights", "🖥️ Crawler Setup", "🕰️ Wayback Timeline", "🤖 AI Assistant", "🛠️ Data Admin"]
+
+
+def _nav_labels():
+    import re
+    src = (Path(_ROOT) / "app.py").read_text(encoding="utf-8")
+    block = src[src.index("page_selection = st.sidebar.radio("):src.index('key="nav_page"')]
+    return re.findall(r'^\s+"([^"]+)"', block, flags=re.M)[1:]  # [0] is the radio's own label
+
+
+def test_sidebar_has_one_page_per_job_and_every_entry_is_routed():
+    src = (Path(_ROOT) / "app.py").read_text(encoding="utf-8")
+    nav = _nav_labels()
+    assert nav == EXPECTED_NAV
+    for label in nav:
+        assert f'page_selection == "{label}"' in src, f"{label} is in the sidebar but never routed"
+    # the pages whose per-company halves moved into Company Intelligence no longer exist on their own
+    for gone in ("🩺 Pain Points", "💸 Cost Structure", "💶 Valuation", "💰 Shortlist Gate & Paid Pulls", "🎯 Scored Target Matrix"):
+        assert gone not in nav
+
+
+def test_company_actions_exist_only_in_the_dossier_not_in_a_second_page():
+    """A crawl button, the AI report or a paid pull must be rendered from exactly one place: the dossier."""
+    users = {}
+    for name in ("render_standard_and_deep_dive", "render_paid_pulls", "render_ai_report", "render_shortlist_controls",
+                 "render_api_and_crawler_row", "render_company_xray", "render_company_valuation", "render_company_pain_points"):
+        users[name] = sorted(p.name for p in (Path(_ROOT) / "views").glob("*.py")
+                             if f"{name}(" in p.read_text(encoding="utf-8") and f"def {name}(" not in p.read_text(encoding="utf-8"))
+    for name, files in users.items():
+        assert files in (["company_dossier.py"], ["company_detail.py"]) or files == sorted(set(files)) and set(files) <= {
+            "company_dossier.py", "company_detail.py"}, f"{name} is rendered from {files}"
+
+
+def _page_app(db_path, body):
+    return AppTest.from_string(textwrap.dedent(f"""
+        import sys
+        sys.path.insert(0, {_ROOT!r})
+        import valuation_models  # noqa: F401
+        from database import init_db
+        init_db()  # some pages (matrix coverage strip, indicator weights) read the app's own DATABASE_URL, not `db`
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        engine = create_engine({f"sqlite:///{db_path}"!r}, connect_args={{"check_same_thread": False}})
+        db = sessionmaker(bind=engine)()
+    """) + textwrap.dedent(body), default_timeout=180)
+
+
+def test_targets_page_holds_the_matrix_and_the_gate_and_the_gate_no_longer_clones_company_actions(tmp_path):
+    db_path = _seed(tmp_path)
+    app = _page_app(db_path, "from views.targets import render_targets_page\nrender_targets_page(db)").run()
+    assert not app.exception, [e.value for e in app.exception]
+    assert any("Targets & Shortlist" in t.value for t in app.title)
+    app.session_state["targets_section"] = "gate"
+    app = app.run()
+    assert not app.exception, [e.value for e in app.exception]
+    text = _texts(app)
+    for needle in ("Target Shortlist Qualification Gate", "Remove from Shortlist", "In-depth work on a shortlisted company"):
+        assert needle in text, needle
+    labels = {b.label for b in app.button}
+    assert not any(l.startswith(("Run deep-dive", "Run standard crawl", "Generate / refresh", "📥")) for l in labels), labels
+    assert any(w.label == "Open a shortlisted company's dossier" for w in app.selectbox)
+
+
+def test_portfolio_analysis_has_three_cross_company_sections_and_no_per_company_clones(tmp_path):
+    db_path = _seed(tmp_path)
+    app = _page_app(db_path, "from views.portfolio_analysis import render_portfolio_analysis_page\nrender_portfolio_analysis_page(db)").run()
+    assert not app.exception, [e.value for e in app.exception]
+    assert [t.value for t in app.title] == ["📊 Portfolio Analysis"]          # one title: the inner pages stay quiet
+    seen = {}
+    for section in ("pain", "costs", "valuation"):
+        app.session_state["pa_section"] = section
+        app = app.run()
+        assert not app.exception, (section, [e.value for e in app.exception])
+        seen[section] = [t.label for t in app.tabs]
+        assert [t.value for t in app.title] == ["📊 Portfolio Analysis"], section
+    assert seen["costs"] == ["🏭 Portfolio", "🚨 Outliers & movers", "🗺️ Sector map"]
+    assert seen["valuation"] == ["📊 Universe screen", "⚙️ Assumptions & data"]
+    assert seen["pain"] == ["📊 Portfolio", "🧩 Pain-point catalog", "🕳️ Data gaps & new indicators"]
+    app.session_state["pa_section"] = "costs"
+    labels = {w.label for w in app.selectbox}
+    assert "Company (type to search)" not in labels                              # the per-company picker moved to the dossier

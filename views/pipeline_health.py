@@ -146,7 +146,7 @@ def render_pipeline_health_page(db: Session):
         "instances, 2 Wayback lookups, and ONE company-website extraction at a time — because the free LLM "
         "tier's tokens-per-minute budget, not parallelism, is what limits that crawler: a second free provider "
         "(CRAWLER_LLM_FALLBACK_API_KEY in .env) is the only way to speed it up further. "
-        "Cap the batch size below; to hand-pick companies instead, tick them on **🎯 Scored Target Matrix**. "
+        "Cap the batch size below; to hand-pick companies instead, tick them on **🎯 Targets & Shortlist**. "
         "Crawls run in the background: keep working, and follow progress in the widget at the bottom right of any page."
     )
     phase7_todo = _scope(7)
@@ -178,7 +178,7 @@ def render_pipeline_health_page(db: Session):
 
     st.caption(
         "Phase 3 (Bundesanzeiger) and Phase 5 (Kununu) paid pulls are manual, per-company, and live on the "
-        "**💰 Shortlist Gate & Paid Pulls** page — never auto-run across the full batch (Section 3 of the Brief). "
+        "**🏢 Company Intelligence > Actions** — never auto-run across the full batch (Section 3 of the Brief). "
         "Phase 6 indicators (org structure, approval chains — anything only a first-contact call can answer) "
         "have no trigger at all; they're recorded by hand on **🏢 Company Intelligence**. "
         "Which indicators matter and how much is tunable on **⚖️ Indicator Weights**."

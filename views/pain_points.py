@@ -324,8 +324,8 @@ def _render_portfolio_tab(db: Session, companies: dict, pain_defs: list):
         }
         picked = st.multiselect(
             "⭐ Add to shortlist for in-depth analysis", list(options), key="pp_shortlist_pick",
-            help="Flags the company for the dedicated 💰 Shortlist Gate & Paid Pulls workflow and the full "
-                 "per-company view on 🏢 Company Intelligence — same status every other shortlisting action in "
+            help="Flags the company for in-depth work: its full dossier and actions (crawls, AI report, paid pulls) in "
+                 "🏢 Company Intelligence — same status every other shortlisting action in "
                  "this app sets, nothing pain-point-specific about it.")
         if st.button("Add selected to shortlist", disabled=not picked, key="pp_shortlist_add"):
             ids = {options[label] for label in picked}
@@ -474,8 +474,9 @@ def _render_gaps_tab(gap_data: dict, n_companies: int):
         } for q in gap_data["quality"]]), hide_index=True, width="stretch")
 
 
-def render_pain_points_page(db: Session):
-    st.title("🩺 Pain Points")
+def render_pain_points_page(db: Session, show_title: bool = True):
+    if show_title:
+        st.title("🩺 Pain Points")
     st.caption(
         "What the target companies are struggling with, detected automatically from their indicators. Every detection cites the "
         "indicator, value, threshold and source behind it. Only real observations count; a pain point with no usable data is "

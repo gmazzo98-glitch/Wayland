@@ -525,8 +525,9 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
     )
 
 
-def render_target_matrix_page(db: Session):
-    st.title("🎯 Scored Target Matrix (Need × Readiness)")
+def render_target_matrix_page(db: Session, show_title: bool = True):
+    if show_title:
+        st.title("🎯 Scored Target Matrix (Need × Readiness)")
     st.caption("2D Positioning Rubric, scored separately per segment — Midcap and SME are never pooled into one ranking (Section 5 of the Brief).")
 
     companies = db.query(Company).all()

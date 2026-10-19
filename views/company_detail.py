@@ -1037,7 +1037,7 @@ def sec_identity(ctx: DossierContext) -> None:
         with col_c4:
             st.write("**Website:**", company.website_url or "—")
             st.write("**VIENNA Level:**", company.vienna_level or "Not classified (Section 5.4 deferred)")
-            st.write("**Last Scored:**", company.last_scored_at.strftime("%Y-%m-%d %H:%M") if company.last_scored_at else "Never (visit Scored Target Matrix)")
+            st.write("**Last Scored:**", company.last_scored_at.strftime("%Y-%m-%d %H:%M") if company.last_scored_at else "Never (open 🎯 Targets & Shortlist)")
             parent = db.query(Company).filter_by(id=company.parent_company_id).first() if company.parent_company_id else None
             st.write("**Parent Company:**", parent.legal_name if parent else "—")
 
@@ -1330,7 +1330,7 @@ def sec_category_breakdown(ctx: DossierContext) -> None:
             "Each checked signal is normalized to 0-100 using its own Raw Min/Raw Max bounds from the Indicator "
             "Weights page (0 = worst end of the configured range, 100 = best), then averaged per category here — "
             "unweighted and axis-blended, for a quick at-a-glance read only. The real weighted Need/Readiness "
-            "score (with redundancy dampening and gating) is on the Scored Target Matrix page. "
+            "score (with redundancy dampening and gating) is in 🎯 Targets & Shortlist. "
             "⚠️ If a category's average looks stuck near 0 or 100, its indicators' Raw Min/Max bounds are likely "
             "calibrated for a different data scale than what's actually been injected — check the raw values in "
             "the Financial Profile table above against the bounds shown on the Indicator Weights page."

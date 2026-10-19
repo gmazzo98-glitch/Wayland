@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from sqlalchemy.orm import Session
 
-from dossier_nav import open_dossier_button
+from dossier_nav import render_open_dossier_picker
 import valuation_data as vd
 import valuation_service as vs
 from valuation import ValuationResult, value_company, value_universe
@@ -352,6 +352,8 @@ def _render_universe_tab(db: Session):
     )
     st.download_button("⬇️ Download this table (CSV)", view.to_csv(index=False).encode("utf-8"),
                        "vienna_valuation_screen.csv", "text/csv")
+    render_open_dossier_picker({f"{c['legal_name']} ({c['registration_number']})": c["id"] for c in companies},
+                               key="uni_open", tab="financials", label="Open a company's dossier (full valuation, with its inputs)")
     st.caption("Sorted by base enterprise value. Need/Readiness are shown for reference only — valuation is a separate lens and never feeds either score.")
 
 
@@ -450,24 +452,16 @@ def _render_assumptions_tab(db: Session):
 
 # ------------------------------------------------------------------ the page
 
-def render_valuation_page(db: Session):
-    st.title("💶 Company Valuation")
+def render_valuation_page(db: Session, show_title: bool = True):
+    """Cross-company valuation screen and the assumptions behind it. One company's valuation is in
+    Company Intelligence > Financials > Indicative valuation."""
+    if show_title:
+        st.title("💶 Company Valuation")
     st.caption("A third lens beside NEED and READINESS — what a company is roughly worth, and how much of that is at stake in the gaps we score. "
-               "Never blended into either score.")
+               "Never blended into either score. One company's valuation is in 🏢 Company Intelligence > Financials.")
     st.info(DISCLAIMER)
-    tab_company, tab_screen, tab_assump = st.tabs(["🏢 Company valuation", "📊 Universe screen", "⚙️ Assumptions & data"])
+    tab_screen, tab_assump = st.tabs(["📊 Universe screen", "⚙️ Assumptions & data"])
 
-    with tab_company:
-        companies, _, ctx, results = _universe(db)
-        if not companies:
-            st.warning("No companies in the database yet.")
-        else:
-            valued_ids = {r.company_id for r in results if r.status == "valued"}
-            labels = {f"{c['legal_name']} ({c['registration_number']}) — {c['country'] or '—'}"
-                      + ("" if c["id"] in valued_ids else "  · not valued"): c["id"] for c in companies}
-            pick = st.selectbox("Company", list(labels), key="val_company", help="Type to search.")
-            render_company_valuation(db, labels[pick], key="valpage")
-            open_dossier_button(labels[pick], "🏢 Open the full dossier", key="val_open_dossier", tab="financials")
     with tab_screen:
         _render_universe_tab(db)
     with tab_assump:

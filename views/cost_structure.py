@@ -1,15 +1,15 @@
 """
-Cost Structure (Page): where each company's money goes, across the nine AIDA production-cost lines.
+Cost Structure (portfolio view): where the money goes across the portfolio, across the nine AIDA production-cost lines.
 
 Every category is shown three ways - absolute thousand EUR, % of total production costs, % of revenue
 (only where the revenue year is proven to match; otherwise blank, never estimated) - plus four fiscal
 years of history and a comparison against the company's ATECO peers.
 
-Four tabs, each answering a question a spreadsheet makes slow:
+Three tabs, each answering a question a spreadsheet makes slow:
   Portfolio   - "rank/filter all companies on any cost line, in k EUR or in %"  (with a per-row cost-mix chart)
-  Company X-ray - "what does this company's cost structure look like, how has it moved, and what stands out?"
   Outliers & movers - "which companies have an unusual mix, and whose mix is shifting fastest?"
   Sector map  - "what does a typical cost structure look like in each ATECO code?"
+One company's full cost X-ray (render_company_xray, below) is shown in Company Intelligence > Costs, not here.
 
 All numbers come from cost_analytics.py (the same module the AI assistant's get_cost_breakdown tool uses).
 """
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 import cost_analytics as ca
 import cost_breakdown as cb
-from dossier_nav import open_dossier_button, render_open_dossier_picker
+from dossier_nav import render_open_dossier_picker
 from models import Company
 
 PALETTE = ["#4C78A8", "#F58518", "#54A24B", "#B279A2", "#E45756", "#72B7B2", "#EECA3B", "#9D755D", "#BAB0AC"]
@@ -66,8 +66,9 @@ def _render_portfolio(frame: pd.DataFrame):
         t = text.strip().lower()
         d = d[d["legal_name"].str.lower().str.contains(t, na=False) | d["registration_number"].str.lower().str.contains(t, na=False)]
     lo, hi = float(frame["total_k"].min()), float(frame["total_k"].max())
-    size = st.slider("Total production costs (k EUR)", lo, hi, (lo, hi), key="cs_size")
-    d = d[d["total_k"].between(*size)]
+    if lo < hi:  # a slider needs a range: with one company (or all equal totals) there is nothing to filter on
+        size = st.slider("Total production costs (k EUR)", lo, hi, (lo, hi), key="cs_size")
+        d = d[d["total_k"].between(*size)]
 
     if suffix == "rev":
         have = d[[f"{c}_rev" for c in cb.CATEGORY_KEYS]].notna().any(axis=1)
@@ -118,15 +119,6 @@ def _findings(b: dict) -> list:
             msgs.append(f"**{c['label']}** share moved {tr:+.1f} pp over the filed years "
                         f"({'rising' if tr > 0 else 'falling'} as a part of the cost base).")
     return msgs
-
-
-def _render_xray(db: Session, frame: pd.DataFrame):
-    names = frame.sort_values("legal_name")
-    labels = {r.company_id: f"{r.legal_name}  ({r.registration_number})" for r in names.itertuples()}
-    cid = st.selectbox("Company (type to search)", list(labels), format_func=lambda k: labels[k], key="cs_xray_company")
-    company = db.query(Company).filter_by(id=cid).first()
-    render_company_xray(db, company, frame, key="cs")
-    open_dossier_button(cid, "🏢 Open the full dossier", key="cs_xray_open", tab="costs")
 
 
 def render_company_xray(db: Session, company: Company, frame: pd.DataFrame = None, key: str = "cs") -> None:
@@ -256,20 +248,20 @@ def _render_sector_map(frame: pd.DataFrame):
     st.caption(f"Sectors with at least {ca.MIN_NACE_PEERS} companies. Each cell is the median of that line within the sector.")
 
 
-def render_cost_structure_page(db: Session):
-    st.title("💸 Cost Structure")
-    st.caption("The nine AIDA production-cost lines for every company - absolute thousand EUR, share of costs and share of revenue, "
-               "four fiscal years, with peer comparison. Source: AIDA cost-breakdown export.")
+def render_cost_structure_page(db: Session, show_title: bool = True):
+    """Cross-company cost analysis. One company's cost X-ray lives in Company Intelligence > Costs."""
+    if show_title:
+        st.title("💸 Cost Structure")
+    st.caption("The nine AIDA production-cost lines across the portfolio - absolute thousand EUR, share of costs and share of revenue, "
+               "with peer comparison. One company's full X-ray is in 🏢 Company Intelligence > Costs.")
     frame = _frame(db)
     if frame.empty:
         st.warning("No cost-breakdown data imported yet. Run `python scripts/import_cost_breakdown.py --file <export> --apply`.")
         return
-    t1, t2, t3, t4 = st.tabs(["🏭 Portfolio", "🔬 Company X-ray", "🚨 Outliers & movers", "🗺️ Sector map"])
+    t1, t2, t3 = st.tabs(["🏭 Portfolio", "🚨 Outliers & movers", "🗺️ Sector map"])
     with t1:
         _render_portfolio(frame)
     with t2:
-        _render_xray(db, frame)
-    with t3:
         _render_outliers(db, frame)
-    with t4:
+    with t3:
         _render_sector_map(frame)

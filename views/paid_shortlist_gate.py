@@ -1,8 +1,12 @@
 """
-Shortlist Gate & Paid Pull Trigger View (Page 4)
-Section 3 & 7 of GG_Dashboard_Technical_Brief.docx & Phase 3/5 of Sourcing Plan
+Shortlist Gate: which candidates qualify for in-depth work, promote them, take them off again.
+
+Cross-company only. Everything you can DO to one company (crawls, deep-dive, AI report, paid pulls) lives in
+Company Intelligence > Actions, so it exists once; this page ends with a one-click way to open a shortlisted
+company's dossier.
 """
 
+from collections import defaultdict
 from datetime import datetime
 import streamlit as st
 import pandas as pd
@@ -10,13 +14,14 @@ from sqlalchemy.orm import Session
 from models import Company, RawImportRecord, SignalRecord, SourceHealth
 from scoring import calculate_company_scores
 from indicators import fetch_indicator_defs
-from dossier_nav import open_dossier_button
-from views.company_actions import render_ai_report, render_paid_pulls, render_standard_and_deep_dive
+from dossier_nav import render_open_dossier_picker
 from config import SHORTLIST_MIN_COMPLETENESS_PCT, SHORTLIST_MIN_PRELIMINARY_SCORE
 
-def render_paid_shortlist_gate_page(db: Session):
-    st.title("💰 Shortlist Gate & Paid Document Triggers")
-    st.caption("Enforces the Shortlist Gate — companies must clear Phase 1+2 baseline scores before Phase 3+ paid pulls can be executed.")
+def render_paid_shortlist_gate_page(db: Session, show_title: bool = True):
+    if show_title:
+        st.title("⭐ Shortlist Gate")
+    st.caption("Companies must clear the Phase 1+2 baseline before they are shortlisted for in-depth work and Phase 3+ paid pulls. "
+               "The in-depth work itself happens in 🏢 Company Intelligence > Actions.")
 
     companies = db.query(Company).all()
     if not companies:
@@ -45,9 +50,12 @@ def render_paid_shortlist_gate_page(db: Session):
 
     indicator_defs = fetch_indicator_defs(db)
     gate_rows = []
+    # One query for every signal, grouped here: the old one-query-per-company loop was ~950 round trips to the database.
+    signals_by_company = defaultdict(list)
+    for sig in db.query(SignalRecord).all():
+        signals_by_company[sig.company_id].append(sig)
     for comp in companies:
-        signals = db.query(SignalRecord).filter_by(company_id=comp.id).all()
-        scores = calculate_company_scores(signals, indicator_defs)
+        scores = calculate_company_scores(signals_by_company.get(comp.id, []), indicator_defs)
 
         preliminary_score = (scores["need_score"] + scores["readiness_score"]) / 2.0
         eligible = (
@@ -131,19 +139,7 @@ def render_paid_shortlist_gate_page(db: Session):
 
     st.markdown("---")
 
-    # In-depth actions for one shortlisted company. The actions themselves live in views/company_actions.py (shared
-    # with the Company Intelligence dossier's Actions tab) so a crawl or the AI report never exists in two copies;
-    # the whole picture of the company - financials, costs, people, market - is one click away in the dossier.
-    st.subheader("🔬 In-Depth Analysis for a Shortlisted Company")
-
-    comp_options = {f"{c.legal_name} ({c.registration_number})": c for c in shortlisted_companies}
-    selected_comp_name = st.selectbox("Select Shortlisted Target", list(comp_options.keys()))
-    target_comp = comp_options[selected_comp_name]
-    open_dossier_button(target_comp.id, "🏢 Open the full dossier for this company", key="gate_open_dossier")
-
-    render_standard_and_deep_dive(db, target_comp, key="gate_indepth")
-    render_ai_report(db, target_comp, key="shortlist_ai_brief")
-
-    st.markdown("---")
-
-    render_paid_pulls(db, target_comp)
+    st.subheader("🔬 In-depth work on a shortlisted company")
+    st.caption("Crawls, the deep-dive website crawl, the AI report, financials, costs, people and paid pulls are all in the dossier.")
+    render_open_dossier_picker({f"{c.legal_name} ({c.registration_number})": c.id for c in shortlisted_companies},
+                               key="gate_open", tab="actions", label="Open a shortlisted company's dossier")
