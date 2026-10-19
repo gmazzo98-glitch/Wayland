@@ -116,60 +116,72 @@ def ownership(blob: Optional[dict]) -> Dict[str, Any]:
 
 def flags(fin: Optional[Dict[str, Any]], signals: Dict[str, Tuple[Optional[float], str]], today: Optional[date] = None
           ) -> List[Dict[str, str]]:
-    """Rule-based flags, each {'level': 'risk'|'watch'|'strength', 'text': ...}. Heuristics for triage, not verdicts:
-    every threshold is stated in the text so a reader can disagree with it."""
+    """Rule-based flags, each {'level': 'risk'|'watch'|'strength', 'text': ..., 'chip': short label for the header}.
+    Heuristics for triage, not verdicts: every threshold is stated in the text so a reader can disagree with it."""
     out: List[Dict[str, str]] = []
     today = today or date.today()
+
+    def add(level: str, text: str, chip: str) -> None:
+        out.append({"level": level, "text": text, "chip": chip})
 
     def present(key):
         v = signals.get(key)
         return v[0] if v and v[1] == "present" and v[0] is not None else None
 
-    distress = present("distress_procedure")
-    if distress:
-        out.append({"level": "risk", "text": "Formal distress procedure on record (insolvency, composition or liquidation without a closing date)."})
+    if present("distress_procedure"):
+        add("risk", "Formal distress procedure on record (insolvency, composition or liquidation without a closing date).",
+            "Distress procedure")
     year = present("last_accounts_year")
-    if year is not None and today.year - int(year) >= 2:
-        out.append({"level": "risk", "text": f"Latest filed accounts are from {int(year)} - every figure here is {today.year - int(year)} years old."})
-    elif year is not None and today.year - int(year) == 1:
-        out.append({"level": "watch", "text": f"Latest filed accounts are FY{int(year)} (the newest year most companies have filed)."})
+    if year is not None:
+        behind = today.year - int(year)
+        # Accounts for year Y are normally filed and in AIDA by mid Y+1, so in the second half of a year the newest
+        # filed accounts are FY(year-1): one year behind is normal, two is a lag worth knowing, three or more is stale.
+        if behind >= 3:
+            add("risk", f"Latest filed accounts are FY{int(year)} - {behind} years behind; every figure here describes a company that may have changed.",
+                f"Accounts FY{int(year)} (stale)")
+        elif behind == 2:
+            add("watch", f"Latest filed accounts are FY{int(year)} - FY{int(year) + 1} is not in AIDA yet, so the figures are a year behind.",
+                f"Accounts FY{int(year)}")
 
     if fin and fin["has_data"]:
         L, R, lab = fin["lines"], fin["ratios"], fin["labels"]["latest"]
-        eq, ta = L["equity"]["latest"], L["total_assets"]["latest"]
+        eq = L["equity"]["latest"]
+        er = R["equity_ratio"]["latest"]
         if eq is not None and eq < 0:
-            out.append({"level": "risk", "text": f"Negative equity in {lab} ({eq:,.0f}k)."})
-        elif R["equity_ratio"]["latest"] is not None and R["equity_ratio"]["latest"] < 10:
-            out.append({"level": "watch", "text": f"Thin equity: {R['equity_ratio']['latest']:.0f}% of total assets in {lab} (watch below 10%)."})
-        elif R["equity_ratio"]["latest"] is not None and R["equity_ratio"]["latest"] >= 40:
-            out.append({"level": "strength", "text": f"Strong capitalisation: equity is {R['equity_ratio']['latest']:.0f}% of total assets."})
+            add("risk", f"Negative equity in {lab} ({eq:,.0f}k).", "Negative equity")
+        elif er is not None and er < 10:
+            add("watch", f"Thin equity: {er:.0f}% of total assets in {lab} (watch below 10%).", "Thin equity")
+        elif er is not None and er >= 40:
+            add("strength", f"Strong capitalisation: equity is {er:.0f}% of total assets.", "Strong equity")
         ni = L["net_income"]["latest"]
         if ni is not None and ni < 0:
-            out.append({"level": "risk" if (L["net_income"]["y-1"] or 0) < 0 else "watch",
-                        "text": f"Net loss in {lab} ({ni:,.0f}k)" + (" - second consecutive loss." if (L["net_income"]["y-1"] or 0) < 0 else ".")})
+            twice = (L["net_income"]["y-1"] or 0) < 0
+            add("risk" if twice else "watch", f"Net loss in {lab} ({ni:,.0f}k)" + (" - second consecutive loss." if twice else "."),
+                "Consecutive losses" if twice else "Net loss")
         g = R["revenue_growth"]["latest"]
         if g is not None and g <= -15:
-            out.append({"level": "risk", "text": f"Revenue fell {abs(g):.0f}% in {lab} (flag at -15% or worse)."})
+            add("risk", f"Revenue fell {abs(g):.0f}% in {lab} (flag at -15% or worse).", f"Revenue {g:.0f}%")
         elif g is not None and g <= -5:
-            out.append({"level": "watch", "text": f"Revenue fell {abs(g):.0f}% in {lab}."})
+            add("watch", f"Revenue fell {abs(g):.0f}% in {lab}.", f"Revenue {g:.0f}%")
         elif g is not None and g >= 10:
-            out.append({"level": "strength", "text": f"Revenue grew {g:.0f}% in {lab}."})
+            add("strength", f"Revenue grew {g:.0f}% in {lab}.", f"Revenue +{g:.0f}%")
         m = R["ebitda_margin"]["latest"]
         if m is not None and m < 0:
-            out.append({"level": "risk", "text": f"Negative EBITDA margin ({m:.1f}%) in {lab}."})
+            add("risk", f"Negative EBITDA margin ({m:.1f}%) in {lab}.", "Negative EBITDA")
         elif m is not None and m < 3:
-            out.append({"level": "watch", "text": f"Very thin EBITDA margin ({m:.1f}%) in {lab}."})
+            add("watch", f"Very thin EBITDA margin ({m:.1f}%) in {lab}.", "Thin EBITDA margin")
         elif m is not None and m >= 15:
-            out.append({"level": "strength", "text": f"Healthy EBITDA margin ({m:.1f}%) in {lab}."})
+            add("strength", f"Healthy EBITDA margin ({m:.1f}%) in {lab}.", "Healthy margin")
         ic = L["interest_coverage"]["latest"]
         if ic is not None and ic < 1.5:
-            out.append({"level": "risk" if ic < 1 else "watch", "text": f"Interest coverage only {ic:.1f}x in {lab} (earnings barely cover interest below 1.5x)."})
+            add("risk" if ic < 1 else "watch",
+                f"Interest coverage only {ic:.1f}x in {lab} (earnings barely cover interest below 1.5x).", f"Interest cover {ic:.1f}x")
         cash_pct = R["cash_pct_revenue"]["latest"]
         if cash_pct is not None and cash_pct < 2:
-            out.append({"level": "watch", "text": f"Cash is only {cash_pct:.1f}% of annual revenue ({lab}) - under a week of sales."})
+            add("watch", f"Cash is only {cash_pct:.1f}% of annual revenue ({lab}) - under a week of sales.", "Low cash")
         e0, e2 = L["employees"]["latest"], L["employees"]["y-2"]
         if e0 is not None and e2 and e2 > 0 and (e0 - e2) / e2 <= -0.15:
-            out.append({"level": "watch", "text": f"Headcount fell {abs((e0 - e2) / e2 * 100):.0f}% over two years ({e2:.0f} -> {e0:.0f})."})
+            add("watch", f"Headcount fell {abs((e0 - e2) / e2 * 100):.0f}% over two years ({e2:.0f} -> {e0:.0f}).", "Shrinking headcount")
     order = {"risk": 0, "watch": 1, "strength": 2}
     return sorted(out, key=lambda f: order[f["level"]])
 

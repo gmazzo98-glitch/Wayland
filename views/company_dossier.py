@@ -56,7 +56,6 @@ _CSS = """
     background: #0F172A; border: 1px solid #334155; border-radius: 10px; padding: 0.55rem 0.9rem 0.35rem;
     margin: 0.25rem 0 0.75rem; gap: 0.35rem; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
-.st-key-dossier_header p { margin: 0; }
 .st-key-dossier_header h3 { padding: 0 0 0.2rem; }
 .st-key-dossier_header [data-testid="stHorizontalBlock"] { padding-bottom: 0.9rem; }
 </style>
@@ -129,7 +128,7 @@ def _render_header(ctx: cd.DossierContext, shared: dict) -> None:
         c_ready.metric("Readiness", f"{scores['readiness_score']:.0f}", help="Readiness axis 0-100: how able it is to act on a pilot. Never blended with Need.")
         c_data.metric("Data", f"{scores['total_completeness_pct']:.0f}%", help="Weighted share of scored indicators with a real value.")
         c_status.metric("Status", cd.SHORTLIST_STATUS_LABELS.get(company.shortlist_status, company.shortlist_status).split(" (")[0])
-        chips = [f"{LEVEL_ICON[f['level']]} {f['text'].split(' (')[0][:60]}" for f in shared["flags"] if f["level"] != "strength"][:2]
+        chips = [f"{LEVEL_ICON[f['level']]} {f['chip']}" for f in shared["flags"] if f["level"] != "strength"][:3]
         chips += [f"{STATUS_META[p['status']][0]} {p['label']}" for p in shared["pains"][:2]]
         if chips:
             st.caption("  ·  ".join(chips))

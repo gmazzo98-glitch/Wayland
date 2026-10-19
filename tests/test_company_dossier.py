@@ -332,3 +332,18 @@ def test_app_navigation_exposes_the_dossier_target_key_and_the_admin_page():
     assert 'key="nav_page"' in src and "🛠️ Data Admin" in src and "views.company_dossier" in src
     from dossier_nav import DOSSIER_PAGE
     assert f'"{DOSSIER_PAGE}"' in src
+
+
+def test_accounts_age_flag_is_calibrated_to_the_filing_calendar():
+    """In autumn 2026 the newest normally-filed accounts are FY2025: FY2025 is current (no flag), FY2024 is a watch
+    (a year behind), FY2023 or older is stale. Every flag also carries a short header chip."""
+    def flag_for(year):
+        return dd.flags(None, {"last_accounts_year": (float(year), "present")}, today=date(2026, 10, 19))
+    assert flag_for(2025) == []
+    watch = flag_for(2024)
+    assert [f["level"] for f in watch] == ["watch"] and watch[0]["chip"] == "Accounts FY2024"
+    assert "FY2025 is not in AIDA yet" in watch[0]["text"]
+    stale = flag_for(2023)
+    assert [f["level"] for f in stale] == ["risk"] and "stale" in stale[0]["chip"]
+    every = dd.flags(dd.financial_statement(AIDA_BLOB), {"distress_procedure": (1.0, "present")}, today=date(2026, 10, 19))
+    assert all(f["chip"] and len(f["chip"]) <= 30 for f in every)
