@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 
 from config import SCRAPER_CRAWLERS_DIR
 from models import RawImportRecord
-from resource_governor import get_governor
+from resource_governor import allow_remote_overhead, get_governor
 
 # When set, every crawler subprocess's stdout+stderr is appended to a file in this
 # directory (one per crawler name). Off by default; the benchmark/verification harness
@@ -237,8 +237,9 @@ def run_ts_crawler(
     worker_id = _remote_target()
     overrides = _with_soft_deadline(env_overrides, run_timeout)
     if worker_id:
-        from worker_hub import run_remote
+        from worker_hub import remote_overhead_seconds, run_remote
         with get_governor(worker_id).slot(name, resources=resources):
+            allow_remote_overhead(remote_overhead_seconds())
             return run_remote(worker_id, name, "csv",
                               {"input_csv": _csv_text(input_rows), "extra_args": [str(a) for a in (extra_args or [])],
                                "env": overrides},
@@ -296,8 +297,9 @@ def run_node_entrypoint(
     worker_id = _remote_target()
     overrides = _with_soft_deadline(env_overrides, run_timeout)
     if worker_id:
-        from worker_hub import run_remote
+        from worker_hub import remote_overhead_seconds, run_remote
         with get_governor(worker_id).slot(name):
+            allow_remote_overhead(remote_overhead_seconds())
             return run_remote(worker_id, name, "node",
                               {"entry": entry_relpath, "cli_args": [str(a) for a in cli_args], "env": overrides},
                               run_timeout)

@@ -39,8 +39,8 @@ def _call_with_hard_timeout(fn: Callable, company, timeout: int = HARD_FETCH_TIM
     # The pool's threads don't inherit the caller's context; carrying it over is what lets a
     # crawl queued for a helper's computer (worker_hub.use_target) still know its target here.
     ctx = contextvars.copy_context()
-    # Time spent waiting for a resource slot (resource_governor) is reported to this clock, and is
-    # not counted against `timeout`: the budget is for RUNNING, not for queueing behind other crawls.
+    # Resource-slot waits and each remote worker's bounded claim/result overhead are reported to
+    # this clock. The budget is for active fetch time, not queueing or worker dispatch.
     clock = WaitClock()
     ctx.run(use_wait_clock, clock)
     executor = _CRAWLER_EXECUTOR if timeout > HARD_FETCH_TIMEOUT_SECONDS else _FETCH_EXECUTOR
@@ -52,8 +52,8 @@ def _call_with_hard_timeout(fn: Callable, company, timeout: int = HARD_FETCH_TIM
         except FutureTimeoutError:
             if time.monotonic() - started - clock.seconds() > timeout:
                 raise TimeoutError(
-                    f"No response within {timeout}s (a slow/hanging DNS lookup or connection "
-                    f"is a common cause) — treating this as a failed live attempt."
+                    f"No response before the fetch safety deadline (base budget {timeout}s, "
+                    f"plus any queue/worker allowance) — treating this as a failed live attempt."
                 )
 
 

@@ -99,18 +99,25 @@ def default_capacities(cpu_count: Optional[int] = None) -> Dict[str, int]:
 
 class WaitClock:
     """
-    Time a fetch spent QUEUED for a resource slot, as opposed to running.
+    Time excluded from a fetch's active-runtime budget.
 
     adapters.base gives every fetch a wall-clock budget. Without this, a crawler that waited two
     minutes behind another for its LLM slot would use up its whole budget waiting and be
     abandoned before it had run for a second — while its process then started anyway, orphaned.
-    The budget is spent only while the fetch is actually running.
+    A remote worker also has bounded time to claim a task and post its result;
+    that allowance is credited once per remote invocation.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._total = 0.0
+        self._allowance = 0.0
         self._since: Optional[float] = None
+
+    def allow(self, seconds: float) -> None:
+        """Allow bounded remote-worker claim and result latency for one invocation."""
+        with self._lock:
+            self._allowance += max(0.0, seconds)
 
     def begin(self) -> None:
         with self._lock:
@@ -124,7 +131,7 @@ class WaitClock:
 
     def seconds(self) -> float:
         with self._lock:
-            return self._total + (time.monotonic() - self._since if self._since is not None else 0.0)
+            return self._total + self._allowance + (time.monotonic() - self._since if self._since is not None else 0.0)
 
 
 _wait_clock: contextvars.ContextVar = contextvars.ContextVar("crawl_wait_clock", default=None)
@@ -132,6 +139,13 @@ _wait_clock: contextvars.ContextVar = contextvars.ContextVar("crawl_wait_clock",
 
 def use_wait_clock(clock: Optional[WaitClock]) -> contextvars.Token:
     return _wait_clock.set(clock)
+
+
+def allow_remote_overhead(seconds: float) -> None:
+    """Extend the active fetch budget only when it owns a timeout clock."""
+    clock = _wait_clock.get()
+    if clock is not None:
+        clock.allow(seconds)
 
 
 # ---- the governor -----------------------------------------------------------------------------------------

@@ -49,6 +49,15 @@ CLAIM_WAIT_SECONDS = 90
 RESULT_GRACE_SECONDS = 45
 TASK_RETENTION = timedelta(days=2)
 
+
+def remote_overhead_seconds() -> float:
+    """Worker claim/result slack beyond the crawler's own run timeout.
+
+    run_remote enforces these bounds itself. The adapter's outer safety timer
+    leaves enough room for its more specific error to come back first.
+    """
+    return CLAIM_WAIT_SECONDS + RESULT_GRACE_SECONDS + 2 * POLL_SECONDS + 5
+
 # States, in the order the UI reports them.
 READY, OUTDATED, BROKEN, OFFLINE, WAITING, REVOKED, INCOMPATIBLE, UPDATING = (
     "ready", "outdated", "broken", "offline", "waiting", "revoked", "incompatible", "updating")
@@ -245,7 +254,11 @@ def list_workers(db, include_revoked: bool = False) -> List[CrawlerWorker]:
     q = db.query(CrawlerWorker)
     if not include_revoked:
         q = q.filter(CrawlerWorker.revoked.is_(False))
-    return q.order_by(CrawlerWorker.created_at).all()
+    # Streamlit reuses a scoped Session across page reruns. A normal ORM query can
+    # return objects already in its identity map without replacing their old heartbeat
+    # fields, so the sidebar may keep calling a connected computer offline. Read the
+    # worker's current database values every time the picker/status page renders.
+    return q.populate_existing().order_by(CrawlerWorker.created_at).all()
 
 
 def _failed_checks(info: Dict[str, Any]) -> List[str]:

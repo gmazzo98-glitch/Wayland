@@ -17,9 +17,13 @@ from scrapers.node_crawler_base import CrawlerRunError, run_ts_crawler, rows_for
 SOURCE_NAME = "TED Contract Awards Crawler"
 DATASET_NAME = "crawler_ted_contract_awards"
 PHASE = 7
+RUN_TIMEOUT_SECONDS = 120  # up to four TED requests, each bounded at 25s, plus startup
+ADAPTER_TIMEOUT_SECONDS = RUN_TIMEOUT_SECONDS + 20
+
+
 def _fetch_live(company) -> dict:
     rows = run_ts_crawler("ted-awards-crawler", [{"company_id": company.id,
-                               "company_name": company.legal_name}])
+                               "company_name": company.legal_name}], run_timeout=RUN_TIMEOUT_SECONDS)
     matches = rows_for_company(rows, company.id)
     if not matches or matches[0].get("error"):
         raise CrawlerRunError(str(matches[0].get("error") if matches else "TED crawler returned no row"))
@@ -42,7 +46,7 @@ def sync_ted_awards(company, db_session: Session) -> dict:
         credentials_ok=True, fetch_live=fetch,
         simulate=lambda _: {"signals": {}, "confidence": 0.0,
                             "raw_payload": {"note": "TED API unavailable"}},
-        timeout=90,
+        timeout=ADAPTER_TIMEOUT_SECONDS,
     )
     if result.get("status") == "success" and result.get("mode") == "live" and captured:
         rec = db_session.query(RawImportRecord).filter_by(
