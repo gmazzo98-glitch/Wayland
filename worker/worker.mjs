@@ -256,11 +256,22 @@ async function startUpdate(manifest, workerInfo) {
     '-ParentPid', String(process.pid), '-WorkerInfoBase64', Buffer.from(JSON.stringify(workerInfo)).toString('base64'),
   ];
   const updaterCommandLine = ['powershell.exe', ...updaterArgs].map(winArgQuote).join(' ');
-  const launchScript = `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=${psQuote(updaterCommandLine)}}; if ($r.ReturnValue -ne 0) { Write-Error "WMI process creation failed with code $($r.ReturnValue)"; exit 1 }`;
-  const launch = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchScript], { windowsHide: true });
+  const launchScript = `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=${psQuote(updaterCommandLine)}}; if ($r.ReturnValue -ne 0) { Write-Error "WMI process creation failed with code $($r.ReturnValue)"; exit 1 }; Write-Output $r.ProcessId`;
+  const launch = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchScript],
+    { windowsHide: true, encoding: 'utf8' });
   if (launch.status !== 0) {
-    throw new Error(`could not launch the updater: ${(launch.stderr?.toString().trim() || launch.error?.message || `exit ${launch.status}`)}`);
+    throw new Error(`could not launch the updater: ${(launch.stderr?.trim() || launch.error?.message || `exit ${launch.status}`)}`);
   }
+  const updaterPid = Number(launch.stdout.trim());
+  if (!Number.isInteger(updaterPid) || updaterPid <= 0) {
+    throw new Error(`updater launch returned no process id: ${launch.stdout.trim().slice(0, 100)}`);
+  }
+  // update.ps1 waits for this worker to exit before replacing any files. If it
+  // disappears during that wait, it never started correctly: keep serving
+  // crawls and retry later instead of leaving the PC permanently offline.
+  await new Promise((resolve) => setTimeout(resolve, 5_000));
+  try { process.kill(updaterPid, 0); }
+  catch { throw new Error('the updater exited before taking over; the worker is still running'); }
   process.exit(0);
 }
 
@@ -418,6 +429,18 @@ function waybackTimelineLastLog() {
   } catch { return null; }
 }
 
+let pythonCheckAt = 0;
+let pythonCheck = null;
+function waybackPythonStatus(force = false) {
+  if (!force && pythonCheck && Date.now() - pythonCheckAt < 60_000) return pythonCheck;
+  const check = spawnSync('python', ['--version'], { encoding: 'utf8', timeout: 5_000, windowsHide: true });
+  pythonCheckAt = Date.now();
+  pythonCheck = check.status === 0
+    ? { ok: true }
+    : { ok: false, detail: 'Python is not available on this computer. Install Python 3 and restart the worker.' };
+  return pythonCheck;
+}
+
 function waybackTimelineInfo() {
   const available = fs.existsSync(WAYBACK_DIR);
   try {
@@ -435,15 +458,20 @@ function waybackTimelineInfo() {
       done = entries.filter((e) => e.done).length;
       hits = entries.filter((e) => e.first_hit).length;
     }
-    return { available, running, pid: running ? pid : null, done, total, hits, lastLog: waybackTimelineLastLog() };
+    const python = available ? waybackPythonStatus() : null;
+    return { available, pythonReady: python?.ok ?? false, running, pid: running ? pid : null,
+      done, total, hits, lastLog: waybackTimelineLastLog(),
+      ...(python && !python.ok ? { error: python.detail } : {}) };
   } catch (e) {
     return { available, running: false, error: String(e.message).slice(0, 200) };
   }
 }
 
-function startWaybackTimeline(task) {
+async function startWaybackTimeline(task) {
   if (!fs.existsSync(WAYBACK_DIR)) throw new Error('wayback_timeline is not present in this install');
   if (waybackTimelineInfo().running) return { already_running: true };
+  const python = waybackPythonStatus(true);
+  if (!python.ok) throw new Error(python.detail);
   // The company list travels with the task request (same convention the existing
   // crawlers use for kind='csv' input), not a static bundled file - the app dispatching
   // this may have no filesystem in common with this machine at all, so the CSV the user
@@ -451,6 +479,9 @@ function startWaybackTimeline(task) {
   const inputCsv = String((task.request || {}).input_csv || '');
   if (!inputCsv.trim()) throw new Error('no company list in this request');
   fs.mkdirSync(WAYBACK_OUTPUT_DIR, { recursive: true });
+  // A previous Stop must not immediately stop the next resumed run.
+  fs.rmSync(path.join(WAYBACK_OUTPUT_DIR, 'STOP'), { force: true });
+  fs.rmSync(path.join(WAYBACK_OUTPUT_DIR, 'running.pid'), { force: true });
   const companiesPath = path.join(WAYBACK_OUTPUT_DIR, 'companies.csv');
   fs.writeFileSync(companiesPath, inputCsv, 'utf8');
   const logFd = fs.openSync(path.join(WAYBACK_OUTPUT_DIR, 'run.log'), 'w');
@@ -458,8 +489,28 @@ function startWaybackTimeline(task) {
     '-u', '-m', 'tools.wayback_timeline.timeline_builder', '--input', companiesPath,
   ], { cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd], windowsHide: true });
   fs.closeSync(logFd);
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
   child.unref();
-  return { started: true, pid: child.pid };
+  // Python writes running.pid near the start of main(). A successful spawn only
+  // proves Windows accepted the command; it does not prove the tool stayed up.
+  const deadline = Date.now() + 10_000;
+  let runningSince = null;
+  while (Date.now() < deadline) {
+    const info = waybackTimelineInfo();
+    if (info.running && info.pid === child.pid) {
+      runningSince ??= Date.now();
+      if (Date.now() - runningSince >= 1_500) return { started: true, pid: child.pid };
+    } else {
+      runningSince = null;
+    }
+    if (child.exitCode !== null || child.signalCode !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`wayback_timeline did not start: ${waybackTimelineLastLog() ||
+    `Python exited with code ${child.exitCode ?? 'unknown'}`}`);
 }
 
 function stopWaybackTimeline() {
@@ -472,7 +523,7 @@ async function executeWaybackTimeline(task) {
   log(`task ${task.id}: wayback_timeline ${task.kind}`);
   let result, ok = true, error = null;
   try {
-    if (task.kind === 'start') result = startWaybackTimeline(task);
+    if (task.kind === 'start') result = await startWaybackTimeline(task);
     else if (task.kind === 'stop') result = stopWaybackTimeline();
     else throw new Error(`unknown wayback_timeline kind '${task.kind}'`);
   } catch (e) {
@@ -536,6 +587,7 @@ async function main() {
   let lastBeat = 0;
   let lastUpdateCheck = 0;
   let lastUpdateError = '';
+  let waybackActionChain = Promise.resolve();
   let connected = false;
   let lastConnectionError = '';
   const beat = async () => {
@@ -556,7 +608,12 @@ async function main() {
   };
 
   const execute = async (task) => {
-    if (task.crawler === 'wayback_timeline') { void executeWaybackTimeline(task); return; }
+    if (task.crawler === 'wayback_timeline') {
+      // Start/Stop tasks can arrive together. Process them in claim order so a
+      // second Start cannot race the first process's PID file.
+      waybackActionChain = waybackActionChain.then(() => executeWaybackTimeline(task));
+      return;
+    }
     running += 1;
     log(`task ${task.id}: ${task.crawler} started`);
     try {
@@ -597,6 +654,7 @@ async function main() {
           if (message !== lastUpdateError) log(`update check failed (normal work continues): ${message}`);
           lastUpdateError = message;
           recordUpdateFailure(message);
+          lastBeat = 0; // replace the temporary "updating" heartbeat immediately
         }
       }
       while (running < maxParallel) {

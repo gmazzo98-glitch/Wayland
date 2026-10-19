@@ -71,6 +71,24 @@ def test_reinstalling_under_the_same_name_rotates_the_token_instead_of_duplicati
     assert len(worker_hub.list_workers(db)) == 1
 
 
+def test_list_workers_refreshes_heartbeats_in_a_reused_app_session(factory, db):
+    worker, _ = _live_worker(db, "Anna's laptop")
+    assert worker_hub.list_workers(db)[0].info["build"] == EXPECTED["build"]
+
+    heartbeat_session = factory()
+    try:
+        connected = heartbeat_session.get(CrawlerWorker, worker.id)
+        connected.info = {**connected.info, "build": "new-build", "busy": 1}
+        connected.last_seen_at = datetime.utcnow()
+        heartbeat_session.commit()
+    finally:
+        heartbeat_session.close()
+
+    refreshed = worker_hub.list_workers(db)[0]
+    assert refreshed.info["build"] == "new-build"
+    assert refreshed.info["busy"] == 1
+
+
 def test_a_name_is_required(db):
     with pytest.raises(ValueError):
         worker_hub.create_worker(db, "   ")
@@ -148,6 +166,49 @@ def test_target_survives_the_adapter_thread_pool():
     with worker_hub.use_target("w1"):
         assert _call_with_hard_timeout(lambda c: worker_hub.current_target(), object(), timeout=5) == "w1"
     assert _call_with_hard_timeout(lambda c: worker_hub.current_target(), object(), timeout=5) is None
+
+
+def test_remote_crawl_reports_worker_error_after_the_adapters_local_budget(monkeypatch):
+    from adapters import base
+
+    monkeypatch.setattr(base, "_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(worker_hub, "remote_overhead_seconds", lambda: 0.2)
+
+    def remote(*args):
+        time.sleep(0.1)
+        raise node_crawler_base.CrawlerRunError("worker could not reach TED API")
+
+    monkeypatch.setattr(worker_hub, "run_remote", remote)
+    with worker_hub.use_target("w1"):
+        with pytest.raises(node_crawler_base.CrawlerRunError, match="worker could not reach TED API"):
+            base._call_with_hard_timeout(
+                lambda _: node_crawler_base.run_ts_crawler(
+                    "ted-awards-crawler", [{"company_id": "c1", "company_name": "Example"}]),
+                object(), timeout=0.05,
+            )
+
+
+def test_each_remote_invocation_gets_its_own_bounded_overhead(monkeypatch):
+    from adapters import base
+
+    monkeypatch.setattr(base, "_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(worker_hub, "remote_overhead_seconds", lambda: 0.15)
+
+    def remote(*args):
+        time.sleep(0.12)
+        return [{"company_id": "c1"}]
+
+    monkeypatch.setattr(worker_hub, "run_remote", remote)
+
+    def two_crawls(_):
+        rows = []
+        for _ in range(2):
+            rows.extend(node_crawler_base.run_ts_crawler(
+                "ted-awards-crawler", [{"company_id": "c1", "company_name": "Example"}]))
+        return rows
+
+    with worker_hub.use_target("w1"):
+        assert len(base._call_with_hard_timeout(two_crawls, object(), timeout=0.05)) == 2
 
 
 def test_a_targeted_crawl_goes_to_the_worker_and_never_spawns_locally(monkeypatch):
@@ -350,8 +411,11 @@ def test_the_setup_file_is_self_contained_and_personal_to_one_computer():
     expected_info = worker_installer.bundle_info()
     assert info["crawlers"] == expected_info["crawlers"] and info["build"] == expected_info["build"]
 
-    # Nothing from the Vienna app itself ships — only the crawlers and the worker.
-    assert not any(n.startswith(("views/", "scrapers/", "adapters/")) or n.endswith((".py", ".db", ".env")) for n in names)
+    # Only the standalone Wayback tool's Python source is included; no app code or data.
+    assert not any(n.startswith(("views/", "scrapers/", "adapters/")) or
+                   (n.endswith((".py", ".db", ".env")) and
+                    not (n.startswith("tools/wayback_timeline/") and n.endswith(".py")))
+                   for n in names)
     assert not any("node_modules" in n or n.endswith(".sql") for n in names)
 
 
