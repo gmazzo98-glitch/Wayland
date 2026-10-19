@@ -124,7 +124,7 @@ GAP_PLAN = {
     "average_salary": ("IMPORT", "labour cost / 'Dipendenti' - both in the FINANCIAL_PL export (100%)", "map + ratio"),
     "materials_cost": ("IMPORT", "WAYLAND_FINANCIAL_PL export, 'Materie prime e consumo' x3 years (100%)", "map columns"),
     "raw_material_cost": ("IMPORT", "same 'Materie prime e consumo' line (the catalog splits materials from raw materials; one source feeds both)", "map columns"),
-    "service_costs": ("BUILD", "AIDA 'Costi per servizi' (B7) - NOT in the six exports on disk; needs a new AIDA pull", "AIDA re-export"),
+    "service_costs": ("IMPORT", "WAYLAND_COGS_BREAKDOWN export, 'Servizi' (B7) x4 years, year-matched to revenue (aida_cost_breakdown_import.py)", "run importer"),
     "logistics_cost": ("BUILD", "not separable: Italian statements fold freight into B7. Proxy or first-contact", "proxy / manual"),
     "energy_cost": ("BUILD", "not reported separately in Italian statements; sector-level ISTAT/Eurostat energy intensity is the only "
                              "external proxy - otherwise first-contact", "proxy / manual"),

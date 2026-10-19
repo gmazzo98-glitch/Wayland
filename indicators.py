@@ -51,6 +51,7 @@ CAT_WORKFORCE = "Workforce & Culture"
 CAT_TRANSFORMATION = "Transformation & Sustainability Signals"
 CAT_RISK = "Risk & Compliance Exposure"
 CAT_CONTEXT = "Context & Segment Tags (not scored)"
+CAT_COST_BREAKDOWN = "Cost Breakdown by Line (AIDA, not scored)"
 
 # phase 6 = manual / first-contact interview data — not pipeline-automatable,
 # entered by hand from the Company Intelligence page. Extends the existing
@@ -315,7 +316,7 @@ INDICATOR_SEED = [
          comment="Largely a rollup of Materials/Labour/Logistics/Energy — decide whether a scoring model needs both the components and this aggregate, or just one.",
          source_description="Bundesanzeiger annual filings", example_status="High/Increasing"),
     dict(key="service_costs", automation_tier="T1", redundancy_group="COST_PRESSURE", label="Service Costs", category=CAT_COST, axis="need",
-         raw_min=2, raw_max=25, weight=1.0, phase=3, source_system="Bundesanzeiger", freshness_days=365,
+         raw_min=8, raw_max=35, weight=1.0, phase=3, source_system=SRC_AIDA, freshness_days=365,
          proxy="Purchased services cost line as % of revenue", cost_per_pull=5.0,
          rationale="Rising third-party service spend can indicate the company is already outsourcing functions it lacks in-house capability for.",
          comment="Distinguish from Labour Cost: rising service costs point to external outsourcing dependency, not internal headcount cost.",
@@ -757,6 +758,11 @@ INDICATOR_SEED = [
          source_description="AIDA: Azionisti — country, type and % totale", example_status="Held by a German parent"),
 ]
 
+# The nine AIDA production-cost lines, each as k EUR / % of costs / % of revenue (cost_breakdown.py). Context axis,
+# weight 0: evidence for dashboards, the assistant and pain-point rules, never a score input.
+import cost_breakdown as _cost_breakdown  # noqa: E402  (pure data, no import cycle)
+INDICATOR_SEED.extend(_cost_breakdown.indicator_seed_rows(CAT_COST_BREAKDOWN, SRC_AIDA))
+
 
 def fetch_indicator_defs(db: Session) -> dict:
     """Active indicator definitions as plain dicts, keyed by signal key — the
@@ -801,6 +807,9 @@ CATALOG_MIGRATIONS = [
     # "high or low against its peers": materials cost has a 44% median (the old range centred on 35%), capex a 1.8%
     # median (the old range gave half the portfolio maximum need), personnel cost a 23% median.
     dict(id="calibrate-materials-cost", key="materials_cost", changes={"raw_min": (10.0, 25.0), "raw_max": (60.0, 65.0)}),
+    # Services ÷ revenue, now computed correctly (year-matched): median 19.7%, 10th pct 11.5%, 90th 29.8%.
+    dict(id="calibrate-service-costs", key="service_costs", changes={"raw_min": (2.0, 8.0), "raw_max": (25.0, 35.0),
+                                                                    "source_system": ("Bundesanzeiger", SRC_AIDA)}),
     dict(id="calibrate-labour-cost", key="labour_cost", changes={"raw_min": (15.0, 10.0), "raw_max": (55.0, 45.0)}),
     dict(id="calibrate-capex-ratio", key="capex_ratio", changes={"raw_min": (1.0, 0.0), "raw_max": (15.0, 4.0)}),
     dict(id="average-salary-k-eur", key="average_salary", changes={

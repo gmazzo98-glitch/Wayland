@@ -3176,14 +3176,17 @@ def search_companies(db: Session, query: str, limit: int = 10) -> List[Company]:
 def top_companies_by_signal(db: Session, signal_key: str, n: int = 20, ascending: bool = False) -> List[dict]:
     """The n companies with the highest (or lowest, if ascending) present value of one
     signal_key — a direct SignalRecord ranking, independent of any composite score or
-    pain point. {legal_name, registration_number, nace_code, value}, sorted."""
-    rows = (db.query(Company.legal_name, Company.registration_number, Company.nace_code, SignalRecord.numeric_value)
+    pain point. Includes source and simulation status so callers can distinguish
+    imported observations from sample values."""
+    rows = (db.query(Company.legal_name, Company.registration_number, Company.nace_code,
+                     SignalRecord.numeric_value, SignalRecord.source, SignalRecord.is_simulated)
             .join(SignalRecord, SignalRecord.company_id == Company.id)
             .filter(SignalRecord.signal_key == signal_key, SignalRecord.status == "present",
                     SignalRecord.numeric_value.isnot(None))
             .order_by(SignalRecord.numeric_value.asc() if ascending else SignalRecord.numeric_value.desc())
             .limit(n).all())
-    return [{"legal_name": r[0], "registration_number": r[1], "nace_code": r[2], "value": r[3]} for r in rows]
+    return [{"legal_name": r[0], "registration_number": r[1], "nace_code": r[2],
+             "value": r[3], "source": r[4], "is_simulated": bool(r[5])} for r in rows]
 
 
 def get_company_profile(db: Session, company: Company) -> dict:

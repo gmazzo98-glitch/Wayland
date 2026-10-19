@@ -81,6 +81,7 @@ def test_top_companies_by_signal_sorts_and_excludes_non_present(db):
     top = company_service.top_companies_by_signal(db, "materials_cost", n=10, ascending=False)
     assert [r["legal_name"] for r in top] == ["High Cost", "Low Cost"]
     assert top[0]["value"] == 80.0
+    assert top[0]["source"] == "Test" and top[0]["is_simulated"] is False
 
     bottom = company_service.top_companies_by_signal(db, "materials_cost", n=10, ascending=True)
     assert [r["legal_name"] for r in bottom] == ["Low Cost", "High Cost"]
@@ -145,6 +146,7 @@ def test_execute_tool_dispatches_each_known_tool(db):
     assert assistant_llm._execute_tool(db, "search_companies", {"query": "Dispatch"})["matches"][0]["legal_name"] == "Dispatch Co"
     top = assistant_llm._execute_tool(db, "top_companies_by_signal", {"signal_key": "materials_cost"})
     assert top["results"][0]["legal_name"] == "Dispatch Co"
+    assert top["unit"] == "% of revenue"
     signals = assistant_llm._execute_tool(db, "list_available_signals", {})
     assert any(s["key"] == "materials_cost" for s in signals["signals"])
     profile = assistant_llm._execute_tool(db, "get_company_profile", {"company_name": "Dispatch Co"})
@@ -192,7 +194,7 @@ def test_run_assistant_turn_executes_a_tool_call_then_returns_the_final_answer(d
             {"id": "call_1", "function": {"name": "top_companies_by_signal",
                                           "arguments": json.dumps({"signal_key": "materials_cost", "n": 5})}},
         ])),
-        _FakeResponse(_assistant_message(content="Loop Co has the highest materials cost at 61%.")),
+        _FakeResponse(_assistant_message(content="Pirelli has the highest materials cost at €2,028,300 thousand.")),
     ]
     calls = []
 
@@ -204,7 +206,9 @@ def test_run_assistant_turn_executes_a_tool_call_then_returns_the_final_answer(d
 
     result = assistant_llm.run_assistant_turn([{"role": "user", "content": "highest materials cost?"}], db)
 
-    assert result["content"] == "Loop Co has the highest materials cost at 61%."
+    assert "Loop Co — 61.00%" in result["content"]
+    assert "percentages of revenue" in result["content"]
+    assert "Pirelli" not in result["content"]
     assert result["used_fallback"] is False
     assert len(result["tool_trace"]) == 1
     assert result["tool_trace"][0]["tool"] == "top_companies_by_signal"
@@ -213,6 +217,33 @@ def test_run_assistant_turn_executes_a_tool_call_then_returns_the_final_answer(d
     # the second request must carry the tool's result back as a role="tool" message
     second_request_roles = [m["role"] for m in calls[1]["messages"]]
     assert second_request_roles.count("tool") == 1
+
+
+def test_ranking_answer_without_company_values_does_not_repeat_model_invention(db, monkeypatch):
+    _patch_settings(monkeypatch, api_key="key", base_url="https://example.test/v1", model="some-model")
+    monkeypatch.setattr(assistant_llm.requests, "post", lambda *args, **kwargs: _FakeResponse(
+        _assistant_message(content="Pirelli is first with €2,028,300 thousand of materials costs.")))
+
+    result = assistant_llm.run_assistant_turn(
+        [{"role": "user", "content": "Which companies have the highest materials costs?"}], db)
+
+    assert "couldn't verify a ranking" in result["content"]
+    assert "Pirelli" not in result["content"]
+    assert result["tool_trace"] == []
+
+
+def test_service_cost_ranking_labels_ratio_and_flags_extreme_value(db):
+    company = make_company(db, "E2PACK S.R.L.", "IT00000000071")
+    set_signal(db, company, "service_costs", 358.17, source="AIDA Cost Breakdown Supplement")
+    result = assistant_llm._execute_tool(db, "top_companies_by_signal", {"signal_key": "service_costs"})
+
+    answer = assistant_llm._verified_ranking_answer([{
+        "tool": "top_companies_by_signal", "arguments": {"signal_key": "service_costs"}, "result": result,
+    }])
+
+    assert "E2PACK S.R.L. — 358.17%" in answer
+    assert "percentages of revenue, not amounts in thousands of euros" in answer
+    assert "above 100%" in answer
 
 
 def test_run_assistant_turn_stops_at_max_rounds_instead_of_looping_forever(db, monkeypatch):

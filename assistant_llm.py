@@ -17,6 +17,7 @@ after this process was already running would otherwise never be seen without a r
 """
 
 import json
+import re
 from typing import Any, Dict, List, Tuple
 
 import requests
@@ -24,6 +25,8 @@ from sqlalchemy.orm import Session
 
 import company_service
 import config
+import cost_analytics
+import cost_breakdown
 from indicators import fetch_indicator_defs
 
 # A 429/5xx is treated the same as a connection error: try the next provider rather than
@@ -38,8 +41,74 @@ SYSTEM_PROMPT = (
     "guessing which company they meant. When you state a number, name which company and which "
     "signal it came from. If you are not certain of an exact signal_key, call "
     "list_available_signals first rather than guessing one. You cannot change any data — if "
-    "asked to, say this assistant is read-only."
+    "asked to, say this assistant is read-only. Signal values can be ratios rather than "
+    "currency amounts: use the unit and definition returned by the tools, and never relabel "
+    "a percentage as thousands of euros. For a company's cost structure call get_cost_breakdown; "
+    "to rank companies on a cost line use the cost_<line>_k (thousand EUR), cost_<line>_share (% of "
+    "total production costs) or cost_<line>_rev (% of revenue) signal keys. Rankings cover every company in the database "
+    "unless a tool explicitly applies a narrower filter."
 )
+
+# These indicators store percentage points as numeric values (e.g. 35.2 means
+# 35.2%, not EUR 35,200). The catalog's proxy remains the fuller definition.
+SIGNAL_UNITS = {
+    "cogs": "thousand EUR (total production costs)",
+    "materials_cost": "% of revenue",
+    "labour_cost": "% of revenue",
+    "logistics_cost": "% of revenue",
+    "energy_cost": "% of revenue",
+    "service_costs": "% of revenue",
+    "cogs_ratio": "% of revenue (materials-based proxy)",
+    "raw_material_cost": "% of COGS",
+    "materials_cost_ratio_trend": "percentage points",
+    "materials_cost_ratio_peer_gap": "percentage points",
+}
+# The nine AIDA cost lines, each as k EUR / % of costs / % of revenue (cost_breakdown.py).
+SIGNAL_UNITS.update(cost_breakdown.SIGNAL_UNITS)
+
+
+def signal_unit(signal_key: str) -> str:
+    return SIGNAL_UNITS.get(signal_key, "")
+
+
+def _is_ranking_request(messages: List[Dict[str, str]]) -> bool:
+    latest = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+    return bool(re.search(r"\b(top|highest|lowest|most|least|rank|ranking|largest|smallest)\b", latest, re.I))
+
+
+def _verified_ranking_answer(tool_trace: List[Dict[str, Any]]) -> str | None:
+    """Render ranking rows directly from tools; the model must not rewrite values or units."""
+    calls = [c for c in tool_trace if c.get("tool") == "top_companies_by_signal"]
+    if not calls:
+        return None
+    sections = []
+    for call in calls:
+        result = call["result"]
+        key = call["arguments"].get("signal_key", "")
+        label = result.get("label") or key
+        unit = result.get("unit") or signal_unit(key)
+        rows = result.get("results", [])
+        order = "lowest" if call["arguments"].get("ascending") else "highest"
+        heading = f"{label} (`{key}`), {order} first, across all companies in the database"
+        if unit:
+            heading += f" — {unit}"
+        if not rows:
+            sections.append(f"{heading}\n\nNo present values found.")
+            continue
+        lines = [f"{i}. {row['legal_name']} — {row['value']:,.2f}"
+                 + ("%" if unit.startswith("%") else " pp" if unit == "percentage points"
+                    else " k EUR" if unit.startswith("thousand EUR") else "")
+                 + (" (simulated)" if row.get("is_simulated") else "")
+                 for i, row in enumerate(rows, 1)]
+        section = heading + "\n\n" + "\n".join(lines)
+        if unit.startswith("%"):
+            denominator = ("revenue" if unit.startswith("% of revenue") else
+                           "total production costs" if unit.startswith("% of total production costs") else "COGS")
+            section += f"\n\nThese values are percentages of {denominator}, not amounts in thousands of euros."
+            if any(row["value"] > 100 for row in rows):
+                section += " Values above 100% are present in the database; inspect those companies' source records before drawing conclusions."
+        sections.append(section)
+    return "\n\n".join(sections)
 
 TOOLS = [
     {"type": "function", "function": {
@@ -67,6 +136,17 @@ TOOLS = [
     {"type": "function", "function": {
         "name": "get_company_profile",
         "description": "Full profile for one company: sector, segment, Need/Readiness scores, and every signal's value.",
+        "parameters": {"type": "object", "properties": {
+            "company_name": {"type": "string", "description": "The company's legal name or VAT number"},
+        }, "required": ["company_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "get_cost_breakdown",
+        "description": "One company's full cost structure over the filed years: each of the nine production-cost lines "
+                        "(materials, services, personnel, leases, depreciation, inventory change, risk provisions, other "
+                        "provisions, other operating) in thousand EUR, as % of total costs and as % of revenue, with the "
+                        "ATECO-peer median, gap, percentile and 3-year change. To RANK companies on a cost line instead, call "
+                        "top_companies_by_signal with a cost_<line>_k / _share / _rev key from list_available_signals.",
         "parameters": {"type": "object", "properties": {
             "company_name": {"type": "string", "description": "The company's legal name or VAT number"},
         }, "required": ["company_name"]},
@@ -121,18 +201,25 @@ def _execute_tool(db: Session, name: str, args: Dict[str, Any]) -> Dict[str, Any
             return {"error": "signal_key is required"}
         n = min(max(int(args.get("n", 20) or 20), 1), 50)
         results = company_service.top_companies_by_signal(db, signal_key, n=n, ascending=bool(args.get("ascending", False)))
+        definition = fetch_indicator_defs(db).get(signal_key, {})
+        metadata = {"signal_key": signal_key, "label": definition.get("label") or signal_key,
+                    "unit": signal_unit(signal_key), "definition": definition.get("proxy"),
+                    "scope": "all companies in the database"}
         if not results:
-            return {"results": [], "note": f"No company has a present value for signal_key {signal_key!r} — "
-                                            "check list_available_signals for the exact key."}
-        return {"results": results}
+            return {**metadata, "results": [], "note": f"No company has a present value for signal_key {signal_key!r} — "
+                                                       "check list_available_signals for the exact key."}
+        return {**metadata, "results": results}
     if name == "list_available_signals":
         defs = fetch_indicator_defs(db)
-        return {"signals": [{"key": k, "label": d.get("label"), "category": d.get("category")}
+        return {"signals": [{"key": k, "label": d.get("label"), "category": d.get("category"),
+                             "unit": signal_unit(k)}
                             for k, d in sorted(defs.items())]}
-    if name in ("get_company_profile", "get_company_pain_points"):
+    if name in ("get_company_profile", "get_company_pain_points", "get_cost_breakdown"):
         company, error = _resolve_company(db, args.get("company_name", ""))
         if error:
             return error
+        if name == "get_cost_breakdown":
+            return cost_analytics.company_breakdown(db, company) or {"error": f"No cost breakdown imported for {company.legal_name}."}
         if name == "get_company_profile":
             return company_service.get_company_profile(db, company)
         return {"pain_points": company_service.get_company_pain_points(db, company)}
@@ -198,7 +285,11 @@ def run_assistant_turn(messages: List[Dict[str, str]], db: Session, max_rounds: 
 
         tool_calls = message.get("tool_calls")
         if not tool_calls:
-            return {"content": message.get("content") or "", "tool_trace": tool_trace, "used_fallback": provider_idx > 0}
+            content = message.get("content") or ""
+            if _is_ranking_request(messages):
+                content = (_verified_ranking_answer(tool_trace)
+                           or "I couldn't verify a ranking from company records. Please try the Quick Lookup or ask again.")
+            return {"content": content, "tool_trace": tool_trace, "used_fallback": provider_idx > 0}
 
         for call in tool_calls:
             fn = call.get("function", {})

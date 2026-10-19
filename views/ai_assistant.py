@@ -26,7 +26,9 @@ def _render_quick_lookup(db: Session):
 
     defs = fetch_indicator_defs(db)
     options = sorted(defs.keys(), key=lambda k: (defs[k].get("category") or "", defs[k].get("label") or k))
-    labels = {k: f"{defs[k].get('label') or k}  ({k})" for k in options}
+    labels = {k: f"{defs[k].get('label') or k}  ({k})"
+              + (f" — {assistant_llm.signal_unit(k)}" if assistant_llm.signal_unit(k) else "")
+              for k in options}
 
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
@@ -42,7 +44,8 @@ def _render_quick_lookup(db: Session):
         return
     st.dataframe(
         [{"Company": r["legal_name"], "VAT": r["registration_number"], "NACE/ATECO": r["nace_code"],
-         labels[signal_key]: r["value"]} for r in results],
+         labels[signal_key]: r["value"], "Data": "Simulated" if r.get("is_simulated") else "Recorded"}
+         for r in results],
         hide_index=True, use_container_width=True,
     )
 

@@ -34,6 +34,10 @@ BENCHMARKED_SIGNALS = [
     "materials_cost", "labour_cost", "service_costs", "cogs_ratio", "logistics_cost", "energy_cost",
     "materials_cost_ratio_trend",
 ]
+# The nine AIDA cost lines (cost_breakdown.py), as share of production costs and as % of revenue: lets the
+# dashboards say "this company spends 2x its sector's median on purchased services".
+import cost_breakdown as _cb  # noqa: E402
+BENCHMARKED_SIGNALS += [f(c) for c in _cb.CATEGORY_KEYS for f in (_cb.share_key, _cb.rev_key)]
 
 
 def recompute_ateco_cost_benchmarks(db: Session, signal_keys: Iterable[str] = BENCHMARKED_SIGNALS,

@@ -162,7 +162,8 @@ _SEED_ROWS = [
                 note="Materials ÷ revenue. Machinery makers in the real portfolio: median 44%, 75th percentile 53%, 90th 63%."),
              _r("raw_material_cost", "higher", 45, 62, 2, "% of COGS"),
              _r("cogs_ratio", "higher", 70, 85, 2, "% of revenue"),
-             _r("service_costs", "higher", 14, 22, 1, "% of revenue"),
+             _r("service_costs", "higher", 25, 35, 1, "% of revenue",
+                note="Purchased services ÷ revenue, year-matched (AIDA cost-breakdown export). Machinery SMEs outsource heavily: real portfolio median 19.7%, 75th percentile 24.6%, 90th 29.8%, 95th 34.3%."),
              _r("materials_cost_ratio_trend", "higher", 2, 8, 2, " pp",
                 note="Change in materials ÷ revenue, latest year minus earliest of the last three. Thresholds are a "
                      "first-pass estimate pending recalibration once this is computed across the live portfolio."),
@@ -436,6 +437,8 @@ PAIN_POINT_MIGRATIONS = [
          changes={"warn": (1.5, 1.0), "severe": (0.3, 0.2),
                   "note": ("Set against the real portfolio: median 1.8% of revenue, 10th percentile ~0%.",
                            "(Material + immaterial capex) ÷ revenue. Real portfolio: 10th percentile ~0%, 25th 0.6%, median 1.8%, 75th 4.0%.")}),
+    dict(id="service-costs-calibrated", key="input_cost_pressure", indicator="service_costs",
+         changes={"warn": (14, 25), "severe": (22, 35), "note": (None, "Purchased services ÷ revenue, year-matched (AIDA cost-breakdown export). Machinery SMEs outsource heavily: real portfolio median 19.7%, 75th percentile 24.6%, 90th 29.8%, 95th 34.3%.")}),
     dict(id="materials-calibrated", key="input_cost_pressure", indicator="materials_cost",
          changes={"warn": (40, 50), "severe": (55, 65),
                   "note": (None, "Materials ÷ revenue. Machinery makers in the real portfolio: median 44%, 75th percentile 53%, 90th 63%.")}),

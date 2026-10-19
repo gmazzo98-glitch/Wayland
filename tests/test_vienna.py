@@ -397,7 +397,8 @@ def test_indicator_catalog_row_count_matches_reconciled_total():
     # + 2 more (materials_cost_ratio_trend, materials_cost_ratio_peer_gap) closing the materials-cost-
     # pressure gap identified from an external cost-structure analysis (Material Costs.xlsx) — see
     # ateco_cost_benchmarks.py and aida_import.materials_cost_ratio_trend.
-    assert len(INDICATOR_SEED) == 100
+    # + 28 cost-breakdown evidence rows (cost_breakdown.py: total + 9 lines x k EUR / % of costs / % of revenue).
+    assert len(INDICATOR_SEED) == 128
 
 def test_indicator_catalog_automation_tier_is_valid():
     for row in INDICATOR_SEED:
