@@ -57,6 +57,8 @@ _CSS = """
     margin: 0.25rem 0 0.75rem; gap: 0.35rem; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 .st-key-dossier_header p { margin: 0; }
+.st-key-dossier_header h3 { padding: 0 0 0.2rem; }
+.st-key-dossier_header [data-testid="stHorizontalBlock"] { padding-bottom: 0.9rem; }
 </style>
 """
 
