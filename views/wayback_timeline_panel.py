@@ -110,6 +110,16 @@ def _render_status(db, worker_id: str, worker_name: str) -> None:
     db.refresh(w)
     info = _wb_info(w)
     running = bool(info.get("running"))
+    last_action = (db.query(CrawlerTask)
+                   .filter_by(worker_id=worker_id, crawler="wayback_timeline")
+                   .order_by(CrawlerTask.id.desc()).populate_existing().first())
+
+    if info.get("error"):
+        st.error(info["error"])
+    if last_action and last_action.status == "error":
+        st.error(f"Last {last_action.kind} request failed: {last_action.error or 'unknown worker error'}")
+    elif last_action and last_action.status in ("queued", "running"):
+        st.caption(f"{last_action.kind.capitalize()} request is {last_action.status} on the worker.")
 
     cols = st.columns([2, 1])
     with cols[0]:
@@ -122,8 +132,9 @@ def _render_status(db, worker_id: str, worker_name: str) -> None:
             st.caption(f"{info.get('done', 0)} of {total} company/claim pairs checked · "
                       f"{info.get('hits', 0)} confirmed")
         last_log = info.get("lastLog")
-        if last_log and not running:
-            st.caption(f"Last run's final line: {last_log}")
+        if last_log:
+            label = "Latest" if running else "Last run's final line"
+            st.caption(f"{label}: {last_log}")
     with cols[1]:
         if running:
             if st.button("Stop", type="secondary", width="stretch"):
@@ -131,7 +142,7 @@ def _render_status(db, worker_id: str, worker_name: str) -> None:
                 st.caption("Stop requested — the worker signals it within a few seconds; it finishes "
                           "the snapshot it's on, saves, then exits.")
         else:
-            if st.button("Start", type="primary", width="stretch"):
+            if st.button("Start", type="primary", width="stretch", disabled=info.get("pythonReady") is False):
                 csv_text = st.session_state.get("wb_companies_csv")
                 if not csv_text:
                     st.error("Add at least one company below first.")
