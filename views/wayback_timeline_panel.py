@@ -28,6 +28,7 @@ differently, because it runs for hours, not minutes:
 """
 from __future__ import annotations
 
+import hashlib
 import io
 from typing import Optional
 
@@ -36,7 +37,7 @@ import streamlit as st
 
 import worker_hub
 import worker_installer
-from models import CrawlerTask, CrawlerWorker
+from models import SHORTLIST_STATUSES, Company, CrawlerTask, CrawlerWorker
 from worker_hub import list_workers, worker_status
 
 DEFAULT_COMPANIES = pd.DataFrame(
@@ -151,15 +152,143 @@ def _render_status(db, worker_id: str, worker_name: str) -> None:
                     st.caption("Start requested — the worker claims it within a couple of seconds.")
 
 
+LIST_COLUMNS = ["company_id", "homepage_url", "name"]
+DEFAULT_SHORTLIST_FILTER = ["shortlisted", "in_pilot"]
+
+
+def _normalize_url(url) -> str:
+    text = "" if url is None or (isinstance(url, float) and pd.isna(url)) else str(url).strip()
+    if text and "://" not in text:
+        text = "https://" + text
+    return text
+
+
+def _clean_list(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.reindex(columns=LIST_COLUMNS).fillna("").astype(str)
+    df["company_id"] = df["company_id"].str.strip()
+    df["homepage_url"] = df["homepage_url"].map(_normalize_url)
+    df = df[(df["company_id"] != "") & (df["homepage_url"] != "")]
+    return df.drop_duplicates("company_id", keep="first").reset_index(drop=True)
+
+
+def _replace_list(df: pd.DataFrame) -> None:
+    # data_editor applies its stored edits on top of whatever frame it is handed, so the
+    # list can only be swapped by handing it a new frame under a new widget key.
+    st.session_state["wb_base_df"] = df.reset_index(drop=True)
+    st.session_state["wb_epoch"] = st.session_state.get("wb_epoch", 0) + 1
+    st.rerun()
+
+
 def _render_companies(db, worker_id: str) -> None:
     st.subheader("Companies")
-    st.caption("Sent fresh with every Start — this computer has nowhere else to read the list from.")
+    st.caption("Sent fresh with every Start — this computer has nowhere else to read the list from. "
+               "Companies a previous run already finished are skipped automatically, so the list can "
+               "keep growing between runs.")
 
-    existing_csv = _last_companies_csv(db, worker_id)
-    if existing_csv:
-        df = pd.read_csv(io.StringIO(existing_csv))
-    else:
-        df = DEFAULT_COMPANIES
+    if "wb_base_df" not in st.session_state:
+        existing_csv = _last_companies_csv(db, worker_id)
+        base = pd.read_csv(io.StringIO(existing_csv)) if existing_csv else DEFAULT_COMPANIES
+        st.session_state["wb_base_df"] = _clean_list(base)
+        st.session_state["wb_epoch"] = 0
 
-    edited = st.data_editor(df, num_rows="dynamic", width="stretch", key="wb_companies_editor")
-    st.session_state["wb_companies_csv"] = edited.to_csv(index=False)
+    edited = st.data_editor(st.session_state["wb_base_df"], num_rows="dynamic", width="stretch",
+                            key=f"wb_companies_editor_{st.session_state['wb_epoch']}")
+    current = _clean_list(edited)
+    st.session_state["wb_companies_csv"] = current.to_csv(index=False)
+
+    left, right = st.columns([3, 1])
+    left.caption(f"{len(current)} {'company' if len(current) == 1 else 'companies'} in the list.")
+    if right.button("Clear list", key="wb_clear_list", disabled=current.empty):
+        _replace_list(current.iloc[0:0])
+
+    _render_vienna_picker(db, current)
+
+
+def _render_vienna_picker(db, current: pd.DataFrame) -> None:
+    with st.expander("➕ Add companies from Vienna (shortlist and other columns)", expanded=True):
+        rows = db.query(
+            Company.registration_number, Company.legal_name, Company.website_url,
+            Company.shortlist_status, Company.segment, Company.country, Company.sector_name,
+            Company.need_score, Company.readiness_score,
+        ).all()
+        df = pd.DataFrame(rows, columns=[
+            "registration_number", "legal_name", "website_url", "shortlist_status", "segment",
+            "country", "sector", "need_score", "readiness_score",
+        ])
+        if df.empty:
+            st.info("There are no companies in Vienna yet.")
+            return
+
+        c1, c2, c3 = st.columns(3)
+        statuses = c1.multiselect("Shortlist status", list(SHORTLIST_STATUSES), default=DEFAULT_SHORTLIST_FILTER,
+                                  key="wb_pick_status")
+        segments = c2.multiselect("Segment (empty = any)", sorted(df["segment"].dropna().unique()),
+                                  key="wb_pick_segment")
+        countries = c3.multiselect("Country (empty = any)", sorted(df["country"].dropna().unique()),
+                                   key="wb_pick_country")
+        c4, c5, c6 = st.columns(3)
+        sectors = c4.multiselect("Sector (empty = any)", sorted(df["sector"].dropna().unique()),
+                                 key="wb_pick_sector")
+        min_need = c5.number_input("Min need score (0 = ignore)", min_value=0.0, value=0.0, step=1.0,
+                                   key="wb_pick_need")
+        min_ready = c6.number_input("Min readiness score (0 = ignore)", min_value=0.0, value=0.0, step=1.0,
+                                    key="wb_pick_ready")
+
+        picked = df
+        if statuses:
+            picked = picked[picked["shortlist_status"].isin(statuses)]
+        if segments:
+            picked = picked[picked["segment"].isin(segments)]
+        if countries:
+            picked = picked[picked["country"].isin(countries)]
+        if sectors:
+            picked = picked[picked["sector"].isin(sectors)]
+        if min_need > 0:
+            picked = picked[picked["need_score"].fillna(-1) >= min_need]
+        if min_ready > 0:
+            picked = picked[picked["readiness_score"].fillna(-1) >= min_ready]
+
+        has_site = picked["website_url"].fillna("").astype(str).str.strip() != ""
+        no_site = int((~has_site).sum())
+        picked = picked[has_site]
+        already = picked["registration_number"].isin(set(current["company_id"]))
+        n_already = int(already.sum())
+        picked = picked[~already].reset_index(drop=True)
+
+        notes = []
+        if no_site:
+            notes.append(f"{no_site} matching without a website (nothing to look up)")
+        if n_already:
+            notes.append(f"{n_already} already in the list")
+        st.caption(f"{len(picked)} companies match and can be added" + (f" · {' · '.join(notes)}" if notes else "") + ".")
+
+        if picked.empty:
+            return
+
+        table = pd.DataFrame({
+            "Add": False, "Company": picked["legal_name"], "Reg. no.": picked["registration_number"],
+            "Status": picked["shortlist_status"], "Segment": picked["segment"], "Country": picked["country"],
+            "Sector": picked["sector"], "Website": picked["website_url"],
+        })
+        signature = hashlib.md5("|".join(picked["registration_number"]).encode()).hexdigest()[:10]
+        ticked = st.data_editor(
+            table, hide_index=True, width="stretch", height=320,
+            disabled=[c for c in table.columns if c != "Add"],
+            key=f"wb_pick_table_{st.session_state['wb_epoch']}_{signature}",
+        )
+
+        def _to_list_rows(mask) -> pd.DataFrame:
+            chosen = picked[mask.to_numpy()]
+            return pd.DataFrame({"company_id": chosen["registration_number"],
+                                 "homepage_url": chosen["website_url"], "name": chosen["legal_name"]})
+
+        n_ticked = int(ticked["Add"].sum())
+        b1, b2 = st.columns(2)
+        if b1.button(f"Add the {n_ticked} ticked", disabled=n_ticked == 0, key="wb_add_ticked"):
+            _replace_list(_clean_list(pd.concat([current, _to_list_rows(ticked["Add"])])))
+        if b2.button(f"Add all {len(picked)} shown", key="wb_add_all"):
+            _replace_list(_clean_list(pd.concat([current, _to_list_rows(pd.Series(True, index=picked.index))])))
+
+        st.caption("Each company is checked on its own: roughly 20 archived snapshots per claim, three claims, "
+                   "one local-model call each. That is minutes per company on a free machine and hours on a "
+                   "busy 8 GB one, so start with a short list and add more once the first batch is done.")
