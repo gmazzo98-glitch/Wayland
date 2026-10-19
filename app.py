@@ -24,7 +24,8 @@ from database import init_db, get_db_session
 from models import Company
 from views.target_matrix import render_target_matrix_page
 from views.valuation import render_valuation_page
-from views.company_detail import render_company_detail_page
+from views.company_dossier import render_company_detail_page
+from views.data_admin import render_data_admin_page
 from views.pipeline_health import render_pipeline_health_page
 from views.paid_shortlist_gate import render_paid_shortlist_gate_page
 from views.indicator_weights import render_indicator_weights_page
@@ -93,8 +94,10 @@ page_selection = st.sidebar.radio(
         "⚖️ Indicator Weights",
         "🖥️ Crawler Setup",
         "🕰️ Wayback Timeline",
-        "🤖 AI Assistant"
-    ]
+        "🤖 AI Assistant",
+        "🛠️ Data Admin"
+    ],
+    key="nav_page"  # set by dossier_nav.open_dossier so any page can jump straight to a company
 )
 
 st.sidebar.markdown("---")
@@ -144,6 +147,8 @@ elif page_selection == "🕰️ Wayback Timeline":
     render_wayback_timeline_page(db)
 elif page_selection == "🤖 AI Assistant":
     render_ai_assistant_page(db)
+elif page_selection == "🛠️ Data Admin":
+    render_data_admin_page(db)
 
 # Footer
 st.sidebar.markdown("---")

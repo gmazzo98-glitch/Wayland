@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from sqlalchemy.orm import Session
 
+from dossier_nav import open_dossier_button
 import valuation_data as vd
 import valuation_service as vs
 from valuation import ValuationResult, value_company, value_universe
@@ -466,6 +467,7 @@ def render_valuation_page(db: Session):
                       + ("" if c["id"] in valued_ids else "  · not valued"): c["id"] for c in companies}
             pick = st.selectbox("Company", list(labels), key="val_company", help="Type to search.")
             render_company_valuation(db, labels[pick], key="valpage")
+            open_dossier_button(labels[pick], "🏢 Open the full dossier", key="val_open_dossier", tab="financials")
     with tab_screen:
         _render_universe_tab(db)
     with tab_assump:

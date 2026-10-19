@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 import cost_analytics as ca
 import cost_breakdown as cb
+from dossier_nav import open_dossier_button, render_open_dossier_picker
 from models import Company
 
 PALETTE = ["#4C78A8", "#F58518", "#54A24B", "#B279A2", "#E45756", "#72B7B2", "#EECA3B", "#9D755D", "#BAB0AC"]
@@ -92,6 +93,9 @@ def _render_portfolio(frame: pd.DataFrame):
     st.download_button("⬇️ Download this table (CSV)", out.drop(columns=["Cost mix (% of costs)"]).to_csv(index=False).encode("utf-8"),
                        file_name="cost_structure.csv", mime="text/csv")
 
+    render_open_dossier_picker({f"{r.legal_name} ({r.registration_number})": r.company_id for r in d.itertuples()},
+                               key="cs_port", tab="costs")
+
     with st.expander("📊 Portfolio-wide distribution of each line"):
         stat = pd.DataFrame([{"Line": cb.LABELS[c], **{k: v for k, v in ca._stats(d[f'{c}_{suffix}']).items()}} for c in cb.CATEGORY_KEYS])
         stat = stat.rename(columns={"n": "Companies", "median": "Median", "p25": "P25", "p75": "P75", "p90": "P90"})
@@ -121,15 +125,26 @@ def _render_xray(db: Session, frame: pd.DataFrame):
     labels = {r.company_id: f"{r.legal_name}  ({r.registration_number})" for r in names.itertuples()}
     cid = st.selectbox("Company (type to search)", list(labels), format_func=lambda k: labels[k], key="cs_xray_company")
     company = db.query(Company).filter_by(id=cid).first()
+    render_company_xray(db, company, frame, key="cs")
+    open_dossier_button(cid, "🏢 Open the full dossier", key="cs_xray_open", tab="costs")
+
+
+def render_company_xray(db: Session, company: Company, frame: pd.DataFrame = None, key: str = "cs") -> None:
+    """One company's full cost structure (used by this page's X-ray tab and by the Company Intelligence dossier)."""
+    frame = _frame(db) if frame is None else frame
     b = ca.company_breakdown(db, company, frame)
     if not b:
-        st.info("No cost breakdown for this company yet.")
+        st.info("No cost breakdown imported for this company yet.")
         return
     cats = b["categories"]
-    biggest = max((c for c in cats if c["k_eur"] is not None), key=lambda c: c["k_eur"])
+    with_amount = [c for c in cats if c["k_eur"] is not None]
+    biggest = max(with_amount, key=lambda c: c["k_eur"]) if with_amount else None
+    total = b["total_costs_k_eur"]
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total production costs", f"{b['total_costs_k_eur']:,.0f}k EUR")
-    m2.metric("Biggest line", biggest["label"], f"{biggest['share_of_costs_pct']:.1f}% of costs", delta_color="off")
+    m1.metric("Total production costs", f"{total:,.0f}k EUR" if total is not None else "—")
+    m2.metric("Biggest line", biggest["label"] if biggest else "—",
+              f"{biggest['share_of_costs_pct']:.1f}% of costs" if biggest and biggest["share_of_costs_pct"] is not None else None,
+              delta_color="off")
     svc = next(c for c in cats if c["category"] == "services")
     m3.metric("Purchased services", f"{svc['k_eur']:,.0f}k EUR" if svc["k_eur"] is not None else "-",
               f"{svc['pct_of_revenue']:.1f}% of revenue" if svc["pct_of_revenue"] is not None else "revenue year not matched",
@@ -155,7 +170,7 @@ def _render_xray(db: Session, frame: pd.DataFrame):
         fig.update_layout(template="plotly_dark", barmode="relative", height=380, margin=dict(t=30, b=10),
                           title="Thousand EUR" if mode == "abs" else "% of total production costs",
                           legend=dict(orientation="h", y=-0.2))
-        col.plotly_chart(fig, use_container_width=True, key=f"cs_hist_{mode}")
+        col.plotly_chart(fig, use_container_width=True, key=f"{key}_hist_{mode}")
 
     st.markdown("#### This company vs its peers (share of production costs)")
     peers, _ = ca.peer_group(frame, company.nace_code)
@@ -171,7 +186,7 @@ def _render_xray(db: Session, frame: pd.DataFrame):
                     marker=dict(size=13, color="#F58518", line=dict(width=1, color="black")))
     fig.update_layout(template="plotly_dark", height=430, margin=dict(t=20, b=10), xaxis_title="% of total production costs",
                       yaxis=dict(autorange="reversed"), legend=dict(orientation="h", y=-0.15))
-    st.plotly_chart(fig, use_container_width=True, key="cs_peer_chart")
+    st.plotly_chart(fig, use_container_width=True, key=f"{key}_peer_chart")
 
     table = pd.DataFrame([{
         "Line": c["label"], "k EUR": c["k_eur"], "% of costs": c["share_of_costs_pct"], "% of revenue": c["pct_of_revenue"],

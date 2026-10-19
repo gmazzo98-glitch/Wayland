@@ -23,6 +23,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models import Company, SignalRecord, SourceHealth
 from scoring import calculate_company_scores, rank_companies, is_prime_target, PRIME_NEED_MIN, PRIME_READINESS_BAND
+from dossier_nav import render_open_dossier_picker
 from indicators import fetch_indicator_defs
 from crawl_jobs import get_manager, estimate_seconds, DEFAULT_WORKERS, MAX_WORKERS
 from views.crawl_widget import queue_crawl, flash
@@ -593,6 +594,8 @@ def render_target_matrix_page(db: Session):
         filtered_df = filtered_df[filtered_df["sector"] == selected_sec]
     filtered_df = filtered_df[filtered_df["total_completeness_pct"] >= min_comp]
 
+    render_open_dossier_picker({f"{r.legal_name} ({r.registration_number})": r.id for r in filtered_df.itertuples()},
+                               key="tm_open", label="Open a company's dossier (everything about one company)")
     st.markdown("---")
 
     # Sticky "N selected → crawl" strip. Created here so it sits above the tables (and must be

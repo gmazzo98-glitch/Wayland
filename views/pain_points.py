@@ -16,6 +16,7 @@ import streamlit as st
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from dossier_nav import render_open_dossier_picker
 from indicators import fetch_indicator_defs
 from models import Company, PainPointDefinition, SignalRecord
 from painpoints import (
@@ -313,7 +314,8 @@ def _render_portfolio_tab(db: Session, companies: dict, pain_defs: list):
             "Evidence": st.column_config.TextColumn(width="large"),
             "Need": st.column_config.NumberColumn(format="%.1f"), "Readiness": st.column_config.NumberColumn(format="%.1f"),
         })
-        st.caption("Open a company on **🏢 Company Intelligence** (search by registration number) for the full evidence behind each row.")
+        render_open_dossier_picker({f"{c['name']} ({c['reg']})": c["id"] for c in rows}, key="pp_open", tab="diagnosis",
+                                   label="Open a company's dossier (full evidence behind each row)")
 
         current_status = dict(db.query(Company.id, Company.shortlist_status).filter(Company.id.in_([c["id"] for c in rows])).all())
         options = {

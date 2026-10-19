@@ -59,8 +59,13 @@ def _render_tool_trace(tool_trace: list):
             st.json(call["result"])
 
 
-def _render_chat(db: Session):
-    st.subheader("💬 Ask the assistant")
+def _render_chat(db: Session, state_key: str = MESSAGES_KEY, context_note: str = "", input_key: str = "ai_assistant_input",
+                 suggestions: tuple = (), heading: bool = True, placeholder: str = ""):
+    """The chat. `context_note` (e.g. "the user is looking at company X") is sent to the model as a leading turn but
+    never shown; `suggestions` become one-click starter questions. The Company Intelligence dossier reuses this with
+    its own state_key so each company keeps its own conversation."""
+    if heading:
+        st.subheader("💬 Ask the assistant")
 
     if not assistant_llm.is_configured():
         st.info(
@@ -70,10 +75,10 @@ def _render_chat(db: Session):
         )
         return
 
-    if MESSAGES_KEY not in st.session_state:
-        st.session_state[MESSAGES_KEY] = []
+    if state_key not in st.session_state:
+        st.session_state[state_key] = []
 
-    for msg in st.session_state[MESSAGES_KEY]:
+    for msg in st.session_state[state_key]:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             if msg["role"] == "assistant":
@@ -81,15 +86,21 @@ def _render_chat(db: Session):
                     st.caption("↪️ answered via the fallback AI provider — the primary one failed or was rate-limited")
                 _render_tool_trace(msg.get("tool_trace", []))
 
-    question = st.chat_input("Ask about a company, e.g. \"which companies have the highest service costs?\"")
+    question = st.chat_input(placeholder or "Ask about a company, e.g. \"which companies have the highest service costs?\"",
+                             key=input_key)
+    if not question and suggestions and not st.session_state[state_key]:
+        picked = st.pills("Try asking", list(suggestions), key=f"{input_key}_suggest", label_visibility="collapsed")
+        question = picked
     if not question:
         return
 
-    st.session_state[MESSAGES_KEY].append({"role": "user", "content": question})
+    st.session_state[state_key].append({"role": "user", "content": question})
     with st.chat_message("user"):
         st.write(question)
 
-    history = [{"role": m["role"], "content": m["content"]} for m in st.session_state[MESSAGES_KEY]]
+    history = [{"role": m["role"], "content": m["content"]} for m in st.session_state[state_key]]
+    if context_note:
+        history = [{"role": "user", "content": context_note}, {"role": "assistant", "content": "Understood."}] + history
     with st.chat_message("assistant"):
         with st.spinner("Looking it up…"):
             try:
@@ -102,8 +113,22 @@ def _render_chat(db: Session):
             st.caption("↪️ answered via the fallback AI provider — the primary one failed or was rate-limited")
         _render_tool_trace(tool_trace)
 
-    st.session_state[MESSAGES_KEY].append(
+    st.session_state[state_key].append(
         {"role": "assistant", "content": content, "tool_trace": tool_trace, "used_fallback": used_fallback})
+
+
+def render_company_chat(db: Session, company) -> None:
+    """Chat scoped to one company (Company Intelligence > Actions). Same read-only tools, plus a hidden note naming
+    the company so 'its costs' / 'this company' resolve without the user typing the name."""
+    note = (f"Context: the user is reading the dossier of {company.legal_name} (registration number "
+            f"{company.registration_number}). Unless they name another company, 'this company', 'it' and 'its' mean "
+            f"{company.legal_name}; use get_company_profile / get_cost_breakdown / get_company_pain_points with that name.")
+    _render_chat(db, state_key=f"ai_company_chat_{company.id}", context_note=note, input_key=f"ai_company_input_{company.id}",
+                 heading=False, placeholder=f"Ask about {company.legal_name}…",
+                 suggestions=("Summarise this company in five bullets",
+                              "Why is its Need score what it is?",
+                              "How do its costs compare with its peers?",
+                              "What are the biggest risks I should know before calling them?"))
 
 
 def render_ai_assistant_page(db: Session):
