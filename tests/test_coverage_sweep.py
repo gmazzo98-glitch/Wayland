@@ -2,11 +2,26 @@
 
 from datetime import datetime, timedelta
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import company_service
 from models import Base, Company, CompanySourceRun, SignalRecord
+from scripts import coverage_sweep
 from scripts.coverage_sweep import select_backlog, sweep
+
+# The two Phase 7 sources _covered() marks live. Which sources a company is ELIGIBLE for depends on which API keys
+# the machine has (company_service.has_credentials), so these tests pinned nothing and passed only on a keyless
+# machine: with a review key in .env the Review Crawler became eligible, "fresh" showed up as unfinished, and the
+# drain test waited out its 600 s retry. Eligibility is fixed here; the sweep logic is what is under test.
+TEST_SOURCES = {"Directory Listing Crawler", "TED Contract Awards Crawler"}
+
+
+@pytest.fixture(autouse=True)
+def _fixed_eligibility(monkeypatch):
+    monkeypatch.setattr(company_service, "eligible_phase7_sources", lambda company: set(TEST_SOURCES))
+    monkeypatch.setattr(coverage_sweep, "eligible_phase7_sources", lambda company: set(TEST_SOURCES))
 
 
 def _factory(tmp_path):
