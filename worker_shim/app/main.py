@@ -38,6 +38,8 @@ FUNCTIONS = {
         ("p_token", "text"), ("p_task_id", "integer"), ("p_ok", "boolean"),
         ("p_result", "jsonb"), ("p_error", "text"),
     ],
+    # The site evidence reader's progress / audit events / results (T26). One batch per call, idempotent.
+    "vienna_worker_site_evidence_report": [("p_token", "text"), ("p_report", "jsonb")],
 }
 
 pool = SimpleConnectionPool(1, 10, DATABASE_URL)

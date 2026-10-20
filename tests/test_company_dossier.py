@@ -352,7 +352,7 @@ def test_accounts_age_flag_is_calibrated_to_the_filing_calendar():
 # ------------------------------------------------------------------- one home per feature (no cloned pages)
 
 EXPECTED_NAV = ["⚙️ Pipeline & Source Health", "🏢 Company Intelligence", "🎯 Targets & Shortlist", "📊 Portfolio Analysis",
-                "⚖️ Indicator Weights", "🖥️ Crawler Setup", "🕰️ Wayback Timeline", "🤖 AI Assistant", "🛠️ Data Admin"]
+                "⚖️ Indicator Weights", "🖥️ Crawler Setup", "📖 Site Evidence Reader", "🤖 AI Assistant", "🛠️ Data Admin"]
 
 
 def _nav_labels():

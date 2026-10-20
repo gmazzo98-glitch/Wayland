@@ -31,7 +31,7 @@ from views.indicator_weights import render_indicator_weights_page
 from views.ai_assistant import render_ai_assistant_page
 from views.crawl_widget import sync_session, render_crawl_widget
 from views.crawler_setup import render_crawler_setup_page, render_sidebar_target
-from views.wayback_timeline_panel import render_wayback_timeline_page
+from views.site_evidence_panel import render_site_evidence_page, render_sidebar_status
 
 # Initialize Database & Engine
 try:
@@ -87,7 +87,7 @@ page_selection = st.sidebar.radio(
         "📊 Portfolio Analysis",
         "⚖️ Indicator Weights",
         "🖥️ Crawler Setup",
-        "🕰️ Wayback Timeline",
+        "📖 Site Evidence Reader",
         "🤖 AI Assistant",
         "🛠️ Data Admin"
     ],
@@ -98,6 +98,9 @@ st.sidebar.markdown("---")
 
 # Which computer the deep crawls run on (this server, or a helper's PC with the worker installed).
 render_sidebar_target(db)
+
+# A site evidence run (hours or days, on a worker computer) stays visible from every page.
+render_sidebar_status(db)
 
 st.sidebar.markdown("---")
 
@@ -131,8 +134,8 @@ elif page_selection == "⚖️ Indicator Weights":
     render_indicator_weights_page(db)
 elif page_selection == "🖥️ Crawler Setup":
     render_crawler_setup_page(db)
-elif page_selection == "🕰️ Wayback Timeline":
-    render_wayback_timeline_page(db)
+elif page_selection == "📖 Site Evidence Reader":
+    render_site_evidence_page(db)
 elif page_selection == "🤖 AI Assistant":
     render_ai_assistant_page(db)
 elif page_selection == "🛠️ Data Admin":

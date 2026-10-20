@@ -51,7 +51,7 @@ NODE_MAJOR = "v22"
 
 # Copied into the bundle from worker/ (supabase_rpc.sql and install.ps1 are deliberately not:
 # the first is server-side, the second travels inside the Setup file itself).
-WORKER_FILES = ["worker.mjs", "update.ps1", "start-worker.vbs"]
+WORKER_FILES = ["worker.mjs", "site_evidence.mjs", "update.ps1", "start-worker.vbs"]
 ROOT_FILES = {
     "stop-worker.bat": "Stop Vienna Crawler Worker.bat",
     "start-worker.bat": "Start Vienna Crawler Worker.bat",
@@ -151,21 +151,27 @@ def collect(crawlers_dir: Path):
         entries.append((f"worker/{name}", WORKER_SRC / name))
     for src, dest in ROOT_FILES.items():
         entries.append((dest, WORKER_SRC / src))
-    entries.extend(collect_wayback_timeline(crawlers_dir.parent))
+    for tool in PYTHON_TOOLS:
+        entries.extend(collect_python_tool(crawlers_dir.parent, tool))
     return entries
+
+
+# Standalone Python tools (Scraper/tools/<name>) that ride along with the worker. Plain stdlib source only.
+PYTHON_TOOLS = ("wayback_timeline", "site_evidence")
+
+
+def collect_python_tool(scraper_root: Path, name: str):
+    """Plain Python source only (no data/, tests/ or README) - company input and output both
+    live outside the bundle entirely (see worker.mjs's startWaybackTimeline and worker/site_evidence.mjs),
+    so there is nothing else here to ship or keep in sync."""
+    src_dir = scraper_root / "tools" / name
+    if not src_dir.is_dir():
+        return []
+    return [(f"tools/{name}/{f.name}", f) for f in sorted(src_dir.glob("*.py"))]
 
 
 def collect_wayback_timeline(scraper_root: Path):
-    """Plain Python source only (no data/ or tests/) - company input and output both
-    live outside the bundle entirely (see worker.mjs's startWaybackTimeline), so there
-    is nothing else here to ship or keep in sync."""
-    src_dir = scraper_root / "tools" / "wayback_timeline"
-    if not src_dir.is_dir():
-        return []
-    entries = []
-    for f in sorted(src_dir.glob("*.py")):
-        entries.append((f"tools/wayback_timeline/{f.name}", f))
-    return entries
+    return collect_python_tool(scraper_root, "wayback_timeline")
 
 
 def main() -> None:
