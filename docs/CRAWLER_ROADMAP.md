@@ -196,8 +196,8 @@ re-discover the same blocker.
 | T22 | Remote Crawler Workers were running a ~2-day-stale worker bundle | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T23 | `worker/update.ps1` had 3 bugs that silently killed every update (one fatal on every run) | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T24 | No website-discovery step: a company with a real, content-rich homepage looked completely empty | Signal extension | P1 | DONE — live-verified end to end | Claude (gio3maz, human-directed) | 2026-10-13 | (direct to master) |
-| T25 | Local-model reader of companies' own websites (partner / research / innovation / export evidence) | Signal extension | P1 | IN_PROGRESS (pilot done, not merged) | Claude (gio3maz, human-directed) | 2026-10-20 | crawler/T25-site-evidence-local-llm |
-| T26 | Start, watch and audit the T25 reader from the Vienna app (worker module, database function, app page) | Ops | P0 | IN_PROGRESS (built and rehearsed locally; NOT merged, NOT rolled out) | Claude (gio3maz, human-directed) | 2026-10-20 | crawler/T25-site-evidence-local-llm |
+| T25 | Local-model reader of companies' own websites (partner / research / innovation / export evidence) | Signal extension | P1 | DONE (merged 2026-10-20; the full run is T26) | Claude (gio3maz, human-directed) | 2026-10-20 | (merged) |
+| T26 | Start, watch and audit the T25 reader from the Vienna app (worker module, database function, app page) | Ops | P0 | DONE - live-verified end to end (the full run is started from the page) | Claude (gio3maz, human-directed) | 2026-10-20 | (merged) |
 
 Adding a new ticket yourself (T26+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
@@ -2420,11 +2420,23 @@ that does not resolve and one that blocks bots); runs were started and read thro
 `tests/test_site_evidence_sql.py` (15, needs `pgserver`: skips itself without it; run in an isolated venv, see its
 docstring), `tests/test_worker_hub.py` (bundle matches source, T22) and `tests/test_worker_shim_update.py`.
 
-**Not done on purpose (ground rule 3, rollout-gated):** merging to master, deploying the shim, applying the new tables and
-function to Neon, and serving the new bundle to the installed workers. When that is approved the order is: merge ->
-deploy (the app applies the tables and function at start) -> workers update themselves within ~5 minutes (only while
-idle; a paused reader resumes) -> a supervised live start of a handful of companies from the page -> the full run.
-The other worker PC has no Ollama: it will show "Ollama is not installed" and cannot be picked.
+**Rollout (2026-10-20, approved by the user): merged to `master` in both repos and pushed.**
+- The shim redeployed within minutes and serves build `617ec2e9b8dd`. The tables and the function were created on Neon by
+  running the app's own `init_db()` once (the hosted app does the same at start): 3 `site_evidence_*` tables with row-level
+  security on, `vienna_worker_site_evidence_report` present, not executable by `public`.
+- Both online workers updated themselves (only while idle, ~5 minutes). The other computer ("GioMazzo") now reports
+  `can_start: false` - "Ollama (the local model) is not installed on this computer" - so it cannot be picked; this PC
+  ("GioMazzoPC2") reports `can_start: true` with `qwen2.5:3b` and `qwen2.5-3b-8k`.
+- Supervised live runs through the hub code the page uses: (1) 3 shortlisted companies, 3.1 minutes, Finished, 0 findings,
+  one site (broken certificate) read from the Wayback copy; (2) Sistemi Energetici alone, 1.7 minutes, Finished: the
+  simulated `university_partnership` placeholder from News/Press was replaced by a `Site Evidence Reader` signal (Universita
+  degli Studi di Foggia, same text archived since 2023-02-08), the audit event `signal_replaced` kept the replaced row, and
+  the company's real Google News `external_collaboration` signal was left untouched. That one real signal is kept; it can
+  be undone with `scripts/site_evidence_run.py rollback <run id> --apply`.
+- Not started: the full run. It is one click on the page (or `queue_start`); free RAM on the PC is the speed lever.
+
+**Rollout order for any future change to the worker or the SQL:** merge -> deploy -> app start applies tables/function ->
+workers update when idle -> supervised start -> full run.
 
 ---
 
