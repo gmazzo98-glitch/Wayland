@@ -197,8 +197,9 @@ re-discover the same blocker.
 | T23 | `worker/update.ps1` had 3 bugs that silently killed every update (one fatal on every run) | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T24 | No website-discovery step: a company with a real, content-rich homepage looked completely empty | Signal extension | P1 | DONE — live-verified end to end | Claude (gio3maz, human-directed) | 2026-10-13 | (direct to master) |
 | T25 | Local-model reader of companies' own websites (partner / research / innovation / export evidence) | Signal extension | P1 | IN_PROGRESS (pilot done, not merged) | Claude (gio3maz, human-directed) | 2026-10-20 | crawler/T25-site-evidence-local-llm |
+| T26 | Start, watch and audit the T25 reader from the Vienna app (worker module, database function, app page) | Ops | P0 | IN_PROGRESS (built and rehearsed locally; NOT merged, NOT rolled out) | Claude (gio3maz, human-directed) | 2026-10-20 | crawler/T25-site-evidence-local-llm |
 
-Adding a new ticket yourself (T25+)? Append a row here and a matching
+Adding a new ticket yourself (T26+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
 renumber existing tickets.
 
@@ -2342,6 +2343,88 @@ Nothing was written to the live database; the importer was dry-run only.
   same on a clean `master` worktree: `test_access_control::test_login_form_...` (Streamlit AppTest's default 3 s timeout,
   fails once the whole suite is collected, passes alone), `test_phase7_batch` x2 (needs all 14 sources in flight at once)
   and `test_worker_hub::...local_budget` (0.05 s budget), which pass on a quiet rerun. Pre-existing, not fixed here.
+  (The "Not done on purpose" item above - app-side Start/Stop - is T26.)
+
+### T26 - Start, watch and audit the site evidence reader from the Vienna app
+**Track:** Ops · **Priority:** P0 (the reader is a multi-hour / multi-day job; started by hand from a terminal it had no
+feedback in the app, no record beyond a log file, no recovery after a reboot, and its results needed a manual import)
+
+**Requirement (user, 2026-10-20):** start the full run from the committed Wayland app; write to the Neon database AND
+locally; clear feedback while it runs (continuous worker communication) and when it finishes; a definite audit and
+diagnostic system if anything fails; no one has to keep Claude (or the browser) open during the run.
+
+**What was built.**
+- *Tool (Scraper `tools/site_evidence/`)*: `events.py` (append-only audit log `events.jsonl`, never raises, clips big
+  values), `signals.py` (findings -> the five existing signals; kept identical to the importer by a parity test),
+  `diagnostics.py` (one JSON/zip with environment, memory, model server, processes, state, problem companies, log
+  tails), `progress.json`, and an append-only `outbox.jsonl` written BEFORE `state.json` (one line per finished company:
+  outcome + findings + signals). The supervisor always records why it ended (`supervisor_exit.json`); the runner emits
+  an event for every notable thing (model outage and recovery, RAM waits, unreadable sites, partial companies, crashes
+  with traceback). Findings carry the rules version that accepted them and companies judged under older rules are
+  re-judged from the cached model answers (no new model calls).
+- *Worker (`worker/site_evidence.mjs`, hooked into `worker.mjs`)*: capability check (Python present, Ollama installed,
+  model present) published in every heartbeat, so a PC without a model is never offered the job; tasks `start`, `stop`,
+  `diagnostics`, `resync`; a keeper that restarts a dead supervisor (backoff, crash-loop -> `failed` with captured
+  diagnostics), adopts a run after a worker restart, pauses it for the worker's own updates and resumes it, and stops
+  it with `stop-worker.bat`; a reporter that sends progress every 15 s and results/events as they appear, with a durable
+  cursor, backoff when the database is unreachable, batch halving and quarantine for a record the server can never
+  accept, and final status sent only after the results (so "finished" is never shown early).
+- *Database (`worker/supabase_rpc.sql`, applied at app start by `worker_hub.ensure_rpc`)*: tables `site_evidence_runs`,
+  `site_evidence_events`, `site_evidence_companies`; function `vienna_worker_site_evidence_report` (the worker's only
+  new write path, token-authenticated, whitelisted in `worker_shim/app/main.py`): idempotent (same batch twice changes
+  nothing), a poison company is isolated in its own sub-transaction, a real value from another source is never
+  overwritten (skip is audited), every signal change is audited with the row it replaced, an ended run stays ended.
+- *App*: `site_evidence_hub.py` (all logic, no Streamlit) and `views/site_evidence_panel.py` (page "📖 Site Evidence
+  Reader" replacing the Wayback Timeline nav entry, which lives on in an expander): computer picker showing why a
+  computer cannot run it, company list (shortlist first), live status refreshed every 4 s (running / waiting for free
+  memory / waiting for the model / computer not reporting / delivering last results / finished / stopped / failed),
+  progress bar and time left, Stop, history, audit trail with filters, per-company outcomes with the rejected quotes,
+  Diagnostics (audit bundle download, "ask the computer for a full report", resync), undo of a run's signals from the audit
+  trail alone, and a one-line status in the sidebar of every page. `scripts/site_evidence_run.py` does list / show /
+  audit / rollback from a terminal.
+
+**Files touched (Vienna):** `models.py`, `worker/supabase_rpc.sql`, `worker/site_evidence.mjs` (new), `worker/worker.mjs`,
+`worker/stop-worker.bat`, `worker/tests/` (new), `worker_shim/app/main.py`, `scripts/build_worker_bundle.py`,
+`site_evidence_hub.py` (new), `views/site_evidence_panel.py` (new), `views/wayback_timeline_panel.py` (`embedded`),
+`app.py`, `scrapers/site_evidence_reader.py` (`rules_version` in evidence), `scripts/site_evidence_run.py` (new), the
+rebuilt bundle + manifest, tests (`test_site_evidence_hub.py`, `test_site_evidence_sql.py`, `test_site_evidence_parity.py`,
+`test_worker_hub.py`, `test_company_dossier.py` nav list), this file. Scraper: `tools/site_evidence/**`.
+
+**Rehearsal (2026-10-20, everything local; Neon, the installed worker and the served update manifest were never
+touched).** A throwaway PostgreSQL 16 (`pgserver`), the real shim under uvicorn, the real `worker.mjs` run from the
+bundle it had just downloaded from that shim, the real Ollama model and real company websites (11 companies incl. one
+that does not resolve and one that blocks bots); runs were started and read through the same hub code the page uses.
+- Start -> claimed within seconds -> supervisor -> runner; state, progress and results appeared in the database; the run
+  ended as "Finished"; a company that does not resolve was recorded with the reason (DNS) and retried later, a site that
+  answers 403 as "refuses automated reading".
+- Runner killed mid-company: supervisor restarted it after 60 s. Supervisor and runner both killed (a reboot): the worker
+  noticed within ~10 s and relaunched; the app showed "restarted 1 time". Both are in the audit trail.
+- Database path down for about 5 minutes (shim stopped): the app said "The computer is not reporting ... carries on by
+  itself", the run completed locally, then "Finished on the computer, delivering the last results (21 KB)"; the backlog
+  arrived at the reporter's next retry (it backs off up to 5 minutes) and the run turned "Finished" with every company
+  and signal present.
+- Stop from the app: Stopping -> Stopped in about 15 s; a new start continued with the remaining companies.
+- Guard and undo: a crafted late result replaced a simulated placeholder (audited with the old row) and a conflicting one
+  from another source was left alone (audited as a conflict); rollback from the audit trail removed the created signal and
+  put the placeholder back exactly.
+- Diagnostics: the computer's report came back in one task (50 KB: environment, memory, model server, processes, problem
+  companies with reasons, log tails, undelivered backlog) and holds no token or database address.
+- The rehearsal found two real bugs that no unit test had (both now covered by regression tests): the worker's `tick()`
+  guard wedged itself after the first idle call, so the reporter and keeper silently never ran again; and a late batch
+  (resync, in-flight) carrying `running` would have reopened an ended run in the database.
+- Free RAM on this PC was 0.2-0.4 GB for long stretches: the run showed "waiting for free memory" and continued by itself;
+  that is the main speed lever for the real run (close other programs on the computer that runs it).
+
+**Tests:** Scraper `python -m pytest tools/site_evidence/tests` (see Results of the commit); Vienna `node --test
+"worker/tests/*.test.mjs"` (26), `tests/test_site_evidence_hub.py` (hub + page, AppTest), `tests/test_site_evidence_parity.py`,
+`tests/test_site_evidence_sql.py` (15, needs `pgserver`: skips itself without it; run in an isolated venv, see its
+docstring), `tests/test_worker_hub.py` (bundle matches source, T22) and `tests/test_worker_shim_update.py`.
+
+**Not done on purpose (ground rule 3, rollout-gated):** merging to master, deploying the shim, applying the new tables and
+function to Neon, and serving the new bundle to the installed workers. When that is approved the order is: merge ->
+deploy (the app applies the tables and function at start) -> workers update themselves within ~5 minutes (only while
+idle; a paused reader resumes) -> a supervised live start of a handful of companies from the page -> the full run.
+The other worker PC has no Ollama: it will show "Ollama is not installed" and cannot be picked.
 
 ---
 

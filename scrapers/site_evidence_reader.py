@@ -120,6 +120,7 @@ def _derive_signals(hits: Iterable[Dict[str, Any]], year_now: Optional[int] = No
             "page_read": "archived copy (live site unreadable)" if archived else "live",
             "snapshot_ts": hit.get("snapshot_ts"), "model": hit.get("model"), "num_ctx": hit.get("num_ctx"),
             "found_at": hit.get("found_at"), "claim": claim, "hint": _hint(hit),
+            "rules_version": hit.get("rules_version"),
         }
         if dating.get("status") in ("ok", "bounded"):
             evidence["first_seen_in_archive"] = {

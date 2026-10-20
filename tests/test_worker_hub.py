@@ -411,11 +411,14 @@ def test_the_setup_file_is_self_contained_and_personal_to_one_computer():
     expected_info = worker_installer.bundle_info()
     assert info["crawlers"] == expected_info["crawlers"] and info["build"] == expected_info["build"]
 
-    # Only the standalone Wayback tool's Python source is included; no app code or data.
+    # Only the standalone Python tools' source is included (Wayback, and the site evidence reader);
+    # no app code, data or tests.
     assert not any(n.startswith(("views/", "scrapers/", "adapters/")) or
                    (n.endswith((".py", ".db", ".env")) and
-                    not (n.startswith("tools/wayback_timeline/") and n.endswith(".py")))
+                    not (n.startswith(("tools/wayback_timeline/", "tools/site_evidence/")) and n.endswith(".py")))
                    for n in names)
+    assert not any("/tests/" in n or n.endswith("README.md") for n in names if n.startswith("tools/"))
+    assert {"worker/site_evidence.mjs", "tools/site_evidence/runner.py", "tools/site_evidence/supervisor.py"} <= names
     assert not any("node_modules" in n or n.endswith(".sql") for n in names)
 
 
@@ -434,7 +437,7 @@ def test_committed_bundle_contains_the_current_worker_source():
     the distributable otherwise produces an installer that succeeds but can never connect.
     """
     with zipfile.ZipFile(worker_installer.BUNDLE_PATH) as z:
-        for name in ("worker.mjs", "update.ps1"):
+        for name in ("worker.mjs", "site_evidence.mjs", "update.ps1"):
             bundled = z.read(f"worker/{name}")
             expected = (worker_installer.ROOT / "worker" / name).read_bytes()
             if name.endswith(".ps1"):

@@ -597,3 +597,90 @@ class CrawlerTask(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     claimed_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
+
+
+SITE_EVIDENCE_RUN_ACTIVE = ("queued", "running", "stopping")
+SITE_EVIDENCE_RUN_FINAL = ("finished", "stopped", "failed")
+
+
+class SiteEvidenceRun(Base):
+    """
+    One start of the local-model reader of companies' own websites (T25/T26) on a Crawler Worker.
+
+    The app creates the row when it queues the start; from then on the WORKER keeps it current
+    through vienna_worker_site_evidence_report (worker/supabase_rpc.sql), because the worker is the
+    only party that knows what the run is doing and it works with nobody watching the app.
+    status: queued -> running -> finished | stopped | failed ('stopping' while a stop is pending).
+    summary is the latest progress snapshot (counts, speed, time left); info is the environment
+    the run actually used (tool build, rules version, model, host, Python), kept so a result can
+    always be traced to the code that made it.
+    """
+    __tablename__ = "site_evidence_runs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    worker_id = Column(String(36), ForeignKey("crawler_workers.id"), nullable=False, index=True)
+    task_id = Column(Integer, nullable=True)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    requested_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    last_report_at = Column(DateTime, nullable=True)
+    input_total = Column(Integer, nullable=True)
+    done = Column(Integer, nullable=True)
+    hits_total = Column(Integer, nullable=True)
+    signals_written = Column(Integer, nullable=False, default=0)
+    signals_skipped = Column(Integer, nullable=False, default=0)
+    options = Column(JSON, nullable=True)       # what was chosen in the app when starting
+    summary = Column(JSON, nullable=True)
+    info = Column(JSON, nullable=True)
+    last_error = Column(Text, nullable=True)
+
+
+class SiteEvidenceEvent(Base):
+    """
+    The audit trail of a run, append-only. Events are written by the tool (runner, supervisor),
+    the worker, and the database function itself (every signal it wrote or declined to write, with
+    the row it replaced, which is what makes a run reversible). `id` is chosen by the writer and
+    inserted with ON CONFLICT DO NOTHING, so a batch sent twice never duplicates anything.
+    """
+    __tablename__ = "site_evidence_events"
+
+    id = Column(String(36), primary_key=True)
+    run_id = Column(String(36), ForeignKey("site_evidence_runs.id"), nullable=False, index=True)
+    ts = Column(DateTime, nullable=False, index=True)
+    source = Column(String(20), nullable=False)        # runner | supervisor | worker | database
+    level = Column(String(10), nullable=False, index=True)   # info | warn | error
+    code = Column(String(60), nullable=False, index=True)
+    message = Column(Text, nullable=False, default="")
+    data = Column(JSON, nullable=True)
+
+
+class SiteEvidenceCompany(Base):
+    """
+    The latest outcome of the reader for one company, whether or not it found anything: how many
+    pages it read, from the live site or the archive, why a site was not readable, which passages
+    the model's quotes were rejected on. "Checked, nothing found" is a real row here and is
+    deliberately NOT a signal: a company can collaborate without saying so on its own website.
+    """
+    __tablename__ = "site_evidence_companies"
+    __table_args__ = (UniqueConstraint("company_id", name="uq_site_evidence_company"),)
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+    registration_number = Column(String(100), nullable=False, index=True)
+    status = Column(String(30), nullable=False, index=True)
+    attempts = Column(Integer, nullable=True)
+    pages_read = Column(Integer, nullable=True)
+    via = Column(String(10), nullable=True)            # live | wayback | mixed
+    seconds = Column(Float, nullable=True)
+    rules_version = Column(Integer, nullable=True)
+    hits = Column(JSON, nullable=True)                 # claim ids found
+    windows = Column(JSON, nullable=True)              # passages the model was shown, per claim
+    rejected = Column(JSON, nullable=True)
+    rejected_samples = Column(JSON, nullable=True)
+    pages_failed = Column(JSON, nullable=True)
+    site_detail = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    last_run_id = Column(String(36), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)

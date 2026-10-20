@@ -20,6 +20,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createSiteEvidence, tailLines } from './site_evidence.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = process.env.VIENNA_WORKER_HOME ? path.resolve(process.env.VIENNA_WORKER_HOME) : path.resolve(HERE, '..');
@@ -573,13 +574,24 @@ async function main() {
   let selfTestAt = Date.now();
   log(`worker ${VERSION_INFO.version} (build ${VERSION_INFO.build}) starting as '${CONFIG.name}'; self-test ${selfTestReport.ok ? 'passed' : 'FAILED'}`);
 
+  // The local-model reader of companies' own websites (T26): runs for hours or days under its own
+  // supervisor, reports to the database through the same shim, and survives updates and reboots.
+  const siteEvidence = createSiteEvidence({
+    root: ROOT, token: CONFIG.token, rpc, log,
+    workerInfo: () => ({ build: VERSION_INFO.build, version: VERSION_INFO.version, host: os.hostname(), worker_name: CONFIG.name }),
+    workerDiagnostics: () => ({
+      worker_log_tail: tailLines(LOG_FILE, 300), status: (() => { try { return readJson(STATUS_FILE); } catch { return null; } })(),
+      update_failure: updateFailure(), self_test: selfTestReport, node: process.versions.node, os: `${os.platform()} ${os.release()}`,
+    }),
+  });
+
   const info = () => {
     const failure = updateFailure();
     return {
       protocol: PROTOCOL, version: VERSION_INFO.version, build: VERSION_INFO.build,
       node: process.versions.node, os: `${os.platform()} ${os.release()}`, host: os.hostname(),
       busy: running, max_parallel: maxParallel, checks: selfTestReport.checks, selftest_at: selfTestReport.at,
-      auto_update: true, wayback_timeline: waybackTimelineInfo(),
+      auto_update: true, wayback_timeline: waybackTimelineInfo(), site_evidence: siteEvidence.info(),
       ...(failure ? { update_error: failure } : {}),
     };
   };
@@ -607,7 +619,23 @@ async function main() {
     writeStatus({ state: 'connected', lastHeartbeat: new Date().toISOString(), selftest: selfTestReport });
   };
 
+  // Start / stop / diagnostics / resync for the site evidence reader. Like the Wayback actions these are
+  // fire-and-forget: the run itself lives in its own process and reports through the reporter, so the task
+  // completes at once and never occupies one of the crawl slots.
+  const executeSiteEvidence = async (task) => {
+    log(`task ${task.id}: site_evidence ${task.kind}`);
+    let result = null;
+    let ok = true;
+    let error = null;
+    try { result = await siteEvidence.handleTask(task); }
+    catch (e) { ok = false; error = String(e.message).slice(0, 3900); log(`task ${task.id}: site_evidence ${task.kind} failed: ${error}`); }
+    try {
+      await rpc('vienna_worker_complete', { p_token: CONFIG.token, p_task_id: task.id, p_ok: ok, p_result: result, p_error: error });
+    } catch (e2) { log(`task ${task.id}: could not report the result: ${e2.message}`); }
+  };
+
   const execute = async (task) => {
+    if (task.crawler === 'site_evidence') { void executeSiteEvidence(task); return; }
     if (task.crawler === 'wayback_timeline') {
       // Start/Stop tasks can arrive together. Process them in claim order so a
       // second Start cannot race the first process's PID file.
@@ -631,6 +659,7 @@ async function main() {
   };
 
   for (;;) {
+    void siteEvidence.tick();   // never throws and never blocks: keeps the reader alive and reports its results
     try {
       if (Date.now() - lastBeat >= HEARTBEAT_MS) await beat();
       if (Date.now() - selfTestAt >= SELFTEST_EVERY_MS && running === 0) {
@@ -646,7 +675,12 @@ async function main() {
           if (!manifest.build || !manifest.sha256 || !manifest.download_url) {
             throw new Error('update service returned an incomplete manifest');
           }
-          if (manifest.build !== VERSION_INFO.build) await startUpdate(manifest, info());
+          if (manifest.build !== VERSION_INFO.build) {
+            // The installation is about to be replaced: a running reader is stopped cleanly first (its
+            // progress is saved per company) and is resumed automatically afterwards, by this worker if
+            // the update fails and by the new one if it succeeds. A recent pause defers the update.
+            if (await siteEvidence.pauseForUpdate()) await startUpdate(manifest, info());
+          }
           fs.rmSync(UPDATE_FAILURE_FILE, { force: true });
           lastUpdateError = '';
         } catch (e) {

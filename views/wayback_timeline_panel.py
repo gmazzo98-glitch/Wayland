@@ -70,8 +70,9 @@ def _last_companies_csv(db, worker_id: str) -> Optional[str]:
     return None
 
 
-def render_wayback_timeline_page(db) -> None:
-    st.title("🕰️ Wayback Timeline")
+def render_wayback_timeline_page(db, embedded: bool = False) -> None:
+    if not embedded:
+        st.title("🕰️ Wayback Timeline")
     st.caption(
         "A standalone, opportunistic pass: reads a company's Wayback Machine history with the "
         "local model and finds when claims like an online store or a sustainability commitment "
