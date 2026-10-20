@@ -301,6 +301,7 @@ _CRAWLER_SOURCE_TO_DATASET = {
     "Innovation Participation Crawler": "crawler_innovation_participation",
     "News Signals Crawler": "crawler_news_signals",
     "Google News RSS": "crawler_news_rss",
+    "Site Evidence Reader": "crawler_site_evidence",
     "TED Contract Awards Crawler": "crawler_ted_contract_awards",
     "FDA Recalls Crawler": "crawler_fda_recalls",
 }
@@ -811,6 +812,29 @@ def _render_crawled_intelligence(db: Session, company: Company) -> None:
             for h in (row.get("kept_headlines") or [])[:3]:
                 st.caption(f"“{h.get('headline')}” — {h.get('outlet') or 'unknown outlet'}")
         sections.append(("📰 Press & News", _render_news))
+
+    site_evidence = records.get("crawler_site_evidence")
+    if site_evidence and site_evidence.get("hits"):
+        def _render_site_evidence(row=site_evidence):
+            labels = {"university_partnership": "University / research partnership",
+                      "external_collaboration": "External collaboration",
+                      "open_innovation": "Innovation programme or award",
+                      "export_share_pct": "Export share", "export_since_year": "Exporting since"}
+            for h in row["hits"]:
+                url = h.get("page_url")
+                where = h.get("page_title") or url
+                archived = " *(archived copy — live site unreadable)*" if h.get("via") == "wayback" else ""
+                link = f" — [{where}]({url})" if url else ""
+                st.markdown(f"- **{labels.get(h.get('claim'), h.get('claim'))}**{archived}: “{h.get('quote')}”{link}")
+                seen = h.get("first_seen") or {}
+                if seen.get("status") in ("ok", "bounded") and seen.get("first_seen_date"):
+                    st.caption(f"The Wayback Machine has had this text since {seen['first_seen_date']} "
+                               f"({seen.get('note')}).")
+            cov = row.get("coverage") or {}
+            if cov.get("pages_read") is not None:
+                st.caption(f"Read from the company's own site: {cov.get('pages_read')} page(s). Nothing found in a claim "
+                           "does not mean it is absent — only that these pages do not say it.")
+        sections.append(("📑 Own-site Evidence", _render_site_evidence))
 
     competitors = list(company.competitors or [])
     comp_blobs = {k: records[k] for k in (

@@ -196,6 +196,7 @@ re-discover the same blocker.
 | T22 | Remote Crawler Workers were running a ~2-day-stale worker bundle | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T23 | `worker/update.ps1` had 3 bugs that silently killed every update (one fatal on every run) | Ops | P0 | DONE | Claude (gio3maz, human-directed) | 2026-10-12 | (direct to master) |
 | T24 | No website-discovery step: a company with a real, content-rich homepage looked completely empty | Signal extension | P1 | DONE — live-verified end to end | Claude (gio3maz, human-directed) | 2026-10-13 | (direct to master) |
+| T25 | Local-model reader of companies' own websites (partner / research / innovation / export evidence) | Signal extension | P1 | IN_PROGRESS (pilot done, not merged) | Claude (gio3maz, human-directed) | 2026-10-20 | crawler/T25-site-evidence-local-llm |
 
 Adding a new ticket yourself (T25+)? Append a row here and a matching
 subsection below, following the same shape, and mark it `OPEN`. Don't
@@ -2259,6 +2260,88 @@ prompt), `views/company_detail.py` (the renamed/relabeled expander, same live-se
 monkeypatched the now-removed module constants, updated), `tests/test_company_brief.py` (4
 new tests covering the broadened evidence categories, including the exact AMPLIA-shaped
 "narrow four are all empty but real evidence exists elsewhere" case).
+
+### T25 - Local-model reader of companies' own websites
+**Track:** Signal extension · **Priority:** P1 (the weight-5/5/4 readiness indicators `external_collaboration`,
+`university_partnership`, `prior_open_innovation_usage` sit at ~1% and 8 of the 15 live "present" rows from
+the headline route were about a different entity)
+
+**Problem.** Two things were true at once. (1) The only live producer for those three indicators is
+`adapters/google_news_rss.py`, which regex-matches *headlines* on a surname/generic-word basis ("Columbia S.r.l."
+got Columbia University protest news, "Zambelli S.r.l." an arrested deputy; read by hand: 5 of 15 rows clearly
+right, 2 right company but not the indicator's meaning, 8 about someone else). The purpose-built producers
+(`news_signals_crawler`, `innovation_participation_crawler`) are hard-wired to the paid Claude API plus a
+NewsAPI key and have never run live. (2) Nothing reads the pages where a small manufacturer actually says it
+works with a university: `company-website-crawler` fetches only about / products / store locator /
+sustainability. The Wayback Timeline tool (local model walking snapshots) wrote its answers to a file nothing
+read and fed no indicator.
+
+**What was built.** `Scraper/tools/site_evidence/` (standard library only, runs on any PC with Python and
+Ollama): finds the relevant pages of a company's own site, keeps only passages where a claim's keyword trigger
+and required vocabulary co-occur, asks the local model for ONE verbatim sentence or null, and accepts it only
+if code verifies it is on the page AND it passes the claim's own rules (a university partnership must name the
+institution, a collaboration must name the partner right after the relation phrase, an export share must be a
+share and not growth, ...). Failsafe by construction: resumable (atomic state + content-keyed answer cache),
+supervisor with crash/hang restart and backoff, STOP file, RAM gate with a lower floor once the model is
+loaded, single-instance guard, keep-awake. Wayback Machine is used deterministically only: rescue (read the
+latest archived copy when the live site cannot be read, never when robots/bot-blocked) and dating (bisect a
+page's snapshots for the earliest one containing the confirmed text).
+Vienna side: `scrapers/site_evidence_reader.py` (pure `_derive_signals` + plan/apply with a one-row-per-key guard
+that never overwrites a real `present`/`absent` from another source), `scripts/export_site_evidence_input.py`,
+`scripts/import_site_evidence.py` (dry run by default, backs up what it replaces), a "Own-site Evidence" section
+in Company Intelligence, and the audit-dialog mapping. Existing keys only, no weight changes (ground rule 1).
+
+**Files touched:** `Scraper/tools/site_evidence/**` (new), `Scraper/run_site_evidence.bat`,
+`Scraper/stop_site_evidence.bat`, `scrapers/site_evidence_reader.py` (new), `scripts/export_site_evidence_input.py`
+(new), `scripts/import_site_evidence.py` (new), `tests/test_site_evidence_reader.py` (new),
+`views/company_detail.py` (one mapping line + one section), this file. NOT touched: `worker/`, the bundle,
+`worker_shim/` (see Results: app-side Start/Stop through the Crawler Worker is deliberately a separate,
+rollout-gated step).
+
+**Results (2026-10-20, pilot on 20 companies: 12 random + the 8 whose headline-derived rows were audited by hand).**
+Nothing was written to the live database; the importer was dry-run only.
+- *Speed:* 20 companies in 19 minutes with the model, 34 model calls at 10.9 s each (229 prompt tokens, 21 output
+  tokens). The earlier "35-45 s per call" figure came from 6000-character Wayback pages; passages here are ~700
+  characters. Full cohort: roughly 6-12 hours on this PC (not days), dominated by 2 s/page politeness and RAM waits.
+- *Yield, final rules (v4):* 1 verified finding in 20 companies (Sistemi Energetici, `university_partnership`, an
+  intro line plus bullets naming the Universities of Foggia, Milan and the Politecnico di Bari; the Wayback Machine
+  has held the same text since 2023-02-08). Too small a sample to extrapolate a rate; the full pass will measure it.
+  Expect single-digit percentages per claim: small manufacturers rarely write this down on their site.
+- *Precision work the pilot forced (each is a regression test):* an unnamed partner ("in collaborazione con un importante
+  system integrator") must not count; a university must be named; a quote glued across page lines is repaired to its
+  own lines (a colon-plus-bullet list is kept as one statement); a 1997 timeline "export 70%" is not a current share
+  (the year sits in a heading on the line above); a training/sponsorship "collaboration" is not an innovation
+  partner. 11 model quotes were rejected by these rules and are kept per company in `state.json` as
+  `rejected_samples`. Two of them look like genuine partnerships the strict rule lost ("New partnership with the
+  sppot" at Eurotherm, whose name the page prints in lower case; Reepack/Ossid): tune from the full run's samples.
+- *Failsafe, verified for real:* STOP file -> clean exit 2 in seconds; runner killed with `taskkill /F` mid-run -> the
+  supervisor restarted it after 60 s and the new runner finished the remaining 17 companies with 0 model calls
+  (all answers cached); model server absent -> the tool starts `ollama serve` itself; RAM gate waited, then ran on a
+  lower floor once the model was loaded. A second runner on the same folder refuses to start.
+- *Wayback Machine, measured:* **rescue** - a homepage-only scan of the whole cohort (937 sites, 26 minutes, one
+  request per host, robots obeyed) found 828 readable live (88%), 93 (10%) unreadable but not a settled "no"
+  (46 broken TLS certificates, 15 timeouts, 9 DNS, 9 connection, 5 server errors, 5 other, 3 not found, 1 not HTML),
+  plus 14 bot-blocked and 2 robots-disallowed that are deliberately never rescued. The archive holds a copy for 89 of
+  the 93 (55 from the last three years), which lifts readable coverage from 88% to about 98% of the cohort (about 94%
+  with copies under three years old). In the 20-site pilot 2 sites (10%) were read this way (copies from 2018-2023;
+  nothing found in those two).
+  **dating** - works (bisection reads 1-7 snapshots; 5 of 7 pilot hits could be dated, 2 had no archive copy) and is
+  stored as evidence metadata; no indicator consumes it, it only strengthens a finding ("same text archived since
+  2023"). The old wayback_timeline approach (model walks every snapshot) is superseded and its results still feed nothing.
+- *Not done on purpose:* no live-DB write; no rollout. Wiring Start/Stop/status into the Crawler Worker panel would need a
+  `worker.mjs` change and a rebuilt, deployed bundle (rollout-gated, ground rule 3), plus a worker-side "model
+  available" check so a PC without Ollama is not offered the job (the Wayback panel lost that check in `c35a68f`).
+  Use `Scraper/run_site_evidence.bat` + `scripts/import_site_evidence.py` meanwhile.
+- *Other findings:* ~15% of sites are JavaScript-only or very thin (a stdlib reader cannot see them; a browser-rendering
+  pass would be the next lever); `registration_number` is the join key in both directions, so if the 587-row VAT
+  correction (T24, reported unapplied on 2026-10-13) is applied it must happen before the company list is exported,
+  not between export and import (unmatched rows are reported, never created).
+- *Tests:* Scraper `python -m pytest tools/site_evidence/tests` 52 passed; Vienna `tests/test_site_evidence_reader.py`
+  (11) and `tests/test_company_detail_site_evidence.py` (2) all passed. Whole Vienna suite on this heavily loaded PC:
+  763-764 passed and 1-4 failed, every failure a timing-sensitive test that does not touch T25 and that behaves the
+  same on a clean `master` worktree: `test_access_control::test_login_form_...` (Streamlit AppTest's default 3 s timeout,
+  fails once the whole suite is collected, passes alone), `test_phase7_batch` x2 (needs all 14 sources in flight at once)
+  and `test_worker_hub::...local_budget` (0.05 s budget), which pass on a quiet rerun. Pre-existing, not fixed here.
 
 ---
 
