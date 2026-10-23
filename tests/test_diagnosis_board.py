@@ -106,6 +106,12 @@ def test_add_assigns_next_id_and_checks_dependencies():
         board.op_add(d, "me", NOW, "bad", depends_on=["D99"])
 
 
+def test_branch_slug_stops_at_a_word_boundary():
+    assert board.slug("Fact readers A: identity, financials, people, ownership") == "fact-readers-a-identity"
+    assert board.slug("!!!") == "ticket"
+    assert len(board.slug("x" * 80)) <= 32 or board.slug("x" * 80) == "ticket"
+
+
 def test_status_renders():
     d = doc_of(D01=T(title="Readers A", status="CLAIMED", claimed_by="agent-x", claimed_at="2026-10-23T11:00:00Z", heartbeat_at="2026-10-23T11:00:00Z", files=["diagnosis/readers/a.py"]),
                D02=T(title="Readers B", depends_on=["D01"]))

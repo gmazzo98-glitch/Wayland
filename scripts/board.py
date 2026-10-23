@@ -347,9 +347,16 @@ def render_next(doc: Dict[str, Any], agent: str, now: Optional[datetime] = None)
     return "\n".join(lines)
 
 
-def slug(title: str) -> str:
+def slug(title: str, limit: int = 32) -> str:
+    """Branch-name slug that stops at a word boundary: 'Fact readers A: identity, ...' -> 'fact-readers-a-identity'."""
     keep = "".join(c.lower() if c.isalnum() else "-" for c in title)
-    return "-".join(p for p in keep.split("-") if p)[:40]
+    out = ""
+    for word in (p for p in keep.split("-") if p):
+        joined = f"{out}-{word}" if out else word
+        if len(joined) > limit:
+            break
+        out = joined
+    return out or "ticket"
 
 
 def claim_banner(doc: Dict[str, Any], tid: str, agent: str) -> str:
