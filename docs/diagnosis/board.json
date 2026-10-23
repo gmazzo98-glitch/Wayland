@@ -1,0 +1,860 @@
+{
+  "schema": 1,
+  "program": "diagnosis",
+  "spec": "docs/DIAGNOSIS_TICKETS.md",
+  "plan": "docs/DIAGNOSIS_MASTERPLAN.md",
+  "stale_after_hours": 8,
+  "updated_at": "2026-10-23T00:00:00Z",
+  "tickets": {
+    "D01": {
+      "title": "Fact readers A: identity, financials, people, ownership, existing scores and pain points",
+      "wave": 1,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [],
+      "files": [
+        "diagnosis/readers/core_*.py",
+        "tests/test_diagnosis_readers_core.py",
+        "docs/diagnosis/results/D01.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D02": {
+      "title": "Fact readers B: every crawled layer (website, jobs, digital, catalog, directories, public, news, reviews)",
+      "wave": 1,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [],
+      "files": [
+        "diagnosis/readers/crawled_*.py",
+        "tests/test_diagnosis_readers_crawled.py",
+        "docs/diagnosis/results/D02.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D03": {
+      "title": "Peer engine: peer groups and percentiles for every ratio",
+      "wave": 1,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [],
+      "files": [
+        "diagnosis/peers.py",
+        "diagnosis/readers/derive_peers.py",
+        "diagnosis/models_peers.py",
+        "tests/test_diagnosis_peers.py",
+        "docs/diagnosis/results/D03.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D04": {
+      "title": "Sector playbooks for the cohort's ATECO codes (what they make, for whom, what moves demand)",
+      "wave": 1,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [],
+      "files": [
+        "diagnosis/sectors.py",
+        "diagnosis/data/sectors/**",
+        "tests/test_diagnosis_sectors.py",
+        "docs/diagnosis/results/D04.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D05": {
+      "title": "Regulatory and incentive clock (dated, source-linked, applicability rules)",
+      "wave": 1,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "diagnosis/regulatory.py",
+        "diagnosis/data/regulatory.json",
+        "diagnosis/readers/derive_regulatory.py",
+        "diagnosis/triggers/regulatory.py",
+        "tests/test_diagnosis_regulatory.py",
+        "docs/diagnosis/results/D05.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D06": {
+      "title": "Pilot library: the pilot archetypes GG can pitch",
+      "wave": 1,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [],
+      "files": [
+        "diagnosis/pilots.py",
+        "diagnosis/data/pilots.json",
+        "tests/test_diagnosis_pilots.py",
+        "docs/diagnosis/results/D06.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D07": {
+      "title": "Discovery-question and talk-track bank (Italian first, English second)",
+      "wave": 1,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "diagnosis/questions.py",
+        "diagnosis/data/questions.json",
+        "tests/test_diagnosis_questions.py",
+        "docs/diagnosis/results/D07.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D08": {
+      "title": "Golden set and evaluation harness (does the diagnosis match a human analyst's?)",
+      "wave": 1,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "diagnosis/eval/**",
+        "docs/diagnosis/golden/**",
+        "tests/test_diagnosis_eval.py",
+        "docs/diagnosis/results/D08.md"
+      ],
+      "needs": [
+        "live_db_read",
+        "gg_input"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D09": {
+      "title": "Data shopping list: the extra AIDA and other fields a real diagnosis needs",
+      "wave": 1,
+      "priority": "P1",
+      "size": "S",
+      "depends_on": [],
+      "files": [
+        "docs/diagnosis/DATA_SHOPPING_LIST.md",
+        "docs/diagnosis/results/D09.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D10": {
+      "title": "Free-source feasibility study: registries and open data that fill the gaps",
+      "wave": 1,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "docs/diagnosis/SOURCE_STUDY.md",
+        "docs/diagnosis/results/D10.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D11": {
+      "title": "Business profile extractor: what they make, for whom, how they sell (local model, verbatim-checked)",
+      "wave": 1,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [],
+      "files": [
+        "@scraper-repo",
+        "diagnosis/readers/profile_*.py",
+        "scripts/export_profile_input.py",
+        "scripts/import_business_profile.py",
+        "tests/test_diagnosis_profile.py",
+        "docs/diagnosis/results/D11.md"
+      ],
+      "needs": [
+        "scraper_repo",
+        "local_model",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D12": {
+      "title": "Hypothesis engine core: runner, status/strength/confidence grading, coverage and unknowns",
+      "wave": 1,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "diagnosis/engine.py",
+        "diagnosis/grading.py",
+        "tests/test_diagnosis_engine.py",
+        "docs/diagnosis/results/D12.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D13": {
+      "title": "Coverage drain: run the existing sweeps and the site-evidence reader to completion",
+      "wave": 1,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "@live-db-write",
+        "docs/diagnosis/results/D13.md"
+      ],
+      "needs": [
+        "live_db_write",
+        "gg_approval",
+        "local_model"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "R01": {
+      "title": "Release captain, wave 1: integrate, full test run, contract check, README, seam requests",
+      "wave": 1,
+      "priority": "P0",
+      "size": "S",
+      "depends_on": [
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05",
+        "D06",
+        "D07",
+        "D08",
+        "D09",
+        "D10",
+        "D11",
+        "D12"
+      ],
+      "files": [
+        "README.md",
+        "docs/diagnosis/WAVE1_ACCEPTANCE.md",
+        "docs/diagnosis/results/R01.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D14": {
+      "title": "Market radar: collect and store sector, end-market, regulation and input-cost news and statistics",
+      "wave": 2,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D04"
+      ],
+      "files": [
+        "diagnosis/market/**",
+        "diagnosis/models_market.py",
+        "scripts/market_radar.py",
+        "tests/test_diagnosis_market.py",
+        "docs/diagnosis/results/D14.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D15": {
+      "title": "Company to market exposure: cross each company's products and end-markets with the market items",
+      "wave": 2,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "D14",
+        "D04"
+      ],
+      "files": [
+        "diagnosis/market_exposure.py",
+        "diagnosis/readers/derive_market.py",
+        "tests/test_diagnosis_market_exposure.py",
+        "docs/diagnosis/results/D15.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D16": {
+      "title": "Trigger engine: verified, dated 'why now' events from everything we already collect",
+      "wave": 2,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D01",
+        "D02"
+      ],
+      "files": [
+        "diagnosis/triggers/events_*.py",
+        "diagnosis/models_triggers.py",
+        "tests/test_diagnosis_triggers.py",
+        "docs/diagnosis/results/D16.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D17": {
+      "title": "Company news verifier: only headlines proven to be about THIS company, typed by event",
+      "wave": 2,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "D02"
+      ],
+      "files": [
+        "diagnosis/news_verify.py",
+        "diagnosis/models_news.py",
+        "diagnosis/readers/verified_news.py",
+        "tests/test_diagnosis_news_verify.py",
+        "docs/diagnosis/results/D17.md"
+      ],
+      "needs": [
+        "live_db_read",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D18": {
+      "title": "Hypotheses: commercial & growth, profitability & cost",
+      "wave": 2,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D12",
+        "D03"
+      ],
+      "files": [
+        "diagnosis/hypotheses/com_*.py",
+        "diagnosis/hypotheses/prf_*.py",
+        "tests/test_diagnosis_hyp_com_prf.py",
+        "docs/diagnosis/results/D18.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D19": {
+      "title": "Hypotheses: operations & engineering, product & service model",
+      "wave": 2,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D12",
+        "D03"
+      ],
+      "files": [
+        "diagnosis/hypotheses/ops_*.py",
+        "diagnosis/hypotheses/prd_*.py",
+        "tests/test_diagnosis_hyp_ops_prd.py",
+        "docs/diagnosis/results/D19.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D20": {
+      "title": "Hypotheses: finance & resilience, people & organisation (plus capacity-to-pay facts)",
+      "wave": 2,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D12",
+        "D03"
+      ],
+      "files": [
+        "diagnosis/hypotheses/fin_*.py",
+        "diagnosis/hypotheses/ppl_*.py",
+        "diagnosis/readers/derive_pay.py",
+        "tests/test_diagnosis_hyp_fin_ppl.py",
+        "docs/diagnosis/results/D20.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D21": {
+      "title": "Hypotheses: regulation, risk & sustainability",
+      "wave": 2,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "D12",
+        "D05"
+      ],
+      "files": [
+        "diagnosis/hypotheses/reg_*.py",
+        "tests/test_diagnosis_hyp_reg.py",
+        "docs/diagnosis/results/D21.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D22": {
+      "title": "Pilot matcher: hypotheses to pilot concepts, with fit and prerequisites checked against the facts",
+      "wave": 2,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "D06",
+        "D12"
+      ],
+      "files": [
+        "diagnosis/pilot_match.py",
+        "tests/test_diagnosis_pilot_match.py",
+        "docs/diagnosis/results/D22.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D23": {
+      "title": "Reachability: who to call, how, and through which warm route",
+      "wave": 2,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "D01",
+        "D02"
+      ],
+      "files": [
+        "diagnosis/reach.py",
+        "diagnosis/readers/derive_reach.py",
+        "tests/test_diagnosis_reach.py",
+        "docs/diagnosis/results/D23.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D24": {
+      "title": "Call debrief and calibration loop: capture what the call proved or disproved, learn from it",
+      "wave": 2,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "D12"
+      ],
+      "files": [
+        "diagnosis/debrief.py",
+        "diagnosis/models_debrief.py",
+        "views/call_debrief.py",
+        "tests/test_diagnosis_debrief.py",
+        "docs/diagnosis/results/D24.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D25": {
+      "title": "Truth audit of the crawled layers feeding the diagnosis (precision by layer, reliability scores)",
+      "wave": 2,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D02"
+      ],
+      "files": [
+        "scripts/truth_audit.py",
+        "docs/diagnosis/TRUTH_AUDIT.md",
+        "diagnosis/data/layer_reliability.json",
+        "tests/test_diagnosis_truth_audit.py",
+        "docs/diagnosis/results/D25.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D26": {
+      "title": "Synthesis engine: citation-bound narrative, red-team pass, Italian/English, deterministic fallback",
+      "wave": 2,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D12"
+      ],
+      "files": [
+        "diagnosis/synthesis.py",
+        "tests/test_diagnosis_synthesis.py",
+        "docs/diagnosis/results/D26.md"
+      ],
+      "needs": [
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "R02": {
+      "title": "Release captain, wave 2: integrate, full test run, contract check, bundle rebuild if crawlers changed",
+      "wave": 2,
+      "priority": "P0",
+      "size": "S",
+      "depends_on": [
+        "D14",
+        "D15",
+        "D16",
+        "D17",
+        "D18",
+        "D19",
+        "D20",
+        "D21",
+        "D22",
+        "D23",
+        "D24",
+        "D25",
+        "D26"
+      ],
+      "files": [
+        "@bundle",
+        "docs/diagnosis/WAVE2_ACCEPTANCE.md",
+        "docs/diagnosis/results/R02.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D27": {
+      "title": "Company archetypes and call tiering (explicit rules, no blended score)",
+      "wave": 3,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "D18",
+        "D19",
+        "D20",
+        "D21",
+        "D16",
+        "D23"
+      ],
+      "files": [
+        "diagnosis/tiering.py",
+        "diagnosis/archetypes.py",
+        "tests/test_diagnosis_tiering.py",
+        "docs/diagnosis/results/D27.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D28": {
+      "title": "Call Pack assembly and renderers (on-screen, one-page HTML/PDF, DOCX, Markdown)",
+      "wave": 3,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D26",
+        "D22",
+        "D16",
+        "D07",
+        "D27"
+      ],
+      "files": [
+        "diagnosis/callpack.py",
+        "diagnosis/render/**",
+        "tests/test_diagnosis_callpack.py",
+        "docs/diagnosis/results/D28.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D29": {
+      "title": "Portfolio runner: diagnose all companies incrementally, store results, cost-capped LLM use",
+      "wave": 3,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "D28"
+      ],
+      "files": [
+        "diagnosis/portfolio.py",
+        "diagnosis/models_runs.py",
+        "scripts/diagnose_portfolio.py",
+        "tests/test_diagnosis_portfolio.py",
+        "@live-db-write",
+        "docs/diagnosis/results/D29.md"
+      ],
+      "needs": [
+        "live_db_write",
+        "gg_approval",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D30": {
+      "title": "Origination UI: Call Pack in the dossier, the Origination page, exports",
+      "wave": 3,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "D28",
+        "D29",
+        "D27",
+        "D24"
+      ],
+      "files": [
+        "views/origination.py",
+        "views/callpack_view.py",
+        "app.py",
+        "views/company_dossier.py",
+        "dossier_nav.py",
+        "tests/test_diagnosis_ui.py",
+        "docs/diagnosis/results/D30.md"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D31": {
+      "title": "Startup roster import and matching to pilot concepts",
+      "wave": 3,
+      "priority": "P2",
+      "size": "M",
+      "depends_on": [
+        "D22"
+      ],
+      "files": [
+        "diagnosis/roster.py",
+        "diagnosis/models_roster.py",
+        "scripts/import_roster.py",
+        "tests/test_diagnosis_roster.py",
+        "docs/diagnosis/results/D31.md"
+      ],
+      "needs": [
+        "gg_input"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D32": {
+      "title": "Competitor suggestion: likely direct peers from the cohort, confirmed by a human before use",
+      "wave": 3,
+      "priority": "P2",
+      "size": "M",
+      "depends_on": [
+        "D03"
+      ],
+      "files": [
+        "diagnosis/competitors.py",
+        "tests/test_diagnosis_competitors.py",
+        "docs/diagnosis/results/D32.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D33": {
+      "title": "Thin and JavaScript-only websites: browser-rendered fallback for the ~15% the reader cannot see",
+      "wave": 3,
+      "priority": "P2",
+      "size": "L",
+      "depends_on": [
+        "D11"
+      ],
+      "files": [
+        "@scraper-repo",
+        "docs/diagnosis/results/D33.md"
+      ],
+      "needs": [
+        "scraper_repo"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D34": {
+      "title": "Source enrichers: build the best free registries and open datasets found by D10",
+      "wave": 3,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "D10"
+      ],
+      "files": [
+        "diagnosis/enrich/**",
+        "tests/test_diagnosis_enrich.py",
+        "docs/diagnosis/results/D34.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "D35": {
+      "title": "Extra-column importer for the new AIDA pull (working capital, R&D, bank debt, export share)",
+      "wave": 3,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "D09",
+        "D01"
+      ],
+      "files": [
+        "scripts/import_extra_columns.py",
+        "diagnosis/readers/extra_*.py",
+        "tests/test_diagnosis_extra_columns.py",
+        "docs/diagnosis/results/D35.md"
+      ],
+      "needs": [
+        "gg_input",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    },
+    "R03": {
+      "title": "Release captain, wave 3: live pilot on 12 companies, acceptance with GG, rollout notes",
+      "wave": 3,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "D27",
+        "D28",
+        "D29",
+        "D30",
+        "D31",
+        "D32",
+        "D33",
+        "D34",
+        "D35"
+      ],
+      "files": [
+        "docs/diagnosis/WAVE3_ACCEPTANCE.md",
+        "@live-db-write",
+        "docs/diagnosis/results/R03.md"
+      ],
+      "needs": [
+        "live_db_write",
+        "gg_approval"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null
+    }
+  }
+}

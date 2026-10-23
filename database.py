@@ -95,6 +95,7 @@ def seed_source_health(db) -> int:
 
 def init_db():
     """Initialize database tables, the indicator catalog, and default source health entries."""
+    import diagnosis.models  # noqa: F401 - registers the dx_* tables (diagnosis/models_*.py) on Base before create_all
     Base.metadata.create_all(bind=engine)
     _migrate_sqlite_schema(engine)
     _migrate_competitor_review_profile(engine)

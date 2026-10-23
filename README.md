@@ -20,6 +20,7 @@ scores them into indicators, and surfaces pain points and valuations.
 | `worker_hub.py`, `worker_installer.py`, `worker/`, `worker_shim/`, `worker_dist/` | Distributed Node.js crawler worker: hub, installer, launchers, and the committed build bundle |
 | `crawl_jobs.py`, `resource_governor.py` | Crawl job queue and rate limiting |
 | `aida_import.py`, `data_repairs.py`, `seed.py` | Data import, repair and demo seeding |
+| `diagnosis/` | The diagnosis layer (first-call preparation): contracts, fact vocabulary, auto-discovered readers/hypotheses/triggers. Plan: [`DIAGNOSIS_MASTERPLAN.md`](docs/DIAGNOSIS_MASTERPLAN.md); work: [`DIAGNOSIS_TICKETS.md`](docs/DIAGNOSIS_TICKETS.md) and the one agent prompt [`DIAGNOSIS_AGENT_PROMPT.md`](docs/DIAGNOSIS_AGENT_PROMPT.md); board: `python scripts/board.py status` |
 | `scripts/` | Developer utilities (bundle builder, catalog generator, benchmark, repairs) |
 | `tests/` | Pytest suite (network-free) |
 | `docs/` | Reference docs, incl. `LinkedIn_Extraction_Gem_Prompt.md` (manual LinkedIn CSV-import pipeline) and [`CRAWLER_ROADMAP.md`](docs/CRAWLER_ROADMAP.md) — multi-agent work board for crawler/coverage tickets; claim a ticket there before starting crawler work |
