@@ -6,14 +6,18 @@ Main Streamlit Application Entrance & Navigation
 from collections import Counter
 import streamlit as st
 from access_control import require_app_access
+from mobile_ui import inject_mobile_css
 
 # Page Configuration
 st.set_page_config(
     page_title="Project Vienna — GG Signal Sourcing & Scoring Dashboard",
     page_icon="🌾",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"  # open on desktop, collapsed on phones
 )
+
+# Responsive layout for phones and tablets (CSS only, no feature changes).
+inject_mobile_css()
 
 # Authenticate before opening the database or importing any operational page.
 # The public repository contains this gate, but the password exists only in
