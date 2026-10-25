@@ -1,0 +1,27 @@
+{
+  "$comment": "Roles come from the sheet's Scoring Schema 'Role' column (Scored / Gate / Moderator). role_overrides lets GG change a role here without touching the workbook (empty by default). Gates are pass/fail qualification flags and are NEVER part of the weighted sum: a failed gate leaves both axis scores unchanged and sets qualification_flag with the reason, so the account is routed to extra qualification work before a pilot is proposed.",
+  "role_overrides": {},
+  "gates": {
+    "prior_open_innovation_usage": {
+      "sheet_row": 67,
+      "fails_when": "trigger status present (zero documented prior open-innovation usage)",
+      "fail_strength_at_least": 1.0,
+      "fail_strength_calibration": "TO_CALIBRATE: 1.0 means only a categorical 'trigger' observation (or strength exactly 1.0) fails the gate. Lower it only if graded observations should fail earlier; it is a cutoff, so it was not invented.",
+      "reason": "No documented prior open-innovation channel usage: no proven execution track record. Qualify before proposing a pilot."
+    },
+    "digital_lead_role_present": {
+      "sheet_row": 69,
+      "fails_when": "trigger status present (no named digital/innovation lead role)",
+      "fail_strength_at_least": 1.0,
+      "fail_strength_calibration": "TO_CALIBRATE (see prior_open_innovation_usage)",
+      "reason": "No named digital/innovation lead: no internal owner for the pilot, even an interested company tends to stall at approval. Qualify before proposing a pilot."
+    },
+    "approval_chain_depth": {
+      "sheet_row": 70,
+      "fails_when": "trigger status present (high approval depth: multiple approval layers)",
+      "fail_strength_at_least": 1.0,
+      "fail_strength_calibration": "TO_CALIBRATE (see prior_open_innovation_usage)",
+      "reason": "Deep multi-layer approval chain for new vendors/pilots: long, complex sale. Qualify before proposing a pilot."
+    }
+  }
+}

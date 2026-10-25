@@ -1,0 +1,542 @@
+{
+  "$comment": "Italy / AIDA source mapping per variable, kept SEPARATE from Sheet1's Source column (which stays untouched and is mostly written for German registries). status: MAPPED = a concrete field exists and is wired in this repo (aida_import.SERIES_SPEC); PARTIAL = the Italian system is known but the exact field/access is not confirmed or the signal is a crawler/proxy; TO_MAP = no confident Italian equivalent yet. Entries are editable by hand.",
+  "variables": {
+    "management_age": {
+      "sheet_row": 2,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA officers export -> company_people (age)",
+        "Registro Imprese / visura camerale (cariche)"
+      ]
+    },
+    "mgmt_national_diversity": {
+      "sheet_row": 3,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA officers export -> company_people (nationality)",
+        "Registro Imprese / visura camerale"
+      ]
+    },
+    "mgmt_cultural_diversity": {
+      "sheet_row": 4,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: no Italian registry field; LinkedIn / company leadership page bios"
+      ]
+    },
+    "mgmt_gender_diversity": {
+      "sheet_row": 5,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA officers export -> company_people (gender)",
+        "Registro Imprese / visura camerale"
+      ]
+    },
+    "mgmt_education_level": {
+      "sheet_row": 6,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: not in AIDA or the Registro Imprese; LinkedIn education history only"
+      ]
+    },
+    "mgmt_education_diversity": {
+      "sheet_row": 7,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: LinkedIn education history only"
+      ]
+    },
+    "new_generation_management": {
+      "sheet_row": 8,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA officers export -> company_people (age + appointment dates) via sync_succession_signal",
+        "Registro Imprese / visura camerale (variazioni cariche)"
+      ]
+    },
+    "management_turnover": {
+      "sheet_row": 9,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA officers export -> company_people (appointment / resignation dates)",
+        "Registro Imprese / visura camerale (variazioni cariche)"
+      ]
+    },
+    "external_collaboration": {
+      "sheet_row": 10,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: press / university case studies; no Italian registry"
+      ]
+    },
+    "interdepartmental_collaboration": {
+      "sheet_row": 11,
+      "status": "TO_MAP",
+      "sources": [
+        "First-contact questionnaire (primary data); no registry"
+      ]
+    },
+    "org_verticality": {
+      "sheet_row": 12,
+      "status": "TO_MAP",
+      "sources": [
+        "First-contact questionnaire; org chart if published"
+      ]
+    },
+    "employee_turnover": {
+      "sheet_row": 13,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: LinkedIn tenure distribution, Indeed/Glassdoor company reviews (Italy); no registry series"
+      ]
+    },
+    "number_of_employees": {
+      "sheet_row": 14,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Dipendenti' (aida_import.SERIES_SPEC)",
+        "Registro Imprese / INPS-based addetti where available (TO_MAP)"
+      ]
+    },
+    "average_salary": {
+      "sheet_row": 15,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Totale costi del personale' (aida_import.SERIES_SPEC) divided by AIDA export header 'Dipendenti' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "skilled_labour_share": {
+      "sheet_row": 16,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: Italian job boards (InfoJobs, Indeed Italia, LinkedIn), no registry field"
+      ]
+    },
+    "online_sales_volume": {
+      "sheet_row": 17,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: Similarweb traffic estimate; bilancio notes rarely split online sales"
+      ]
+    },
+    "online_market_presence": {
+      "sheet_row": 18,
+      "status": "PARTIAL",
+      "sources": [
+        "Company website audit, Wayback Machine (company_website_crawler / digital_maturity_crawler)"
+      ]
+    },
+    "physical_stores_trend": {
+      "sheet_row": 19,
+      "status": "PARTIAL",
+      "sources": [
+        "Company website store locator; Registro Imprese unita locali (TO_MAP: field)"
+      ]
+    },
+    "store_geo_distribution": {
+      "sheet_row": 20,
+      "status": "PARTIAL",
+      "sources": [
+        "Company website store locator; Registro Imprese unita locali (TO_MAP: field)"
+      ]
+    },
+    "international_sales_volume": {
+      "sheet_row": 21,
+      "status": "PARTIAL",
+      "sources": [
+        "Bilancio / nota integrativa geographic split (TO_MAP: not a standard AIDA column); Eurostat export exposure is only a sector macro proxy"
+      ]
+    },
+    "years_international_activity": {
+      "sheet_row": 22,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: Camera di Commercio / ICE directories, company 'our history' page"
+      ]
+    },
+    "product_demand_elasticity": {
+      "sheet_row": 23,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: sector norms; no registry"
+      ]
+    },
+    "product_differentiation": {
+      "sheet_row": 24,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: marketplace / catalog comparison (product_catalog_crawler)"
+      ]
+    },
+    "product_portfolio_diversity": {
+      "sheet_row": 25,
+      "status": "PARTIAL",
+      "sources": [
+        "Company catalog / website (product_catalog_crawler)"
+      ]
+    },
+    "raw_material_rarity": {
+      "sheet_row": 26,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: commodity reports, bilancio risk disclosure"
+      ]
+    },
+    "raw_material_cost": {
+      "sheet_row": 27,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Materie prime e consumo' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "product_innovativeness": {
+      "sheet_row": 28,
+      "status": "PARTIAL",
+      "sources": [
+        "Product catalogs via Wayback (product_catalog_crawler)"
+      ]
+    },
+    "product_quality_trend": {
+      "sheet_row": 29,
+      "status": "PARTIAL",
+      "sources": [
+        "Google Reviews / Trustpilot (review_crawler, gated); B2B usually not applicable"
+      ]
+    },
+    "product_type_tag": {
+      "sheet_row": 30,
+      "status": "PARTIAL",
+      "sources": [
+        "Company website / catalog; ATECO code (AIDA) as a cross-check (TO_MAP: header)"
+      ]
+    },
+    "product_age": {
+      "sheet_row": 31,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: 'chi siamo' history page, trade press archives"
+      ]
+    },
+    "logistics_difficulty": {
+      "sheet_row": 32,
+      "status": "TO_MAP",
+      "sources": [
+        "First-contact questionnaire; bilancio supply chain notes"
+      ]
+    },
+    "ebit_trend": {
+      "sheet_row": 33,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'RISULTATO OPERATIVO' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "margin_compression": {
+      "sheet_row": 34,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Margine sui consumi' (aida_import.SERIES_SPEC)",
+        "AIDA export header 'Ricavi vendite e prestazioni' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "revenue_trend": {
+      "sheet_row": 35,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Ricavi vendite e prestazioni' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "interest_coverage_ratio": {
+      "sheet_row": 36,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Grado di copertura degli interessi passivi' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "materials_cost": {
+      "sheet_row": 37,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Materie prime e consumo' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "labour_cost": {
+      "sheet_row": 38,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Totale costi del personale' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "logistics_cost": {
+      "sheet_row": 39,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: nota integrativa 'costi per servizi' detail (trasporti); not a standard AIDA column"
+      ]
+    },
+    "energy_cost": {
+      "sheet_row": 40,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: nota integrativa 'costi per servizi' / utenze detail; not a standard AIDA column"
+      ]
+    },
+    "cogs_ratio": {
+      "sheet_row": 41,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA export header 'Margine sui consumi' (aida_import.SERIES_SPEC) (materials-based proxy, see indicator_gaps.GAP_PLAN)"
+      ]
+    },
+    "service_costs": {
+      "sheet_row": 42,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA cost breakdown 'Costi per servizi' (aida_cost_breakdown_import.py)"
+      ]
+    },
+    "rd_expense_ratio": {
+      "sheet_row": 43,
+      "status": "PARTIAL",
+      "sources": [
+        "Bilancio: capitalised research & development in AIDA intangibles detail (TO_MAP: header); UIBM / EPO patents as proxy"
+      ]
+    },
+    "patent_count": {
+      "sheet_row": 44,
+      "status": "PARTIAL",
+      "sources": [
+        "EPO OPS adapter (adapters/epo_ops.py)",
+        "UIBM patent register (TO_MAP: access)"
+      ]
+    },
+    "trademark_count": {
+      "sheet_row": 45,
+      "status": "PARTIAL",
+      "sources": [
+        "EUIPO adapter (adapters/euipo.py)",
+        "UIBM trademark register (TO_MAP: access)"
+      ]
+    },
+    "subsidiary_participations": {
+      "sheet_row": 46,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA STRUCTURE_LEGAL_OWNERSHIP export (partecipazioni)",
+        "Registro Imprese"
+      ]
+    },
+    "capex_ratio": {
+      "sheet_row": 47,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Immobilizzazioni materiali: (Investimenti)' (aida_import.SERIES_SPEC)",
+        "AIDA export header 'Immobilizzazioni immateriali: (Investimenti)' (aida_import.SERIES_SPEC)",
+        "AIDA export header 'Ricavi vendite e prestazioni' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "total_assets": {
+      "sheet_row": 48,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'TOTALE ATTIVO' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "cash_position": {
+      "sheet_row": 49,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'TOT. DISPON. LIQUIDE' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "debt_level": {
+      "sheet_row": 50,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'TOTALE DEBITI' (aida_import.SERIES_SPEC) (note: documented as nearer total liabilities than financial debt)"
+      ]
+    },
+    "leverage_ratio": {
+      "sheet_row": 51,
+      "status": "MAPPED",
+      "sources": [
+        "AIDA export header 'Rapporto di indebitamento' (aida_import.SERIES_SPEC)"
+      ]
+    },
+    "private_funding": {
+      "sheet_row": 52,
+      "status": "PARTIAL",
+      "sources": [
+        "Registro Imprese capital increases (aumenti di capitale); press releases (TO_MAP: field)"
+      ]
+    },
+    "public_grant_count": {
+      "sheet_row": 53,
+      "status": "PARTIAL",
+      "sources": [
+        "Registro Nazionale Aiuti di Stato (adapters/rna_state_aid.py)",
+        "EU funding adapter (adapters/eu_funding.py)"
+      ]
+    },
+    "website_digital_maturity": {
+      "sheet_row": 54,
+      "status": "PARTIAL",
+      "sources": [
+        "Wappalyzer local (scrapers/wappalyzer_local.py), Wayback comparison"
+      ]
+    },
+    "linkedin_activity": {
+      "sheet_row": 55,
+      "status": "PARTIAL",
+      "sources": [
+        "LinkedIn company page (linkedin_profile_crawler, gated)"
+      ]
+    },
+    "digital_job_postings": {
+      "sheet_row": 56,
+      "status": "PARTIAL",
+      "sources": [
+        "InfoJobs, Indeed Italia, LinkedIn Jobs, company careers page (job_postings_crawler)"
+      ]
+    },
+    "kununu_rating": {
+      "sheet_row": 57,
+      "status": "PARTIAL",
+      "sources": [
+        "Kununu Italia (thin coverage), Glassdoor/Indeed company reviews (kununu_light, gated)"
+      ]
+    },
+    "family_ownership_share": {
+      "sheet_row": 58,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA SHAREHOLDERS_CONTROL export (soci, % diretta)",
+        "Registro Imprese (elenco soci)"
+      ]
+    },
+    "independent_board_members": {
+      "sheet_row": 59,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA officers export -> company_people roles",
+        "Registro Imprese / visura camerale"
+      ]
+    },
+    "esg_reporting_recency": {
+      "sheet_row": 60,
+      "status": "PARTIAL",
+      "sources": [
+        "Dichiarazione non finanziaria / bilancio di sostenibilita on company site; Registro Imprese deposit (TO_MAP)"
+      ]
+    },
+    "trade_fair_participation": {
+      "sheet_row": 61,
+      "status": "TO_MAP",
+      "sources": [
+        "TO_MAP: Italian fair exhibitor directories and associazioni di categoria (Confindustria, ANIE, UCIMU...) member lists"
+      ]
+    },
+    "university_partnership": {
+      "sheet_row": 62,
+      "status": "PARTIAL",
+      "sources": [
+        "University press releases, research-institute project data (innovation_participation_crawler)"
+      ]
+    },
+    "erp_systems_age": {
+      "sheet_row": 63,
+      "status": "PARTIAL",
+      "sources": [
+        "Italian job postings naming ERP platform/version (InfoJobs, Indeed Italia); first-contact questionnaire"
+      ]
+    },
+    "press_launch_mentions": {
+      "sheet_row": 64,
+      "status": "PARTIAL",
+      "sources": [
+        "Google News RSS adapter (adapters/google_news_rss.py)"
+      ]
+    },
+    "supply_chain_digitization": {
+      "sheet_row": 65,
+      "status": "TO_MAP",
+      "sources": [
+        "First-contact questionnaire; job postings"
+      ]
+    },
+    "energy_transition_capex": {
+      "sheet_row": 66,
+      "status": "PARTIAL",
+      "sources": [
+        "Bilancio notes, press releases; Transizione 4.0 / 5.0 incentive data (TO_MAP: access)"
+      ]
+    },
+    "prior_open_innovation_usage": {
+      "sheet_row": 67,
+      "status": "PARTIAL",
+      "sources": [
+        "Accelerator cohort announcements, hackathon sponsor lists, press (innovation_participation_crawler)"
+      ]
+    },
+    "senior_mgmt_tenure": {
+      "sheet_row": 68,
+      "status": "PARTIAL",
+      "sources": [
+        "AIDA officers export -> company_people.appointment_date",
+        "Registro Imprese / visura camerale"
+      ]
+    },
+    "digital_lead_role_present": {
+      "sheet_row": 69,
+      "status": "PARTIAL",
+      "sources": [
+        "Company website, LinkedIn role search (job_postings / website crawler); Italian titles: Responsabile Digitalizzazione, Innovation Manager, Chief Digital Officer"
+      ]
+    },
+    "approval_chain_depth": {
+      "sheet_row": 70,
+      "status": "TO_MAP",
+      "sources": [
+        "First-contact questionnaire only; org size (addetti) and verticality as a rough proxy"
+      ]
+    },
+    "recent_ma_activity": {
+      "sheet_row": 71,
+      "status": "PARTIAL",
+      "sources": [
+        "Registro Imprese (variazioni compagine sociale, fusioni), press releases; AIDA ownership export"
+      ]
+    },
+    "system_integration": {
+      "sheet_row": 72,
+      "status": "TO_MAP",
+      "sources": [
+        "First-contact questionnaire (primary); Italian job postings naming several systems or integration roles (InfoJobs, Indeed Italia, LinkedIn); DREAMY integration questions as a question bank"
+      ]
+    },
+    "maintenance_digitization": {
+      "sheet_row": 73,
+      "status": "TO_MAP",
+      "sources": [
+        "First-contact questionnaire; job postings (manutentore, pianificatore manutenzione, CMMS, SAP PM); ATECO code from AIDA / Registro Imprese for applicability"
+      ]
+    },
+    "quality_process_maturity": {
+      "sheet_row": 74,
+      "status": "PARTIAL",
+      "sources": [
+        "Accredia certified-organisations database (bulk access NOT confirmed - TO_MAP)",
+        "Certification body registers (RINA, DNV, TUV, Bureau Veritas)",
+        "Company website quality page",
+        "First-contact questionnaire for depth"
+      ]
+    },
+    "digital_maturity_self_assessment": {
+      "sheet_row": 75,
+      "status": "TO_MAP",
+      "sources": [
+        "Digital Innovation Hub partnership / consent-based data sharing (DIH network); testindustria4-0.com self-reported; first-contact questionnaire"
+      ]
+    }
+  }
+}

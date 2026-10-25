@@ -1,0 +1,16 @@
+{
+  "$comment": "Distress cap. High financial NEED (EBIT, interest coverage, debt, leverage, CapEx, cash) can crowd out pilot budget. NOTE: the repository has NO implemented distress cap - only prose caveats in indicators.py / painpoints.py (EBIT, interest coverage) - so there was no existing logic to keep; this file is the first explicit version and is therefore UNCALIBRATED. The caveat flags (rows 50, 51, 72) are always reported. The cap itself only fires once the two TO_CALIBRATE numbers are set; until then the output says distress.status = 'not_calibrated' and lists the candidate variables, and no flag or cap is applied.",
+  "financial_need_variables": ["ebit_trend", "interest_coverage_ratio", "debt_level", "leverage_ratio", "capex_ratio", "cash_position"],
+  "apply_to_caveat_flagged_variables": true,
+  "trigger": {
+    "variable_trigger_strength_at_least": "TO_CALIBRATE",
+    "min_variables_triggered": "TO_CALIBRATE",
+    "reason_needed": "A cutoff on how strongly the Sheet1 status must be present, and how many of the financial variables must agree, before distress is declared."
+  },
+  "action": {
+    "type": "qualification_flag",
+    "allowed_types": ["qualification_flag", "readiness_cap"],
+    "readiness_cap_value": "TO_CALIBRATE",
+    "reason_needed": "Only used when type is readiness_cap: the maximum READINESS score (0-100) a distressed company may show."
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$comment": "Moderators (rows 30, 58, 71) are NEVER scored. Each rule below adjusts INTERPRETATION and is OFF by default (enabled=false). A 'weight_multiplier' rule multiplies the effective weight of target variables on one axis when the moderator observation carries the given label; the factor is a number that GG must choose, so it ships as TO_CALIBRATE and an enabled rule with an uncalibrated factor fails loudly. A 'note' rule only adds an interpretation note to the score output (no number changes). Rule ids are stamped on the output when applied.",
+  "rules": [
+    {
+      "id": "product_type_cost_relevance",
+      "moderator_key": "product_type_tag",
+      "sheet_row": 30,
+      "enabled": false,
+      "when_label": "physical_manufactured_good",
+      "effect": {"type": "weight_multiplier", "axis": "NEED", "targets": ["materials_cost", "raw_material_cost", "raw_material_rarity", "energy_cost", "cogs_ratio"], "factor": "TO_CALIBRATE"},
+      "rationale": "Row 30 says product type changes which cost variables matter (for a physical good, material and energy cost lines carry more information than for a service). The set of target variables is the assistant's reading of that sentence; the factor is deliberately uncalibrated."
+    },
+    {
+      "id": "family_ownership_turnover_reading",
+      "moderator_key": "family_ownership_share",
+      "sheet_row": 58,
+      "enabled": false,
+      "when_label": "fully_family_owned",
+      "effect": {"type": "weight_multiplier", "axis": "NEED", "targets": ["management_turnover"], "factor": "TO_CALIBRATE"},
+      "rationale": "Row 58: family ownership changes how management turnover should be read (turnover in a family firm is more often a succession than a search for direction). Always read jointly with new_generation_management, never scored on its own."
+    },
+    {
+      "id": "recent_ma_flag",
+      "moderator_key": "recent_ma_activity",
+      "sheet_row": 71,
+      "enabled": true,
+      "when_label": "recent",
+      "effect": {"type": "note", "text": "Recent M&A (past 2 years): cuts both ways (growth appetite vs. integration distraction). Not scored; clarify at first contact."},
+      "rationale": "Row 71 says: flag rather than score until clarified at first contact. A note-only rule changes no number, so it is on by default."
+    }
+  ]
+}

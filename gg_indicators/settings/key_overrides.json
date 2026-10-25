@@ -1,0 +1,449 @@
+{
+  "$comment": "Persisted variable_key table. A key is looked up by exact label, then by sheet row (so renaming a label in Sheet1 never changes a key). 70 keys equal the existing indicators.INDICATOR_SEED signal keys so the new schema extends the live catalog instead of forking it; 4 are new (DREAMY round). Add a row here whenever Sheet1 gains a variable; scripts/build_indicator_contract.py --persist-new-keys does it for derived keys.",
+  "keys": [
+    {
+      "row": 2,
+      "label": "Management Age",
+      "key": "management_age",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 3,
+      "label": "Management National diversity",
+      "key": "mgmt_national_diversity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 4,
+      "label": "Management cultural diversity",
+      "key": "mgmt_cultural_diversity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 5,
+      "label": "Management gender diversity",
+      "key": "mgmt_gender_diversity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 6,
+      "label": "Management level of education",
+      "key": "mgmt_education_level",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 7,
+      "label": "Management diversity of education",
+      "key": "mgmt_education_diversity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 8,
+      "label": "New Generation of management",
+      "key": "new_generation_management",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 9,
+      "label": "Turnover of management",
+      "key": "management_turnover",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 10,
+      "label": "External collaboration",
+      "key": "external_collaboration",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 11,
+      "label": "Interdepartmental collaboration",
+      "key": "interdepartmental_collaboration",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 12,
+      "label": "Verticality in the structure",
+      "key": "org_verticality",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 13,
+      "label": "Employee turnover",
+      "key": "employee_turnover",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 14,
+      "label": "Number of Employees",
+      "key": "number_of_employees",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 15,
+      "label": "Average Salary",
+      "key": "average_salary",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 16,
+      "label": "Skilled Labour",
+      "key": "skilled_labour_share",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 17,
+      "label": "Volume of online sales",
+      "key": "online_sales_volume",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 18,
+      "label": "Online market presence",
+      "key": "online_market_presence",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 19,
+      "label": "Number of physical stores",
+      "key": "physical_stores_trend",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 20,
+      "label": "Geographic distribution of stores",
+      "key": "store_geo_distribution",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 21,
+      "label": "International Sales volume",
+      "key": "international_sales_volume",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 22,
+      "label": "Years of international activity",
+      "key": "years_international_activity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 23,
+      "label": "Product demand",
+      "key": "product_demand_elasticity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 24,
+      "label": "Product differentiation",
+      "key": "product_differentiation",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 25,
+      "label": "Product portfolio diversity",
+      "key": "product_portfolio_diversity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 26,
+      "label": "Rarity of raw materials",
+      "key": "raw_material_rarity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 27,
+      "label": "Cost of raw materials",
+      "key": "raw_material_cost",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 28,
+      "label": "Innovativeness of product",
+      "key": "product_innovativeness",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 29,
+      "label": "Quality of product",
+      "key": "product_quality_trend",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 30,
+      "label": "Type of product",
+      "key": "product_type_tag",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 31,
+      "label": "Product age",
+      "key": "product_age",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 32,
+      "label": "Difficulty of logistics",
+      "key": "logistics_difficulty",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 33,
+      "label": "EBIT",
+      "key": "ebit_trend",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 34,
+      "label": "Gross Margin",
+      "key": "margin_compression",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 35,
+      "label": "Revenues",
+      "key": "revenue_trend",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 36,
+      "label": "Interest Coverage Ratio",
+      "key": "interest_coverage_ratio",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 37,
+      "label": "Materials Cost",
+      "key": "materials_cost",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 38,
+      "label": "Labour Cost",
+      "key": "labour_cost",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 39,
+      "label": "Logistics Costs",
+      "key": "logistics_cost",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 40,
+      "label": "Energy Costs",
+      "key": "energy_cost",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 41,
+      "label": "COGS",
+      "key": "cogs_ratio",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 42,
+      "label": "Service Costs",
+      "key": "service_costs",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 43,
+      "label": "R&D Expenses",
+      "key": "rd_expense_ratio",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 44,
+      "label": "Patents",
+      "key": "patent_count",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 45,
+      "label": "Trademarks",
+      "key": "trademark_count",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 46,
+      "label": "Participations in subsidiaries",
+      "key": "subsidiary_participations",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 47,
+      "label": "CapEx",
+      "key": "capex_ratio",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 48,
+      "label": "Total Assets",
+      "key": "total_assets",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 49,
+      "label": "Cash",
+      "key": "cash_position",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 50,
+      "label": "Debt",
+      "key": "debt_level",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 51,
+      "label": "Leverage",
+      "key": "leverage_ratio",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 52,
+      "label": "Private Funding",
+      "key": "private_funding",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 53,
+      "label": "Government contributions",
+      "key": "public_grant_count",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 54,
+      "label": "Digital maturity of core website",
+      "key": "website_digital_maturity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 55,
+      "label": "LinkedIn company page activity",
+      "key": "linkedin_activity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 56,
+      "label": "Job postings for digital/technical roles",
+      "key": "digital_job_postings",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 57,
+      "label": "Employer review sentiment (Kununu/Glassdoor)",
+      "key": "kununu_rating",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 58,
+      "label": "Family ownership share",
+      "key": "family_ownership_share",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 59,
+      "label": "Independent (non-family) board members",
+      "key": "independent_board_members",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 60,
+      "label": "ESG / sustainability reporting",
+      "key": "esg_reporting_recency",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 61,
+      "label": "Trade fair / industry association participation",
+      "key": "trade_fair_participation",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 62,
+      "label": "University / research institute partnership",
+      "key": "university_partnership",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 63,
+      "label": "ERP / core systems age",
+      "key": "erp_systems_age",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 64,
+      "label": "Press mentions of new product/service launches",
+      "key": "press_launch_mentions",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 65,
+      "label": "Supply chain digitization",
+      "key": "supply_chain_digitization",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 66,
+      "label": "Energy transition / sustainability CapEx",
+      "key": "energy_transition_capex",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 67,
+      "label": "Prior open-innovation channel usage (idea competitions, accelerators, corporate venturing)",
+      "key": "prior_open_innovation_usage",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 68,
+      "label": "Average tenure of senior management team",
+      "key": "senior_mgmt_tenure",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 69,
+      "label": "Presence of a named digital/innovation lead role",
+      "key": "digital_lead_role_present",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 70,
+      "label": "Depth of internal approval chain for new vendors/pilots",
+      "key": "approval_chain_depth",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 71,
+      "label": "Recent M&A activity (acquired or acquirer)",
+      "key": "recent_ma_activity",
+      "in_catalog_seed": true
+    },
+    {
+      "row": 72,
+      "label": "System integration across core functions (ERP, MES, CMMS, PLM, quality, finance)",
+      "key": "system_integration",
+      "in_catalog_seed": false
+    },
+    {
+      "row": 73,
+      "label": "Maintenance management digitization",
+      "key": "maintenance_digitization",
+      "in_catalog_seed": false
+    },
+    {
+      "row": 74,
+      "label": "Quality process maturity",
+      "key": "quality_process_maturity",
+      "in_catalog_seed": false
+    },
+    {
+      "row": 75,
+      "label": "Prior digital maturity self-assessment",
+      "key": "digital_maturity_self_assessment",
+      "in_catalog_seed": false
+    }
+  ]
+}

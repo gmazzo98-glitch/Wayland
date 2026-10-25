@@ -1,0 +1,9 @@
+{
+  "weight_set_id": "placeholder-equal-unit-v1",
+  "status": "placeholder",
+  "label": "PLACEHOLDER, NOT A DECISION",
+  "mode": "equal_per_group_unit",
+  "description": "Within each axis every redundancy-group-dampened unit gets the same weight (a group of n members shares one unit, each member 1/n of it; a variable with no group is its own unit). Weights are recomputed from the ACTIVE grouping and from each company's applicable variables, and always sum to 1 per axis. This is a stand-in so the engine can run; the real weights are being deliberated separately. Drop an additional file in this folder (mode 'explicit', see weights.py) to add another set without any code change.",
+  "approved_by": null,
+  "approved_on": null
+}

@@ -1,0 +1,9 @@
+{
+  "$comment": "Maps the sheet's four Acquisition modes onto the existing automation tiers (models.IndicatorDefinition.automation_tier: T1 structured register/API, T2 scrape + extract, T3 manual / first-contact only). CHOICE MADE: 'Manual desk research' -> T2, not T3, because the existing T3 definition is 'not observable before contact, entered from the first-contact interview'; desk research reads public sources (a person instead of a crawler), so it is T2 with requires_human=true. Change here if GG prefers T3.",
+  "modes": {
+    "Registry or filing":      {"automation_tier": "T1", "requires_human": false, "load_from": "registry_or_filing"},
+    "Web or job board scrape": {"automation_tier": "T2", "requires_human": false, "load_from": "crawler"},
+    "Manual desk research":    {"automation_tier": "T2", "requires_human": true,  "load_from": "analyst_desk_research"},
+    "First contact only":      {"automation_tier": "T3", "requires_human": true,  "load_from": "first_contact_questionnaire"}
+  }
+}

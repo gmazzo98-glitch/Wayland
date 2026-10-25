@@ -1,0 +1,38 @@
+{
+  "$comment": "Sector norm for row 74 (quality_process_maturity): which management-system certification peers are expected to hold, by ATECO prefix (digits only, dots ignored; the longest matching prefix wins; the generic baseline applies when nothing more specific matches). 'Gap vs sector norm' = none of expected_any_of held. The standards named are the brief's own examples; the ATECO prefixes they are attached to are the ASSISTANT'S MAPPING (status TO_CALIBRATE) and must be confirmed by GG. No peer prevalence figure was invented: every threshold below is TO_CALIBRATE.",
+  "thresholds": {
+    "min_peer_prevalence_for_norm": "TO_CALIBRATE",
+    "min_years_held_for_long_held": "TO_CALIBRATE",
+    "min_standards_for_multi_standard": "TO_CALIBRATE",
+    "note": "Prevalence figures need real peer data (e.g. Accredia certified-organisation counts by ATECO); the other two define 'long held, multi-standard' for the READINESS mapping. Until set, a certified firm that meets the norm is labelled certified_meets_norm, never long_held_multi_standard."
+  },
+  "generic_baseline": {
+    "expected_any_of": ["ISO 9001"],
+    "status": "TO_CALIBRATE",
+    "basis": "Brief: ISO 9001 as the generic baseline."
+  },
+  "sector_norms": [
+    {
+      "id": "automotive_suppliers",
+      "ateco_prefixes": ["29"],
+      "expected_any_of": ["IATF 16949"],
+      "status": "TO_CALIBRATE",
+      "basis": "Brief example: IATF 16949 for automotive suppliers. ATECO division 29 (motor vehicles, trailers, parts) is the assistant's mapping."
+    },
+    {
+      "id": "aerospace",
+      "ateco_prefixes": ["303"],
+      "expected_any_of": ["AS9100"],
+      "aliases": {"AS9100": ["EN 9100", "EN9100"]},
+      "status": "TO_CALIBRATE",
+      "basis": "Brief example: AS9100 for aerospace. ATECO 30.3 (aircraft and spacecraft) is the assistant's mapping; EN 9100 listed as the European equivalent (assumption)."
+    },
+    {
+      "id": "welding_and_rail",
+      "ateco_prefixes": ["302", "251"],
+      "expected_any_of": ["ISO 3834", "EN 15085"],
+      "status": "TO_CALIBRATE",
+      "basis": "Brief example: ISO 3834 or EN 15085 for welding and rail. ATECO 30.2 (rail rolling stock) and 25.1 (structural metal products) are the assistant's mapping; other welded-fabrication codes are not covered."
+    }
+  ]
+}

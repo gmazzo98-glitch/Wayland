@@ -1,0 +1,33 @@
+{
+  "$comment": "not_applicable removes a variable from THAT company's denominator so it is not penalised for something that cannot apply to it. Rules are evaluated on the company context (ATECO code + free attributes). Precedence: an explicit not_applicable observation, then these rules. A variable whose rule cannot decide (unlisted or missing ATECO) is 'undetermined': it stays in the denominator and its observation (or unknown) decides; the output lists it under applicability_undetermined.",
+  "ateco_rules": [
+    {
+      "variable_key": "maintenance_digitization",
+      "sheet_row": 73,
+      "assumption": "ASSUMPTION (flag in report): defaults taken from the integration brief. Applicable: manufacturing divisions in scope for the landing bay (28, 29, 30), industrial services and repair (33), energy (35). Not applicable: engineering and EPC services (41, 42, 43, 71). Every other division is undetermined, not silently applicable or not.",
+      "applicable_divisions": ["28", "29", "30", "33", "35"],
+      "not_applicable_divisions": ["41", "42", "43", "71"],
+      "unlisted": "undetermined"
+    }
+  ],
+  "attribute_rules": [
+    {
+      "variable_keys": ["physical_stores_trend", "store_geo_distribution"],
+      "sheet_rows": [19, 20],
+      "not_applicable_if": {"business_model": "pure_b2b"},
+      "rationale": "No stores for a pure B2B firm."
+    },
+    {
+      "variable_keys": ["product_quality_trend"],
+      "sheet_rows": [29],
+      "not_applicable_if": {"has_customer_reviews": false},
+      "rationale": "Row 29 measures quality outcome through customer reviews; B2B industrial firms mostly have none. Row 74 then carries the QUALITY redundancy group alone."
+    },
+    {
+      "variable_keys": ["kununu_rating"],
+      "sheet_rows": [57],
+      "not_applicable_if": {"has_employer_reviews": false},
+      "rationale": "No employer reviews exist for the company (checked, none): the variable cannot apply. Distinct from 'not yet checked', which is unknown."
+    }
+  ]
+}

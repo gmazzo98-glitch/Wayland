@@ -1,0 +1,35 @@
+{
+  "$comment": "Interaction rules between variables.",
+  "asymmetric_variables": {
+    "variables": ["digital_maturity_self_assessment", "maintenance_digitization"],
+    "rule": "A missing record / absence of evidence is UNKNOWN for these variables, never a low or negative value. Row 75: only a completed assessment is evidence (and a positive one at low/medium maturity). Row 73: 'where no postings or disclosure exist the value is Unknown, not Reactive'."
+  },
+  "systems_posture": {
+    "age_variable": "erp_systems_age",
+    "integration_variable": "system_integration",
+    "age_old_labels": ["legacy"],
+    "age_new_labels": ["current"],
+    "integration_siloed_labels": ["siloed"],
+    "integration_integrated_labels": ["integrated"],
+    "numeric_cutoff": "TO_CALIBRATE",
+    "numeric_cutoff_reason": "A graded strength strictly between 0 and 1 can only be turned into old/new or siloed/integrated with a cutoff; strengths of exactly 1.0 / 0.0 and named labels need none.",
+    "cells": {
+      "old_siloed": {"need_tier": "strongest"},
+      "old_integrated": {"need_tier": "middle"},
+      "new_siloed": {"need_tier": "middle"},
+      "new_integrated": {"need_tier": "weakest"}
+    },
+    "note": "Rows 63 and 72 are stored separately and never averaged. The two middle cells imply different pilots and are deliberately not ranked against each other."
+  },
+  "quality_group": {
+    "group": "QUALITY",
+    "outcome_variable": "product_quality_trend",
+    "process_variable": "quality_process_maturity",
+    "note": "Row 29 is outcome (reviews), row 74 is process (certification). When row 29 is not_applicable the group has one applicable member on NEED, so row 74 carries the group alone (full group weight)."
+  },
+  "confidence": {
+    "min_scorable_confidence": "reuse scoring.MIN_SCORABLE_CONFIDENCE (0.60)",
+    "min_gate_confidence": "reuse scoring.MIN_GATE_CONFIDENCE (0.75)",
+    "note": "Observations below these confidence levels are excluded as unknown (existing evidence-eligibility rule, kept)."
+  }
+}

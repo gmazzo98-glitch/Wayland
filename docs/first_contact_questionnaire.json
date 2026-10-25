@@ -1,0 +1,294 @@
+{
+  "section": "First-contact questionnaire (generated from the Proxy column)",
+  "loaded_from": "first_contact_questionnaire",
+  "recording_rule": "A blank or declined answer is recorded as unknown, never as a low value. 'Does not apply' is recorded as not_applicable.",
+  "items": [
+    {
+      "variable_key": "interdepartmental_collaboration",
+      "sheet_row": 11,
+      "role": "Scored",
+      "axis": "READINESS",
+      "question": "Interdepartmental collaboration: Not directly observable pre-contact in most cases; approximated via org-chart flatness or job postings mentioning 'cross-functional teams'.",
+      "proxy_text": "Not directly observable pre-contact in most cases; approximated via org-chart flatness or job postings mentioning 'cross-functional teams'",
+      "sheet_status_text": "High",
+      "answer_options": [
+        {
+          "code": "trigger",
+          "text": "High",
+          "records_as": "observed",
+          "label": "trigger"
+        },
+        {
+          "code": "not_trigger",
+          "text": "Not 'High'",
+          "records_as": "observed",
+          "label": "not_trigger"
+        },
+        {
+          "code": "not_shared",
+          "text": "Not known / not willing to share",
+          "records_as": "unknown",
+          "note": "Never scored as a low or bad value."
+        }
+      ],
+      "applicability_note": null,
+      "source_it": [
+        "First-contact questionnaire (primary data); no registry"
+      ]
+    },
+    {
+      "variable_key": "org_verticality",
+      "sheet_row": 12,
+      "role": "Scored",
+      "axis": "READINESS",
+      "question": "Verticality in the structure: Number of management layers between CEO and frontline staff, or self-reported at first contact.",
+      "proxy_text": "Number of management layers between CEO and frontline staff, or self-reported at first contact",
+      "sheet_status_text": "Low",
+      "answer_options": [
+        {
+          "code": "trigger",
+          "text": "Low",
+          "records_as": "observed",
+          "label": "trigger"
+        },
+        {
+          "code": "not_trigger",
+          "text": "Not 'Low'",
+          "records_as": "observed",
+          "label": "not_trigger"
+        },
+        {
+          "code": "not_shared",
+          "text": "Not known / not willing to share",
+          "records_as": "unknown",
+          "note": "Never scored as a low or bad value."
+        }
+      ],
+      "applicability_note": null,
+      "source_it": [
+        "First-contact questionnaire; org chart if published"
+      ]
+    },
+    {
+      "variable_key": "logistics_difficulty",
+      "sheet_row": 32,
+      "role": "Scored",
+      "axis": "NEED",
+      "question": "Difficulty of logistics: Number of distribution intermediaries or handling steps between production and end customer, from supply chain disclosures or first-contact interview.",
+      "proxy_text": "Number of distribution intermediaries or handling steps between production and end customer, from supply chain disclosures or first-contact interview",
+      "sheet_status_text": "High / complex, multi-step",
+      "answer_options": [
+        {
+          "code": "trigger",
+          "text": "High / complex, multi-step",
+          "records_as": "observed",
+          "label": "trigger"
+        },
+        {
+          "code": "not_trigger",
+          "text": "Not 'High / complex, multi-step'",
+          "records_as": "observed",
+          "label": "not_trigger"
+        },
+        {
+          "code": "not_shared",
+          "text": "Not known / not willing to share",
+          "records_as": "unknown",
+          "note": "Never scored as a low or bad value."
+        }
+      ],
+      "applicability_note": null,
+      "source_it": [
+        "First-contact questionnaire; bilancio supply chain notes"
+      ]
+    },
+    {
+      "variable_key": "supply_chain_digitization",
+      "sheet_row": 65,
+      "role": "Scored",
+      "axis": "NEED",
+      "question": "Supply chain digitization: Presence of EDI, real-time tracking, or supplier portal technology, inferred from job postings or first-contact interview.",
+      "proxy_text": "Presence of EDI, real-time tracking, or supplier portal technology, inferred from job postings or first-contact interview",
+      "sheet_status_text": "Low / manual",
+      "answer_options": [
+        {
+          "code": "trigger",
+          "text": "Low / manual",
+          "records_as": "observed",
+          "label": "trigger"
+        },
+        {
+          "code": "not_trigger",
+          "text": "Not 'Low / manual'",
+          "records_as": "observed",
+          "label": "not_trigger"
+        },
+        {
+          "code": "not_shared",
+          "text": "Not known / not willing to share",
+          "records_as": "unknown",
+          "note": "Never scored as a low or bad value."
+        }
+      ],
+      "applicability_note": null,
+      "source_it": [
+        "First-contact questionnaire; job postings"
+      ]
+    },
+    {
+      "variable_key": "approval_chain_depth",
+      "sheet_row": 70,
+      "role": "Gate",
+      "axis": "READINESS",
+      "question": "Depth of internal approval chain for new vendors/pilots: Estimated from company size, org verticality, and first-contact disclosure of procurement process.",
+      "proxy_text": "Estimated from company size, org verticality, and first-contact disclosure of procurement process",
+      "sheet_status_text": "High (multiple approval layers)",
+      "answer_options": [
+        {
+          "code": "trigger",
+          "text": "High (multiple approval layers)",
+          "records_as": "observed",
+          "label": "trigger"
+        },
+        {
+          "code": "not_trigger",
+          "text": "Not 'High (multiple approval layers)'",
+          "records_as": "observed",
+          "label": "not_trigger"
+        },
+        {
+          "code": "not_shared",
+          "text": "Not known / not willing to share",
+          "records_as": "unknown",
+          "note": "Never scored as a low or bad value."
+        }
+      ],
+      "applicability_note": null,
+      "source_it": [
+        "First-contact questionnaire only; org size (addetti) and verticality as a rough proxy"
+      ]
+    },
+    {
+      "variable_key": "system_integration",
+      "sheet_row": 72,
+      "role": "Scored",
+      "axis": "NEED",
+      "question": "System integration across core functions (ERP, MES, CMMS, PLM, quality, finance): Degree to which planning, production, maintenance, quality and finance data sit in connected systems rather than in spreadsheets and re-keyed exports. Inferred from the number and mix of systems named in job postings, integration or interface roles, and first-contact disclosure.",
+      "proxy_text": "Degree to which planning, production, maintenance, quality and finance data sit in connected systems rather than in spreadsheets and re-keyed exports. Inferred from the number and mix of systems named in job postings, integration or interface roles, and first-contact disclosure.",
+      "sheet_status_text": "Siloed (manual reconciliation between systems)",
+      "answer_options": [
+        {
+          "code": "siloed",
+          "text": "siloed",
+          "records_as": "observed",
+          "label": "siloed",
+          "axis_values": {
+            "NEED": 1.0
+          }
+        },
+        {
+          "code": "integrated",
+          "text": "integrated",
+          "records_as": "observed",
+          "label": "integrated",
+          "axis_values": {
+            "NEED": 0.0
+          }
+        },
+        {
+          "code": "not_shared",
+          "text": "Not known / not willing to share",
+          "records_as": "unknown",
+          "note": "Never scored as a low or bad value."
+        }
+      ],
+      "applicability_note": null,
+      "source_it": [
+        "First-contact questionnaire (primary); Italian job postings naming several systems or integration roles (InfoJobs, Indeed Italia, LinkedIn); DREAMY integration questions as a question bank"
+      ]
+    },
+    {
+      "variable_key": "maintenance_digitization",
+      "sheet_row": 73,
+      "role": "Scored",
+      "axis": "NEED",
+      "question": "Maintenance management digitization: Whether maintenance is planned and tracked in a CMMS or asset management system versus run reactively. Proxied by job postings for maintenance planners or CMMS skills and by first-contact disclosure. Applies only to asset-heavy firms; mark N/A for pure engineering and EPC services.",
+      "proxy_text": "Whether maintenance is planned and tracked in a CMMS or asset management system versus run reactively. Proxied by job postings for maintenance planners or CMMS skills and by first-contact disclosure. Applies only to asset-heavy firms; mark N/A for pure engineering and EPC services.",
+      "sheet_status_text": "Reactive and undocumented (paper or spreadsheet logs, no CMMS)",
+      "answer_options": [
+        {
+          "code": "reactive_undocumented",
+          "text": "reactive undocumented",
+          "records_as": "observed",
+          "label": "reactive_undocumented",
+          "axis_values": {
+            "NEED": 1.0
+          }
+        },
+        {
+          "code": "planned_in_cmms",
+          "text": "planned in cmms",
+          "records_as": "observed",
+          "label": "planned_in_cmms",
+          "axis_values": {
+            "NEED": 0.0
+          }
+        },
+        {
+          "code": "not_shared",
+          "text": "Not known / not willing to share",
+          "records_as": "unknown",
+          "note": "Never scored as a low or bad value."
+        },
+        {
+          "code": "not_applicable",
+          "text": "Does not apply to this company",
+          "records_as": "not_applicable"
+        }
+      ],
+      "applicability_note": "ASSUMPTION (flag in report): defaults taken from the integration brief. Applicable: manufacturing divisions in scope for the landing bay (28, 29, 30), industrial services and repair (33), energy (35). Not applicable: engineering and EPC services (41, 42, 43, 71). Every other division is undetermined, not silently applicable or not.",
+      "source_it": [
+        "First-contact questionnaire; job postings (manutentore, pianificatore manutenzione, CMMS, SAP PM); ATECO code from AIDA / Registro Imprese for applicability"
+      ]
+    },
+    {
+      "variable_key": "digital_maturity_self_assessment",
+      "sheet_row": 75,
+      "role": "Scored",
+      "axis": "READINESS",
+      "question": "Prior digital maturity self-assessment: Whether the company has taken a structured digital maturity assessment (Test Your Industry 4.0 / DREAMY via a Digital Innovation Hub, or a comparable audit) and the level obtained.",
+      "proxy_text": "Whether the company has taken a structured digital maturity assessment (Test Your Industry 4.0 / DREAMY via a Digital Innovation Hub, or a comparable audit) and the level obtained.",
+      "sheet_status_text": "Completed, low to medium maturity (DREAMY levels 1 to 3)",
+      "answer_options": [
+        {
+          "code": "completed_low_to_medium",
+          "text": "completed low to medium",
+          "records_as": "observed",
+          "label": "completed_low_to_medium",
+          "axis_values": {
+            "READINESS": 1.0
+          }
+        },
+        {
+          "code": "completed_high_maturity",
+          "text": "completed high maturity",
+          "records_as": "observed",
+          "label": "completed_high_maturity",
+          "axis_values": {
+            "READINESS": "TO_CALIBRATE"
+          }
+        },
+        {
+          "code": "not_shared",
+          "text": "Not known / not willing to share",
+          "records_as": "unknown",
+          "note": "Never scored as a low or bad value."
+        }
+      ],
+      "applicability_note": null,
+      "source_it": [
+        "Digital Innovation Hub partnership / consent-based data sharing (DIH network); testindustria4-0.com self-reported; first-contact questionnaire"
+      ]
+    }
+  ]
+}

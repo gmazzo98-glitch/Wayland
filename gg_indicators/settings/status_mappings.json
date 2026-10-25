@@ -1,0 +1,1450 @@
+{
+  "$comment": "Direction of every status value, written out per variable (nothing is inferred at score time). For each Scored variable and each axis it feeds: axes.<AXIS>.trigger is the axis value (0..1) when the Sheet1 Status text is fully present, not_trigger when it is fully absent; an observation may also carry a graded strength s in [0,1] (value = not_trigger + s*(trigger-not_trigger)). 'raises' = the Status text pushes the axis up, 'lowers' = it pushes the axis down (Negative polarity). 'states' adds named multi-state labels; null in a state = that state does not feed the axis; 'TO_CALIBRATE' = a value that must be decided before that state can be scored. Gate and Moderator rows carry no axis values.",
+  "variables": {
+    "management_age": {
+      "sheet_row": 2,
+      "role": "Scored",
+      "trigger_status": "Low",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "mgmt_national_diversity": {
+      "sheet_row": 3,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "mgmt_cultural_diversity": {
+      "sheet_row": 4,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "mgmt_gender_diversity": {
+      "sheet_row": 5,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "mgmt_education_level": {
+      "sheet_row": 6,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "mgmt_education_diversity": {
+      "sheet_row": 7,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "new_generation_management": {
+      "sheet_row": 8,
+      "role": "Scored",
+      "trigger_status": "Recent",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        },
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises",
+        "READINESS": "raises"
+      },
+      "states": {},
+      "note": "Row 8 [BOTH]: a recent handover is a NEED signal and a READINESS signal; one observation feeds both axes through its own mapping."
+    },
+    "management_turnover": {
+      "sheet_row": 9,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "external_collaboration": {
+      "sheet_row": 10,
+      "role": "Scored",
+      "trigger_status": "Happened before",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "interdepartmental_collaboration": {
+      "sheet_row": 11,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "org_verticality": {
+      "sheet_row": 12,
+      "role": "Scored",
+      "trigger_status": "Low",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "employee_turnover": {
+      "sheet_row": 13,
+      "role": "Scored",
+      "trigger_status": "Low",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "number_of_employees": {
+      "sheet_row": 14,
+      "role": "Scored",
+      "trigger_status": "Moderate",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "average_salary": {
+      "sheet_row": 15,
+      "role": "Scored",
+      "trigger_status": "Medium-High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "skilled_labour_share": {
+      "sheet_row": 16,
+      "role": "Scored",
+      "trigger_status": "Medium-High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "online_sales_volume": {
+      "sheet_row": 17,
+      "role": "Scored",
+      "trigger_status": "Low",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "online_market_presence": {
+      "sheet_row": 18,
+      "role": "Scored",
+      "trigger_status": "No/not developed",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "physical_stores_trend": {
+      "sheet_row": 19,
+      "role": "Scored",
+      "trigger_status": "Declining",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "store_geo_distribution": {
+      "sheet_row": 20,
+      "role": "Scored",
+      "trigger_status": "Concentrated in a single region",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "international_sales_volume": {
+      "sheet_row": 21,
+      "role": "Scored",
+      "trigger_status": "Low/istagnating",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "years_international_activity": {
+      "sheet_row": 22,
+      "role": "Scored",
+      "trigger_status": "Few",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "product_demand_elasticity": {
+      "sheet_row": 23,
+      "role": "Scored",
+      "trigger_status": "Elastic",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "product_differentiation": {
+      "sheet_row": 24,
+      "role": "Scored",
+      "trigger_status": "Low / commoditized",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "product_portfolio_diversity": {
+      "sheet_row": 25,
+      "role": "Scored",
+      "trigger_status": "Low / narrow",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "raw_material_rarity": {
+      "sheet_row": 26,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "raw_material_cost": {
+      "sheet_row": 27,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "product_innovativeness": {
+      "sheet_row": 28,
+      "role": "Scored",
+      "trigger_status": "Low / mature, largely unchanged",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "product_quality_trend": {
+      "sheet_row": 29,
+      "role": "Scored",
+      "trigger_status": "Declining / rising complaints",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "product_type_tag": {
+      "sheet_row": 30,
+      "role": "Moderator",
+      "trigger_status": "Physical / manufactured good (example value, see comment)",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "physical_manufactured_good"
+      ],
+      "axes": {},
+      "direction": {},
+      "states": {
+        "physical_manufactured_good": {},
+        "service_or_digital": {},
+        "mixed": {}
+      },
+      "note": "Moderator row: never scored. Named labels exist only so moderators.json rules can match on them; they carry no axis values."
+    },
+    "product_age": {
+      "sheet_row": 31,
+      "role": "Scored",
+      "trigger_status": "Old / long-standing core line",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "logistics_difficulty": {
+      "sheet_row": 32,
+      "role": "Scored",
+      "trigger_status": "High / complex, multi-step",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "ebit_trend": {
+      "sheet_row": 33,
+      "role": "Scored",
+      "trigger_status": "Decreasing/Stagnating",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "margin_compression": {
+      "sheet_row": 34,
+      "role": "Scored",
+      "trigger_status": "Decreasing/Stagnating",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "revenue_trend": {
+      "sheet_row": 35,
+      "role": "Scored",
+      "trigger_status": "Decreasing/Stagnating",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "interest_coverage_ratio": {
+      "sheet_row": 36,
+      "role": "Scored",
+      "trigger_status": "Decreasing/Stagnating",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "materials_cost": {
+      "sheet_row": 37,
+      "role": "Scored",
+      "trigger_status": "High/Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "labour_cost": {
+      "sheet_row": 38,
+      "role": "Scored",
+      "trigger_status": "High/Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "logistics_cost": {
+      "sheet_row": 39,
+      "role": "Scored",
+      "trigger_status": "High/Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "energy_cost": {
+      "sheet_row": 40,
+      "role": "Scored",
+      "trigger_status": "High/Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "cogs_ratio": {
+      "sheet_row": 41,
+      "role": "Scored",
+      "trigger_status": "High/Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "service_costs": {
+      "sheet_row": 42,
+      "role": "Scored",
+      "trigger_status": "High/Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "rd_expense_ratio": {
+      "sheet_row": 43,
+      "role": "Scored",
+      "trigger_status": "Low or Zero",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {},
+      "note": "Rows 43/44 [READINESS-GAP / GG-FIT]: the tag contains READINESS and not NEGATIVE, so Standard: low/zero R&D RAISES the READINESS-axis value, as the row text frames it (fit signal for an external pilot)."
+    },
+    "patent_count": {
+      "sheet_row": 44,
+      "role": "Scored",
+      "trigger_status": "Low or Zero",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {},
+      "note": "Rows 43/44 [READINESS-GAP / GG-FIT]: the tag contains READINESS and not NEGATIVE, so Standard: low/zero R&D RAISES the READINESS-axis value, as the row text frames it (fit signal for an external pilot)."
+    },
+    "trademark_count": {
+      "sheet_row": 45,
+      "role": "Scored",
+      "trigger_status": "Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "subsidiary_participations": {
+      "sheet_row": 46,
+      "role": "Scored",
+      "trigger_status": "Low or Zero",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "capex_ratio": {
+      "sheet_row": 47,
+      "role": "Scored",
+      "trigger_status": "Low",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "total_assets": {
+      "sheet_row": 48,
+      "role": "Scored",
+      "trigger_status": "Medium",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "cash_position": {
+      "sheet_row": 49,
+      "role": "Scored",
+      "trigger_status": "Low/Decreasing",
+      "polarity": "Negative",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 0.0,
+          "not_trigger": 1.0
+        }
+      },
+      "direction": {
+        "READINESS": "lowers"
+      },
+      "states": {},
+      "note": "Row 49 [READINESS - NEGATIVE]: low/decreasing cash is a readiness CONSTRAINT (no discretionary pilot budget), so the trigger status LOWERS READINESS. It is not a need signal."
+    },
+    "debt_level": {
+      "sheet_row": 50,
+      "role": "Scored",
+      "trigger_status": "High/Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {},
+      "note": "Rows 50/51 [NEED, readiness caveat]: raises NEED and sets the readiness caveat flag; adds nothing to READINESS."
+    },
+    "leverage_ratio": {
+      "sheet_row": 51,
+      "role": "Scored",
+      "trigger_status": "High",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {},
+      "note": "Rows 50/51 [NEED, readiness caveat]: raises NEED and sets the readiness caveat flag; adds nothing to READINESS."
+    },
+    "private_funding": {
+      "sheet_row": 52,
+      "role": "Scored",
+      "trigger_status": "Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "public_grant_count": {
+      "sheet_row": 53,
+      "role": "Scored",
+      "trigger_status": "Recent",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "website_digital_maturity": {
+      "sheet_row": 54,
+      "role": "Scored",
+      "trigger_status": "Low / outdated",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "linkedin_activity": {
+      "sheet_row": 55,
+      "role": "Scored",
+      "trigger_status": "Low / inactive",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "digital_job_postings": {
+      "sheet_row": 56,
+      "role": "Scored",
+      "trigger_status": "Increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "kununu_rating": {
+      "sheet_row": 57,
+      "role": "Scored",
+      "trigger_status": "Low",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {},
+      "note": "Row 57 [READINESS, caveat]: the tag has a caveat but not NEGATIVE, so the parse gives Standard polarity and the trigger status (Low rating) RAISES READINESS, while the row's own Comment says to use it 'as a downgrade flag'. Kept as parsed (no silent override); listed in the report as a likely sheet inconsistency for GG to resolve."
+    },
+    "family_ownership_share": {
+      "sheet_row": 58,
+      "role": "Moderator",
+      "trigger_status": "High (fully family-owned)",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "fully_family_owned"
+      ],
+      "axes": {},
+      "direction": {},
+      "states": {
+        "fully_family_owned": {},
+        "partly_family_owned": {},
+        "not_family_owned": {}
+      },
+      "note": "Moderator row: never scored. Named labels exist only so moderators.json rules can match on them; they carry no axis values."
+    },
+    "independent_board_members": {
+      "sheet_row": 59,
+      "role": "Scored",
+      "trigger_status": "Present / increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "esg_reporting_recency": {
+      "sheet_row": 60,
+      "role": "Scored",
+      "trigger_status": "Recently started",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "trade_fair_participation": {
+      "sheet_row": 61,
+      "role": "Scored",
+      "trigger_status": "Active / frequent",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "university_partnership": {
+      "sheet_row": 62,
+      "role": "Scored",
+      "trigger_status": "Existing / recent",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "erp_systems_age": {
+      "sheet_row": 63,
+      "role": "Scored",
+      "trigger_status": "Legacy (10+ years since last major upgrade)",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "legacy"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {
+        "legacy": {
+          "NEED": 1.0
+        },
+        "current": {
+          "NEED": 0.0
+        }
+      },
+      "note": "Row 63 now measures AGE only (10+ years since last major upgrade = legacy). Integration is row 72; the pair is read as systems_posture, never averaged."
+    },
+    "press_launch_mentions": {
+      "sheet_row": 64,
+      "role": "Scored",
+      "trigger_status": "None in past 2 years",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "supply_chain_digitization": {
+      "sheet_row": 65,
+      "role": "Scored",
+      "trigger_status": "Low / manual",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {}
+    },
+    "energy_transition_capex": {
+      "sheet_row": 66,
+      "role": "Scored",
+      "trigger_status": "Recent / increasing",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "READINESS": "raises"
+      },
+      "states": {}
+    },
+    "prior_open_innovation_usage": {
+      "sheet_row": 67,
+      "role": "Gate",
+      "trigger_status": "None",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {},
+      "direction": {},
+      "states": {},
+      "note": "Row 67 [READINESS BASELINE], Role Gate: zero prior open-innovation usage fails the gate. Never scored."
+    },
+    "senior_mgmt_tenure": {
+      "sheet_row": 68,
+      "role": "Scored",
+      "trigger_status": "Long (15+ years in current role)",
+      "polarity": "Negative",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {
+        "READINESS": {
+          "trigger": 0.0,
+          "not_trigger": 1.0
+        }
+      },
+      "direction": {
+        "READINESS": "lowers"
+      },
+      "states": {},
+      "note": "Row 68 [READINESS, NEGATIVE]: very long senior tenure means entrenched routines, so the trigger status LOWERS READINESS."
+    },
+    "digital_lead_role_present": {
+      "sheet_row": 69,
+      "role": "Gate",
+      "trigger_status": "None",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {},
+      "direction": {},
+      "states": {},
+      "note": "Row 69 [READINESS, CRITICAL GATE]: absence of a named digital/innovation lead fails the gate (extra qualification before a pilot is proposed). Never scored."
+    },
+    "approval_chain_depth": {
+      "sheet_row": 70,
+      "role": "Gate",
+      "trigger_status": "High (multiple approval layers)",
+      "polarity": "Negative",
+      "trigger_labels": [
+        "trigger"
+      ],
+      "axes": {},
+      "direction": {},
+      "states": {},
+      "note": "Row 70 [READINESS, NEGATIVE], Role Gate: a deep approval chain is the mechanism behind a long, complex sale. Never scored; the trigger status fails the gate."
+    },
+    "recent_ma_activity": {
+      "sheet_row": 71,
+      "role": "Moderator",
+      "trigger_status": "Recent (past 2 years)",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "recent"
+      ],
+      "axes": {},
+      "direction": {},
+      "states": {
+        "recent": {},
+        "none_recent": {}
+      },
+      "note": "Moderator row: never scored. Named labels exist only so moderators.json rules can match on them; they carry no axis values."
+    },
+    "system_integration": {
+      "sheet_row": 72,
+      "role": "Scored",
+      "trigger_status": "Siloed (manual reconciliation between systems)",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "siloed"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {
+        "siloed": {
+          "NEED": 1.0
+        },
+        "integrated": {
+          "NEED": 0.0
+        }
+      },
+      "note": "Row 72 [NEED, readiness caveat]: siloed systems raise NEED and set the readiness caveat flag (manual reconciliation slows pilot data collection). Adds nothing to READINESS."
+    },
+    "maintenance_digitization": {
+      "sheet_row": 73,
+      "role": "Scored",
+      "trigger_status": "Reactive and undocumented (paper or spreadsheet logs, no CMMS)",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "reactive_undocumented"
+      ],
+      "axes": {
+        "NEED": {
+          "trigger": 1.0,
+          "not_trigger": 0.0
+        }
+      },
+      "direction": {
+        "NEED": "raises"
+      },
+      "states": {
+        "reactive_undocumented": {
+          "NEED": 1.0
+        },
+        "planned_in_cmms": {
+          "NEED": 0.0
+        }
+      },
+      "note": "Row 73 [NEED]: reactive/undocumented maintenance raises NEED. Applicable only to asset-heavy firms (settings/applicability.json). No postings and no disclosure = UNKNOWN, not 'reactive'."
+    },
+    "quality_process_maturity": {
+      "sheet_row": 74,
+      "role": "Scored",
+      "trigger_status": "No recognised certification where the sector norm requires one (or inspector-driven, undocumented quality)",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "gap_vs_sector_norm",
+        "inspector_driven_undocumented"
+      ],
+      "axes": {},
+      "direction": {
+        "NEED": "raises (gap vs sector norm)",
+        "READINESS": "raises (long held, multi-standard)"
+      },
+      "states": {
+        "gap_vs_sector_norm": {
+          "NEED": 1.0,
+          "READINESS": null
+        },
+        "inspector_driven_undocumented": {
+          "NEED": 1.0,
+          "READINESS": null
+        },
+        "certified_meets_norm": {
+          "NEED": 0.0,
+          "READINESS": null
+        },
+        "long_held_multi_standard": {
+          "NEED": 0.0,
+          "READINESS": 1.0
+        }
+      },
+      "labels_only": true,
+      "note": "Row 74 [BOTH]: ONE observation, TWO mappings. 'No recognised certification where the sector norm requires one' feeds NEED only; 'long held, multi-standard certification' feeds READINESS (and zeroes the NEED gap). null = this state does not contribute to that axis (READINESS coverage is then lower for that company, never scored as bad). The Sheet1 status also names 'inspector-driven, undocumented quality' as a NEED trigger."
+    },
+    "digital_maturity_self_assessment": {
+      "sheet_row": 75,
+      "role": "Scored",
+      "trigger_status": "Completed, low to medium maturity (DREAMY levels 1 to 3)",
+      "polarity": "Standard",
+      "trigger_labels": [
+        "completed_low_to_medium"
+      ],
+      "axes": {},
+      "direction": {
+        "READINESS": "raises (completed assessment at low/medium maturity)"
+      },
+      "states": {
+        "completed_low_to_medium": {
+          "READINESS": 1.0
+        },
+        "completed_high_maturity": {
+          "READINESS": "TO_CALIBRATE"
+        }
+      },
+      "labels_only": true,
+      "level_labels": {
+        "1": "completed_low_to_medium",
+        "2": "completed_low_to_medium",
+        "3": "completed_low_to_medium",
+        "4": "completed_high_maturity",
+        "5": "completed_high_maturity"
+      },
+      "note": "Row 75 [READINESS], asymmetric by design: a completed assessment at DREAMY level 1-3 is a positive READINESS/openness signal. No record is UNKNOWN (interactions.json asymmetric_variables), never low. A completed level 4-5 assessment is not described in the sheet: its value is TO_CALIBRATE and until set the observation is treated as unknown with a warning. Levels 4-5 = assumption (5-level model)."
+    }
+  }
+}
