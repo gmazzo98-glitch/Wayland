@@ -4,7 +4,7 @@
   "spec": "docs/DIAGNOSIS_TICKETS.md",
   "plan": "docs/DIAGNOSIS_MASTERPLAN.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-23T00:00:00Z",
+  "updated_at": "2026-10-25T10:04:02Z",
   "tickets": {
     "D01": {
       "title": "Fact readers A: identity, financials, people, ownership, existing scores and pain points",
@@ -23,7 +23,20 @@
       "status": "OPEN",
       "claimed_by": null,
       "claimed_at": null,
-      "heartbeat_at": null
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-25T10:02:37Z",
+          "by": "codex-8d2a",
+          "event": "claim"
+        },
+        {
+          "at": "2026-10-25T10:04:02Z",
+          "by": "codex-8d2a",
+          "event": "release",
+          "note": "Released without edits: app-managed linked worktree is outside the permitted writable roots. The claim and read-only .env copy succeeded only after escalated operations, but implementation, test run, commits, and push would require repeated sandbox escalations; no scoped files were changed."
+        }
+      ]
     },
     "D02": {
       "title": "Fact readers B: every crawled layer (website, jobs, digital, catalog, directories, public, news, reviews)",
