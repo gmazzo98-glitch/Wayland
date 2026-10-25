@@ -37,3 +37,4 @@ report_*.json
 junit*.xml
 logs_bench/
 test_logs/
+/.claude/skills/impeccable/scripts/bin/
