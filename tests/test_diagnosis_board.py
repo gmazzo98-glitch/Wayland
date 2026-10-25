@@ -231,6 +231,56 @@ def test_cli_status_and_claim(remote_and_clones, capsys):
     assert board.main(["claim", "--repo", str(cb)]) == 2             # no agent name given
 
 
+# ------------------------------------------------------------------------------------------------ preflight
+
+def _linked_worktree(clone: Path, name: str = "wt") -> Path:
+    wt = clone.parent / name
+    _run(clone, "worktree", "add", "--detach", str(wt), "origin/master")
+    return wt
+
+
+def test_preflight_passes_in_a_linked_worktree(remote_and_clones):
+    bare, (ca, cb) = remote_and_clones
+    wt = _linked_worktree(ca)
+    checks = board.run_preflight(board.Board(wt), "D01")
+    failed = [c.name for c in checks if c.required and not c.ok]
+    assert failed == [], failed
+    text, ok = board.render_preflight(checks)
+    assert ok and "RESULT: OK" in text
+
+
+def test_preflight_refuses_the_shared_main_checkout(remote_and_clones, capsys):
+    bare, (ca, cb) = remote_and_clones
+    checks = board.run_preflight(board.Board(ca))
+    assert [c.name for c in checks if c.required and not c.ok] == ["working in your own worktree, not the shared main checkout"]
+    assert board.main(["preflight", "--repo", str(ca)]) == 1
+    assert "Do NOT claim" in capsys.readouterr().out
+
+
+def test_a_sandbox_that_cannot_write_the_git_directory_cannot_claim(remote_and_clones, monkeypatch):
+    """The observed failure: an agent claimed a ticket, then found it could not write or commit and had to give it back.
+    Now the claim itself is refused up front, and nothing is held."""
+    bare, (ca, cb) = remote_and_clones
+    real = board._probe_write
+    monkeypatch.setattr(board, "_probe_write", lambda d: (False, "PermissionError: denied") if ".git" in str(d) else real(d))
+    checks = board.check_local_writes(board.Board(ca))
+    assert any(not c.ok and "git directory" in c.name for c in checks)
+    assert board.main(["claim", "D01", "--agent", "agent-a", "--repo", str(ca)]) == 1
+    assert _read_remote(bare)["tickets"]["D01"]["status"] == "OPEN"
+
+
+def test_preflight_checks_a_tickets_declared_needs(remote_and_clones, monkeypatch):
+    bare, (ca, cb) = remote_and_clones
+    wt = _linked_worktree(ca)
+    # add a needs entry on the remote board, then ask for it
+    board.Board(wt).mutate(lambda d, now: d["tickets"]["D01"].update(needs=["local_model", "web"]), "needs")
+    monkeypatch.setattr(board.shutil, "which", lambda name: None)
+    checks = board.run_preflight(board.Board(wt), "D01")
+    names = {c.name: c for c in checks}
+    assert not names["Ollama present (ticket needs local_model)"].ok
+    assert "ticket needs web" in names and names["ticket needs web"].required is False
+
+
 # ------------------------------------------------------------------------------------------------ the real board
 
 def test_shipped_board_is_consistent_with_the_ticket_docs_and_fact_keys():

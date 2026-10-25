@@ -40,6 +40,29 @@ This worktree is yours alone, so you may switch branches in it. Never `git check
 checkout: other agents and the user's running app are using it. `scripts/board.py` works from any worktree and never
 changes your files.
 
+**1b. Preflight: can this session actually do the work?** Run, from your worktree, **before claiming anything**:
+
+```
+python scripts/board.py preflight          # add a ticket id to also test that ticket's declared needs
+```
+
+It really tests: writing files in the worktree; writing inside the git directories (commits, branches); creating git objects;
+reaching GitHub; a push dry run; that you are in your own worktree and not the shared main checkout; pytest and sqlalchemy.
+**If it prints `RESULT: FAIL`, claim nothing.** Stop and tell the user which checks failed and what access the session needs.
+Do not try to work around a refused permission, and do not keep asking for approvals one command at a time: a ticket
+needs dozens of git, test and network commands, so a session that has to be approved for each one cannot finish it. (The
+first agent launched on this program hit exactly this: an app-managed worktree outside its writable roots. It claimed
+a ticket, found it could not write or commit, and had to hand the ticket back. `claim` now refuses on its own if the
+session cannot write, but run `preflight` anyway: it also tells you about network and credentials.)
+
+**What a session needs, in short.** Write access to its own worktree **and** to the repository's `.git` folder (a linked
+worktree keeps its objects and branches there, outside the worktree itself); network access to GitHub for `fetch`/`push`;
+for some tickets also the web (research tickets), the Neon database (read-only) and the LLM APIs; a Python with
+`pytest` and `sqlalchemy`. Easiest way to get all of it: start the session in the project folder with write+network access
+(Codex: workspace-write with network enabled, or full access; Claude Code: a permission mode that allows edits and git),
+and let it create its worktree under `.claude/worktrees/`, which is inside the project folder. An app-managed worktree
+created *outside* the project folder also works if, and only if, its sandbox is allowed to write the main repository's `.git`.
+
 **2. Check out a ticket.**
 
 ```
@@ -65,6 +88,12 @@ commit or discard *your own* leftovers first, never anyone else's):
 git fetch origin
 git checkout -b diag/<ID>-<slug> origin/master      # the claim output prints the exact name
 ```
+
+If `git branch -a` already shows a `diag/<ID>-*` branch (a released claim, or a stale one you are taking over), look
+before you create: `git log --oneline origin/master..<that branch>`. **Empty:** it holds no work; delete it
+(`git branch -d <name>` locally, `git push origin --delete <name>` if it exists on the remote) and create yours.
+**Has commits:** it is someone's unfinished work; check out that branch, merge `origin/master` into it, and continue
+from it. Never reset or overwrite it.
 
 Environment for a fresh worktree: `.env` is git-ignored, so a new worktree has none. If your ticket has the `live_db_read`
 need, copy it once from the main checkout (same machine): `copy "<main checkout>\.env" .env`. Never commit it, never

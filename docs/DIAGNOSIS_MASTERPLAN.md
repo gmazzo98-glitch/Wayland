@@ -534,6 +534,7 @@ decay); over-trust in the pack (it states what it does not know, on page one).
 | Over-trust by the analyst | Medium / high | Page one states unknowns; strength and confidence shown separately; no single score |
 | Legal: regulation read as advice; directors' data | Medium / medium | `legal_review: none` labels; screening wording; no ages in speakable text; counsel check (decision 8) |
 | Agents collide or leave work half-done | Medium / medium | Atomic claims, file locks, worktrees, heartbeat and take-over, results notes, release captains |
+| An agent session is sandboxed and cannot write, commit or push (seen on the first launch: a Codex app-managed worktree outside its writable roots) | High / medium | `board.py preflight` before any claim; `claim` refuses a session that cannot write; launch guide lists the access each session needs; the agent hands the ticket back instead of half-working |
 | Hot-file conflicts, binary bundle conflicts | Medium / high | Hot-file ownership, `@bundle` resource, auto-discovery instead of central edits |
 | Live-database damage | Low / high | Read-only default, `@live-db-write` plus GG approval, dry runs on a copy, additive `dx_` tables only |
 | Language-model cost and rate limits | Medium / low | Deterministic stages first, cap, cache by fingerprint, fallback chain |

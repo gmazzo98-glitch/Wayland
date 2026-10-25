@@ -6,6 +6,16 @@ repository on `origin/master`; the board decides who does what, so the same text
 
 ## How to launch
 
+0. **Give every agent session the access it needs, or it cannot finish anything.** Each ticket takes dozens of file writes, `git`
+   commits, test runs and a `git push`, so a session that must be approved command by command will stall. A session needs:
+   write access to the project folder **including its `.git` folder** (a linked worktree keeps its commits there), network access to
+   GitHub (and, for some tickets, the web, the Neon database read-only, and the LLM APIs), and Python with pytest and sqlalchemy.
+   - *Codex:* start it in the project folder (not an app-managed worktree stored elsewhere) with a sandbox that allows writes and
+     network (workspace-write with network on, or full access). The first agent launched here was an app-managed worktree outside its
+     writable roots: it claimed D01, could not write or commit, and correctly handed it back.
+   - *Claude Code:* a permission mode that allows edits and git commands without prompting for each one.
+   - Check one session first: have it run `python scripts/board.py preflight`. It prints `RESULT: OK` or exactly what is missing. The
+     prompt makes every agent run it before claiming, so a badly configured session now refuses to claim instead of blocking a ticket.
 1. **Everything must be pushed first.** The agents read the plan, the board and `scripts/board.py` from `origin/master`.
 2. **Wave 1: launch 8 agents** (the 13 wave-1 tickets are independent of each other and can all run at once). Paste the prompt into
    each. They spread themselves over the tickets, each takes up to three in a row, and each stops when nothing is claimable.
@@ -46,6 +56,11 @@ DO THIS, IN ORDER
    "git worktree add .claude/worktrees/diag-<yourname> --detach origin/master" and work there. NEVER switch branches or edit files in the
    shared main checkout; other agents and the user's running app depend on it.
 
+   Then, from that worktree and BEFORE claiming anything, run:  python scripts/board.py preflight
+   It really tests writing files, writing the git directories, creating commits, reaching GitHub, a push dry run, and that you are in your
+   own worktree. If it prints "RESULT: FAIL": claim NOTHING, stop, and report to the user the failed checks and what access you need. Do not
+   work around a refused permission and do not ask for approvals one command at a time (a ticket needs dozens of git/test/network commands).
+
 3. Read, in full: docs/DIAGNOSIS_TICKETS.md Parts 1-5 (protocol, rules, scopes, contracts, results template). Skim
    docs/DIAGNOSIS_MASTERPLAN.md sections 0, 2, 5 and 6, and read diagnosis/contracts.py and diagnosis/factkeys.py. If your worktree does
    not have these files, merge origin/master first.
@@ -57,7 +72,8 @@ DO THIS, IN ORDER
    ticket someone else holds, do not edit docs/diagnosis/board.json by hand.
 
 5. Create the ticket's branch from fresh master:  git fetch origin ; git checkout -b diag/<ID>-<slug> origin/master
-   Read your ticket in docs/DIAGNOSIS_TICKETS.md Part 7 and the existing code it names. Grep before you build: much already exists.
+   (if a diag/<ID>-* branch already exists: "git log --oneline origin/master..<branch>"; empty = delete it and create yours; has commits =
+   continue from it, never overwrite it. Details: Part 1, step 3.)  Read your ticket in docs/DIAGNOSIS_TICKETS.md Part 7 and the existing code it names. Grep before you build: much already exists.
 
 6. Do the work strictly inside the ticket's write scope (the "files" on the board). Commit often with explicit paths (git add <path>, never
    git add -A or git add .). Send a heartbeat at least hourly:  python scripts/board.py heartbeat <ID> --agent $DIAG_AGENT

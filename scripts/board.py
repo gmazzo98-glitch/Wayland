@@ -15,6 +15,8 @@ without colliding. The state lives in ONE file, docs/diagnosis/board.json, and i
     exclusive resources, mutually exclusive between tickets that list the same name.
 
 Commands (--agent NAME or $DIAG_AGENT; use a unique name per agent, e.g. claude-7f3a):
+  preflight [ID]                  can this session actually do the work? (write, git, network, own worktree). Run it
+                                  BEFORE claiming; if it fails, claim nothing and report its output to the user
   status [--json]                 board overview, who holds what, stale claims, held locks
   next                            tickets this agent could claim right now, and why others cannot be
   claim [ID] [--take-over]        check out a ticket (no ID = pick one for you, spread across agents)
@@ -32,9 +34,10 @@ import argparse
 import json
 import os
 import random
+import shutil
 import subprocess
 import sys
-import tempfile
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -269,14 +272,31 @@ class Board:
         mail = self.git("config", "user.email", check=False)[1] or "board@localhost"
         return {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": mail, "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": mail}
 
+    def paths(self) -> Dict[str, Path]:
+        """toplevel / git_dir / common_dir as absolute paths. git_dir == common_dir means the shared main checkout."""
+        top = Path(self.git("rev-parse", "--show-toplevel")[1])
+        git_dir = Path(self.git("rev-parse", "--absolute-git-dir")[1])
+        common = Path(self.git("rev-parse", "--git-common-dir")[1])
+        if not common.is_absolute():
+            common = (self.repo / common)
+        return {"top": top.resolve(), "git_dir": git_dir.resolve(), "common_dir": common.resolve()}
+
     def _push_board(self, doc: Dict[str, Any], base: str, message: str) -> bool:
         text = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
         blob = self.git("hash-object", "-w", "--stdin", data=text)[1]
-        with tempfile.TemporaryDirectory() as td:
-            env = {"GIT_INDEX_FILE": os.path.join(td, "index")}
+        # The scratch index lives inside the git directory, not in %TEMP%: writing there is already required to
+        # create objects, whereas a sandbox may well forbid the system temp folder.
+        index = self.paths()["git_dir"] / f"dx_board_index_{os.getpid()}_{threading.get_ident()}"
+        try:
+            env = {"GIT_INDEX_FILE": str(index)}
             self.git("read-tree", base, env=env)
             self.git("update-index", "--add", "--cacheinfo", f"100644,{blob},{BOARD_PATH}", env=env)
             tree = self.git("write-tree", env=env)[1]
+        finally:
+            try:
+                index.unlink()
+            except OSError:
+                pass
         commit = self.git("commit-tree", tree, "-p", base, "-m", message, env=self._identity())[1]
         rc, _, err = self.git("push", self.remote, f"{commit}:refs/heads/{self.branch}", check=False)
         if rc == 0:
@@ -373,6 +393,118 @@ def claim_banner(doc: Dict[str, Any], tid: str, agent: str) -> str:
     ])
 
 
+# ------------------------------------------------------------------------------------------------ preflight
+
+class Check:
+    def __init__(self, name: str, ok: bool, detail: str = "", fix: str = "", required: bool = True):
+        self.name, self.ok, self.detail, self.fix, self.required = name, ok, detail, fix, required
+
+
+def _probe_write(directory: Path) -> Tuple[bool, str]:
+    """Really create and delete a file: os.access() lies under sandboxes."""
+    probe = directory / f".dx_preflight_{os.getpid()}_{threading.get_ident()}"
+    try:
+        probe.write_text("x")
+        probe.unlink()
+        return True, ""
+    except OSError as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+SANDBOX_FIX = ("Your session is not allowed to write there. Ask GG to start this agent with write access to the repository "
+               "(including its .git folder) and network access to GitHub, or with full access; in Codex that is the "
+               "workspace-write writable roots or danger-full-access, in Claude Code a permission mode that allows edits and "
+               "git. Alternatively start the session in the project folder itself (not an app-managed worktree elsewhere) and "
+               "create your worktree under .claude/worktrees/.")
+
+
+def check_local_writes(board: "Board") -> List[Check]:
+    try:
+        p = board.paths()
+    except BoardError as e:
+        return [Check("inside a git repository", False, str(e), "Run this from inside the Project Vienna repository.")]
+    out = []
+    ok, why = _probe_write(p["top"])
+    out.append(Check("can write files in the working tree", ok, why or str(p["top"]), SANDBOX_FIX))
+    for label, d in (("this worktree's git directory", p["git_dir"]), ("the shared git directory", p["common_dir"])):
+        ok, why = _probe_write(d)
+        out.append(Check(f"can write inside {label}", ok, why or str(d), SANDBOX_FIX))
+    rc, _, err = board.git("hash-object", "-w", "--stdin", data=f"preflight {os.getpid()} {time.time()}", check=False)
+    out.append(Check("can create git objects (commits)", rc == 0, err, SANDBOX_FIX))
+    return out
+
+
+def run_preflight(board: "Board", ticket: Optional[str] = None) -> List[Check]:
+    """Everything an agent needs to be able to finish a ticket, tested BEFORE it claims one. A claim followed by
+    'I cannot write here' blocks a ticket for nothing; this turns that into a clear refusal up front."""
+    checks = check_local_writes(board)
+    if not checks or checks[0].name == "inside a git repository":
+        return checks
+    p = board.paths()
+    linked = p["git_dir"] != p["common_dir"]
+    checks.insert(0, Check("working in your own worktree, not the shared main checkout", linked, str(p["top"]),
+                           "Create your own worktree and run this again from it: "
+                           "git worktree add .claude/worktrees/diag-<agent> --detach origin/master"))
+    rc, out, err = board.git("ls-remote", "--exit-code", board.remote, board.branch, check=False)
+    reach = rc == 0
+    checks.append(Check(f"can reach {board.remote} (fetch)", reach, (err or out)[:200],
+                        "No network or no GitHub access from this session. Ask GG to enable network access for the agent."))
+    if reach:
+        sha = out.split()[0] if out else ""
+        rc, _, err = board.git("push", "--dry-run", board.remote, f"{sha}:refs/heads/diag-preflight-dry-run", check=False)
+        checks.append(Check(f"can push to {board.remote} (dry run)", rc == 0, err[-200:],
+                            "Git credentials are not available to this session. Ask GG to check `git push` works from this machine."))
+        try:
+            doc, _ = board.read()
+            checks.append(Check("the board is on origin/master", True, f"{len(doc['tickets'])} tickets"))
+        except BoardError as e:
+            checks.append(Check("the board is on origin/master", False, str(e), "Merge/fetch origin/master; ask GG if the board was pushed."))
+    import importlib.util as ilu
+    missing = [m for m in ("pytest", "sqlalchemy") if ilu.find_spec(m) is None]
+    checks.append(Check("python test tooling (pytest, sqlalchemy)", not missing, "missing: " + ", ".join(missing) if missing else "",
+                        "pip install -r requirements.txt"))
+    main_root = p["common_dir"].parent
+    env_here = (p["top"] / ".env").exists()
+    env_main = (main_root / ".env").exists()
+    checks.append(Check(".env available for read-only database access (only tickets with live_db_read need it)", env_here or env_main,
+                        "in this worktree" if env_here else (f"found in the main checkout: copy {main_root / '.env'}" if env_main else "not found"),
+                        "Not needed unless your ticket lists live_db_read.", required=False))
+    if ticket:
+        # Check the ticket's declared needs that can be tested from here.
+        try:
+            doc, _ = board.read()
+            needs = doc["tickets"][ticket].get("needs", [])
+        except (BoardError, KeyError):
+            needs = []
+        if "scraper_repo" in needs:
+            scr = os.environ.get("SCRAPER_CRAWLERS_DIR") or str(main_root.parent / "Scraper" / "crawlers")
+            checks.append(Check("the Scraper repository is reachable (ticket needs scraper_repo)", Path(scr).exists(), scr,
+                                "Set SCRAPER_CRAWLERS_DIR to the Scraper checkout's crawlers folder; the session needs write access there too."))
+        if "local_model" in needs:
+            checks.append(Check("Ollama present (ticket needs local_model)", shutil.which("ollama") is not None, "",
+                                "This ticket needs the local model: run it on the PC that has Ollama, or release it."))
+        for n in needs:
+            if n in ("web", "llm", "live_db_read", "live_db_write", "gg_input", "gg_approval"):
+                checks.append(Check(f"ticket needs {n}", True, "cannot be tested from here: confirm yourself before you start", "", required=False))
+    return checks
+
+
+def render_preflight(checks: List[Check]) -> Tuple[str, bool]:
+    lines = []
+    failed = [c for c in checks if c.required and not c.ok]
+    for c in checks:
+        tag = "ok  " if c.ok else ("FAIL" if c.required else "note")
+        lines.append(f"  [{tag}] {c.name}" + (f"  ({c.detail})" if c.detail else ""))
+        if not c.ok and c.fix:
+            lines.append(f"         fix: {c.fix}")
+    if failed:
+        lines += ["", "RESULT: FAIL. Do NOT claim a ticket. Stop and tell the user exactly which checks failed (the lines above), and what",
+                  "access they need to give this session. Do not work around a refused permission and do not keep asking for approvals."]
+    else:
+        lines += ["", "RESULT: OK. You can claim a ticket."]
+    return "PREFLIGHT\n" + "\n".join(lines), not failed
+
+
 # ------------------------------------------------------------------------------------------------ CLI
 
 def _verify_landed(board: Board, result: str) -> None:
@@ -389,7 +521,7 @@ def _verify_landed(board: Board, result: str) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["status", "next", "claim", "heartbeat", "release", "block", "reopen", "done", "add"])
+    ap.add_argument("command", choices=["status", "preflight", "next", "claim", "heartbeat", "release", "block", "reopen", "done", "add"])
     ap.add_argument("ticket", nargs="?")
     ap.add_argument("--agent", default=os.environ.get("DIAG_AGENT"))
     ap.add_argument("--repo", default=".")
@@ -415,7 +547,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     a = ap.parse_args(argv)
 
     board = Board(Path(a.repo), a.remote, a.branch)
-    need_agent = a.command not in ("status",)
+    need_agent = a.command not in ("status", "preflight")
     if need_agent and not a.agent:
         print("error: give --agent NAME (or set DIAG_AGENT); use a unique name per agent", file=sys.stderr)
         return 2
@@ -423,12 +555,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         if a.command == "status":
             doc, _ = board.read()
             print(json.dumps(doc, indent=2) if a.json else render_status(doc))
+        elif a.command == "preflight":
+            text, ok = render_preflight(run_preflight(board, a.ticket))
+            print(text)
+            return 0 if ok else 1
         elif a.command == "next":
             doc, _ = board.read()
             print(render_next(doc, a.agent))
         elif a.command == "claim":
             if a.jitter:
                 time.sleep(random.uniform(0, a.jitter))
+            bad = [c for c in check_local_writes(board) if not c.ok]
+            if bad:       # never hold a ticket from a session that cannot write: it would only block everyone else
+                raise BoardError("not claiming: " + "; ".join(f"{c.name} failed ({c.detail})" for c in bad)
+                                 + ". Run `python scripts/board.py preflight` and report its output to the user.")
             tid = board.mutate(lambda d, now: op_claim(d, a.agent, a.ticket, now, a.take_over, a.allow_multiple),
                                f"board: {a.agent} checks out {a.ticket or 'a ticket'}")
             doc, _ = board.read()
