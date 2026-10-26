@@ -8,6 +8,23 @@ const ALLOWED_HOSTS = new Set(['wayland.my', 'www.wayland.my']);
 
 const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
+// Best-effort push notification through ntfy.sh (NTFY_TOPIC is the private topic name).
+// It never blocks or fails a submission, and carries no email address.
+async function notify(title, text) {
+  const topic = process.env.NTFY_TOPIC;
+  if (!topic) return;
+  try {
+    await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
+      method: 'POST',
+      headers: { Title: title, Tags: 'inbox_tray' },
+      body: text.replace(/\s+/g, ' ').slice(0, 200),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch (err) {
+    console.error('notify failed:', err && err.message);
+  }
+}
+
 function originAllowed(req) {
   const origin = req.headers.origin;
   if (!origin) return true;
@@ -42,6 +59,7 @@ export default async function handler(req, res) {
       }
       await sql`INSERT INTO landing.company_requests (full_name, company_name, work_email, pain_points)
                 VALUES (${fullName}, ${companyName}, ${workEmail}, ${painPoints})`;
+      await notify('New company request', `${companyName}. Details in Neon: landing.company_requests`);
       return res.status(200).json({ ok: true });
     }
 
@@ -57,6 +75,7 @@ export default async function handler(req, res) {
       }
       await sql`INSERT INTO landing.startup_proposals (startup_name, website, work_email, pitch, data_needed)
                 VALUES (${startupName}, ${website || null}, ${workEmail}, ${pitch}, ${dataNeeded})`;
+      await notify('New startup proposal', `${startupName}. Details in Neon: landing.startup_proposals`);
       return res.status(200).json({ ok: true });
     }
 

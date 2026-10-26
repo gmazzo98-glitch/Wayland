@@ -31,3 +31,7 @@ Remove every note saying the form is a mockup or that nothing is sent. Do not in
 ```
 
 If an export already posts to `/api/submit`, `/update-landing` publishes it without changing it.
+
+## Notifications
+
+Each saved request also sends a push message through ntfy.sh to the private topic in the Vercel env var `NTFY_TOPIC` (production). Subscribe to that topic in the ntfy app or at https://ntfy.sh/<topic>. The message carries only the form type and the company or startup name, no email address; the details are in Neon. If ntfy is down the request is still saved.
