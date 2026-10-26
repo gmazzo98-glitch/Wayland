@@ -213,6 +213,7 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * context: mobile_ui.py (responsive CSS, sidebar auto close script); app.py; views/crawl_widget.py floating card; views/target_matrix.py scatter titles
 * done_when: The floating crawl card, long company names and large tables have been checked at 390px with real data and any CSS fix is merged, with no feature removed.
 * notes:
+  - 2026-10-26: 2026-10-26: crawl card checked at 390px with a simulated running job (fake runner, real widget): title and Stop on one row, compact card, page keeps room under it, stopping state fits. Fixed in mobile_ui.py. Still open: real data and a real worker run on a phone.
   - 2026-10-26: 2026-10-26: added by the mobile pass. Rendered all 9 pages at 390px on demo data, no sideways page scroll. Not checked: crawl card while a job runs, real data, text entry flows.
 
 ## D. Decisions log

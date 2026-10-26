@@ -75,8 +75,18 @@ _MOBILE_CSS = """
         left: 0.5rem !important; right: 0.5rem !important; bottom: 0.5rem !important;
         width: auto !important; max-height: 40vh; overflow-y: auto;
         padding: 0.5rem 0.7rem 0.6rem !important;
-        padding-bottom: calc(0.6rem + env(safe-area-inset-bottom)) !important;
+        padding-bottom: calc(1rem + env(safe-area-inset-bottom)) !important;
     }
+
+    /* Inside the crawl card the title and the Stop or dismiss button share one row. */
+    .st-key-crawl_widget [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; align-items: center; gap: 0.5rem !important; min-height: 2.5rem; }
+    .st-key-crawl_widget [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { min-width: 0 !important; flex: 1 1 auto !important; width: auto !important; }
+    .st-key-crawl_widget [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child { flex: 0 0 auto !important; }
+    .st-key-crawl_widget .stButton > button { width: auto; min-height: 2.5rem; padding: 0.25rem 1rem; }
+    .st-key-crawl_widget { gap: 0.3rem !important; }
+    .st-key-crawl_widget [data-testid="stCaptionContainer"] { line-height: 1.35; }
+    /* Keep the last lines of a page clear of the floating card. */
+    [data-testid="stMain"]:has(.st-key-crawl_widget) [data-testid="stMainBlockContainer"] { padding-bottom: 15rem !important; }
 
     /* Expanders and sidebar breathe a little less. */
     [data-testid="stExpander"] summary { padding: 0.6rem 0.75rem; }
