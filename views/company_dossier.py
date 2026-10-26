@@ -37,6 +37,7 @@ from views.company_actions import (
     render_ai_report, render_api_and_crawler_row, render_paid_pulls, render_shortlist_controls,
     render_standard_and_deep_dive,
 )
+from views.stage_controls import render_stage_quick
 from views.cost_structure import COLORS as COST_COLORS, _findings as cost_findings, _frame as cost_frame, render_company_xray
 
 TAB_KEY = "dossier_tab"
@@ -127,7 +128,9 @@ def _render_header(ctx: cd.DossierContext, shared: dict) -> None:
         c_need.metric("Need", f"{scores['need_score']:.0f}", help="Need axis 0-100: how much the company needs help.")
         c_ready.metric("Readiness", f"{scores['readiness_score']:.0f}", help="Readiness axis 0-100: how able it is to act on a pilot. Never blended with Need.")
         c_data.metric("Data", f"{scores['total_completeness_pct']:.0f}%", help="Weighted share of scored indicators with a real value.")
-        c_status.metric("Status", cd.SHORTLIST_STATUS_LABELS.get(company.shortlist_status, company.shortlist_status).split(" (")[0])
+        with c_status:
+            st.caption("Stage")
+            render_stage_quick(ctx.db, company, "dos_hdr_stage", collapsed=True)
         chips = [f"{LEVEL_ICON[f['level']]} {f['chip']}" for f in shared["flags"] if f["level"] != "strength"][:3]
         chips += [f"{STATUS_META[p['status']][0]} {p['label']}" for p in shared["pains"][:2]]
         if chips:

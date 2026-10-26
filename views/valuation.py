@@ -15,6 +15,7 @@ import streamlit as st
 from sqlalchemy.orm import Session
 
 from dossier_nav import render_open_dossier_picker
+from views.stage_controls import render_stage_bulk
 import valuation_data as vd
 import valuation_service as vs
 from valuation import ValuationResult, value_company, value_universe
@@ -354,6 +355,9 @@ def _render_universe_tab(db: Session):
                        "vienna_valuation_screen.csv", "text/csv")
     render_open_dossier_picker({f"{c['legal_name']} ({c['registration_number']})": c["id"] for c in companies},
                                key="uni_open", tab="financials", label="Open a company's dossier (full valuation, with its inputs)")
+    by_id = {c["id"]: c for c in companies}
+    render_stage_bulk(db, {f"{results[i].company_name} ({by_id.get(results[i].company_id, {}).get('registration_number', '?')})":
+                           results[i].company_id for i in view.index}, key="uni_stage")
     st.caption("Sorted by base enterprise value. Need/Readiness are shown for reference only — valuation is a separate lens and never feeds either score.")
 
 

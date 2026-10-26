@@ -15,7 +15,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from models import Company, SignalRecord, CompanyPerson, RawImportRecord, PilotOutcome
+from models import Company, SignalRecord, CompanyPerson, RawImportRecord, PilotOutcome, stage_label
 from indicators import fetch_indicator_defs
 
 
@@ -601,7 +601,7 @@ def _render_manage_companies_tab(db: Session):
             "Country": c.country,
             "Segment": c.segment,
             "Website": c.website_url or "",
-            "Shortlist Status": c.shortlist_status,
+            "Stage": stage_label(c.shortlist_status),
             "Need Score": c.need_score,
             "Readiness Score": c.readiness_score,
             "Present Signals": signal_counts.get(c.id, 0),
@@ -617,9 +617,9 @@ def _render_manage_companies_tab(db: Session):
         use_container_width=True,
         num_rows="fixed",
         column_order=["Delete", "Legal Name", "Registration #", "Country", "Segment", "Website",
-                      "Shortlist Status", "Need Score", "Readiness Score",
+                      "Stage", "Need Score", "Readiness Score",
                       "Present Signals", "Pilot Outcomes"],
-        disabled=["Legal Name", "Registration #", "Country", "Segment", "Shortlist Status",
+        disabled=["Legal Name", "Registration #", "Country", "Segment", "Stage",
                   "Need Score", "Readiness Score", "Present Signals", "Pilot Outcomes"],
         column_config={
             "Delete": st.column_config.CheckboxColumn("🗑️ Delete", help="Check to mark for deletion"),
@@ -646,6 +646,9 @@ def _render_manage_companies_tab(db: Session):
                        "Re-run the relevant crawlers (Company Intelligence → 🕸️ Run Deep Crawlers) to "
                        "refresh data pulled from the old URL.")
             st.rerun()
+
+    from views.stage_controls import render_stage_bulk
+    render_stage_bulk(db, {f"{c.legal_name} ({c.registration_number})": c.id for c in companies}, key="admin_stage")
 
     selected = edited[edited["Delete"]]
     if len(selected) > 0:

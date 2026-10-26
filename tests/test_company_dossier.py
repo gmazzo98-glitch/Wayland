@@ -179,7 +179,8 @@ def test_the_header_is_always_there_with_name_scores_and_the_section_bar(dossier
         app = _open(dossier, tab)
         assert any("Rossi Macchine" in md.value for md in app.markdown)
         labels = {m.label for m in app.metric}
-        assert {"Need", "Readiness", "Data", "Status"} <= labels
+        assert {"Need", "Readiness", "Data"} <= labels
+        assert any(w.key == "dos_hdr_stage_c1_shortlisted" for w in app.selectbox)  # the stage is changeable from the header
         assert app.session_state["dossier_tab"] == tab
 
 
