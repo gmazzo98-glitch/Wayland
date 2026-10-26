@@ -1,3 +1,5 @@
+Before doing anything, read READ_FIRST_AGENT_STATUS_AND_OPEN_POINTS.md. Before you finish, update it.
+
 # Project Vienna — GG Signal Sourcing & Scoring Dashboard
 
 A Streamlit dashboard for screening companies: it sources public signals
