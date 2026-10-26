@@ -18,7 +18,8 @@ from sqlalchemy.orm import Session
 
 from dossier_nav import render_open_dossier_picker
 from indicators import fetch_indicator_defs
-from models import Company, PainPointDefinition, SignalRecord, is_shortlisted, set_shortlist_status, stage_label
+from models import Company, PainPointDefinition, SignalRecord, stage_label
+from views.stage_controls import render_stage_bulk
 from painpoints import (
     CONFIRMED_STATUSES, EMERGING_FROM, MODERATE_FROM, PAIN_POINT_SEED, PROPOSED_INDICATORS,
     SEVERE_FROM, STATUS_ORDER, collect_gaps, evaluate_pain_points, fetch_pain_point_defs, rank_detected,
@@ -319,22 +320,10 @@ def _render_portfolio_tab(db: Session, companies: dict, pain_defs: list):
 
         current_status = dict(db.query(Company.id, Company.shortlist_status).filter(Company.id.in_([c["id"] for c in rows])).all())
         options = {
-            f"{c['name']} ({c['reg']})" + (f" — already {stage_label(current_status.get(c['id']))}" if current_status.get(c["id"]) != "candidate" else ""): c["id"]
+            f"{c['name']} ({c['reg']})" + (f" — {stage_label(current_status.get(c['id']))}" if current_status.get(c["id"]) != "candidate" else ""): c["id"]
             for c in rows
         }
-        picked = st.multiselect(
-            "⭐ Add to shortlist for in-depth analysis", list(options), key="pp_shortlist_pick",
-            help="Flags the company for in-depth work: its full dossier and actions (crawls, AI report, paid pulls) in "
-                 "🏢 Company Intelligence — same status every other shortlisting action in "
-                 "this app sets, nothing pain-point-specific about it.")
-        if st.button("Add selected to shortlist", disabled=not picked, key="pp_shortlist_add"):
-            ids = {options[label] for label in picked}
-            for comp in db.query(Company).filter(Company.id.in_(ids)).all():
-                if not is_shortlisted(comp.shortlist_status):  # never demote an in-pilot company
-                    set_shortlist_status(comp, "shortlisted")
-            db.commit()
-            st.success(f"Added {len(ids)} compan{'y' if len(ids) == 1 else 'ies'} to the shortlist.")
-            st.rerun()
+        render_stage_bulk(db, options, key="pp_stage", title="⭐ Set stage (e.g. shortlist for in-depth analysis)")
 
 
 def _render_catalog_tab(db: Session):

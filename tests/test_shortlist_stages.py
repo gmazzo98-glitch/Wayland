@@ -45,3 +45,45 @@ def test_parked_companies_are_left_out_of_the_crawl_list():
         db.query(Company).filter(Company.registration_number.in_(["p-1", "p-2", "p-3"])).delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+# ---- changing stages from the UI ------------------------------------------------------------------------------
+from tests.test_company_dossier import _page_app, _seed  # noqa: E402  (same seeded Rossi/Bianchi database)
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+
+def _stage_of(db_path, company_id):
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    with sessionmaker(bind=engine)() as db:
+        return db.query(Company).filter_by(id=company_id).first().shortlist_status
+
+
+def test_apply_stage_counts_only_real_changes(tmp_path):
+    from views.stage_controls import apply_stage
+    db_path = _seed(tmp_path)
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    with sessionmaker(bind=engine)() as db:
+        assert apply_stage(db, ["c1", "c2", "c2"], "shortlisted") == 1  # c1 already was; c2 listed twice counts once
+        assert apply_stage(db, [], "rejected") == 0
+    assert _stage_of(db_path, "c2") == "shortlisted"
+
+
+def test_dossier_header_changes_the_stage_immediately(tmp_path):
+    db_path = _seed(tmp_path)
+    app = _page_app(db_path, 'import streamlit as st\nst.session_state["dossier_open_id"] = "c1"\n'
+                             'from views.company_dossier import render_company_detail_page\nrender_company_detail_page(db)').run()
+    assert not app.exception, [e.value for e in app.exception]
+    next(w for w in app.selectbox if w.key == "dos_hdr_stage_c1_shortlisted").select("in_pilot").run()
+    assert _stage_of(db_path, "c1") == "in_pilot"
+
+
+def test_bulk_control_sets_all_picked_companies(tmp_path):
+    db_path = _seed(tmp_path)
+    app = _page_app(db_path, "from views.stage_controls import render_stage_bulk\n"
+                             "render_stage_bulk(db, {'Rossi': 'c1', 'Bianchi': 'c2'}, key='t', expanded=True)").run()
+    assert not app.exception, [e.value for e in app.exception]
+    next(w for w in app.checkbox if w.key == "t_all").check().run()
+    next(w for w in app.selectbox if w.key == "t_stage").select("rejected").run()
+    next(b for b in app.button if b.key == "t_apply").click().run()
+    assert {_stage_of(db_path, "c1"), _stage_of(db_path, "c2")} == {"rejected"}

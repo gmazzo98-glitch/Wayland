@@ -27,20 +27,10 @@ SHORTLIST_STATUS_LABELS = {s: stage_label(s) for s in SHORTLIST_STATUSES}
 
 
 def render_shortlist_controls(db: Session, company: Company, key: str = "shortlist_status_select") -> None:
-    """The one place a single company's stage is changed (the Shortlist section changes several at once)."""
-    new_status = st.selectbox(
-        "Stage", SHORTLIST_STATUSES,
-        index=SHORTLIST_STATUSES.index(company.shortlist_status),
-        format_func=stage_label, key=key,
-        help="\n\n".join(f"**{label}** - {meaning}" for label, meaning in SHORTLIST_STAGES.values()),
-    )
-    st.caption(SHORTLIST_STAGES[new_status][1])
-    if st.button("💾 Update Stage", use_container_width=True, disabled=(new_status == company.shortlist_status),
-                 key=f"{key}_save"):
-        set_shortlist_status(company, new_status)
-        db.commit()
-        st.success(f"{company.legal_name} is now **{stage_label(new_status)}**.")
-        st.rerun()
+    """A single company's stage (also in the dossier header). Applies on change; several at once: stage_controls."""
+    from views.stage_controls import render_stage_quick
+    render_stage_quick(db, company, key)
+    st.caption(SHORTLIST_STAGES[company.shortlist_status][1])
 
 
 def render_api_and_crawler_row(db: Session, company: Company, key: str = "act") -> None:

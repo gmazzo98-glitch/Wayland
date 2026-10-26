@@ -21,7 +21,8 @@ import plotly.express as px
 import pandas as pd
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from models import Company, SignalRecord, SourceHealth, SHORTLIST_STATUSES, is_parked, stage_label
+from models import Company, SignalRecord, SourceHealth, SHORTLIST_STAGES, SHORTLIST_STATUSES, is_parked, stage_label
+from views.stage_controls import apply_stage
 from scoring import calculate_company_scores, rank_companies, is_prime_target, PRIME_NEED_MIN, PRIME_READINESS_BAND
 from dossier_nav import render_open_dossier_picker
 from indicators import fetch_indicator_defs
@@ -39,7 +40,7 @@ SEGMENT_ORDER = ["Midcap", "SME"]
 # tick column below is real cell data in an st.data_editor, so sorting can't touch it.
 SELECTION_KEY = "matrix_crawl_selection"
 BIG_BATCH = 50  # above this the run button needs an explicit "yes, that many" tick
-TICK_COLUMN = "Crawl"
+TICK_COLUMN = "Select"
 
 # A keyed container is wrapped in an stLayoutWrapper that is barely taller than the bar
 # itself, and a sticky element can only stick within its parent — so the wrapper (whose
@@ -127,7 +128,8 @@ def _selectable_table(table_key: str, seg_df: pd.DataFrame, disp_df: pd.DataFram
         column_config={
             TICK_COLUMN: st.column_config.CheckboxColumn(
                 TICK_COLUMN, width="small", default=False,
-                help="Tick to queue this company for a deep crawl. Ticks survive sorting and filtering.",
+                help="Tick to select this company, then crawl the selection or set its stage from the bar above. "
+                     "Ticks survive sorting and filtering.",
             ),
             **column_config,
         },
@@ -282,8 +284,8 @@ def _render_crawl_bar(db: Session, bar, df: pd.DataFrame, frames: dict):
 
         info = st.container()  # top row; filled last because its ETA needs the parallelism chosen below
         confirm_slot = st.container()
-        col_prime, col_all, col_bulk, col_clear, col_workers, col_run = st.columns(
-            [1.2, 0.9, 1.25, 0.95, 1.2, 2.2], vertical_alignment="center")
+        col_prime, col_all, col_bulk, col_clear, col_stage, col_workers, col_run = st.columns(
+            [1.1, 0.8, 1.15, 0.85, 1.2, 1.1, 2.0], vertical_alignment="center")
 
         with col_prime:
             if st.button("🎯 Prime", width="stretch", disabled=not prime_visible_ids,
@@ -302,6 +304,16 @@ def _render_crawl_bar(db: Session, bar, df: pd.DataFrame, frames: dict):
         with col_clear:
             st.button("Clear", width="stretch", disabled=not chosen,
                       on_click=lambda: st.session_state.__setitem__(SELECTION_KEY, set()))
+        with col_stage:
+            with st.popover("⭐ Stage", width="stretch", disabled=not chosen,
+                            help="Set the stage (candidate, shortlisted, in pilot, parked) of every selected company."):
+                new_stage = st.selectbox("Set the selected to", SHORTLIST_STATUSES, format_func=stage_label,
+                                         key="matrix_bulk_stage")
+                st.caption(SHORTLIST_STAGES[new_stage][1])
+                if st.button(f"Apply to {n}", type="primary", key="matrix_bulk_stage_apply", width="stretch"):
+                    changed = apply_stage(db, chosen, new_stage)
+                    flash(f"{changed} of {n} set to {stage_label(new_stage)}.", "⭐")
+                    st.rerun()
         # Where the batch will run — Automatic spreads it across every computer that's ready
         # right now (see views.crawler_setup); only needed once anything is actually selected.
         where = resolve_batch_targets(db, chosen) if chosen else {
@@ -321,13 +333,13 @@ def _render_crawl_bar(db: Session, bar, df: pd.DataFrame, frames: dict):
 
         with info:
             if not chosen:
-                st.markdown("**🕸️ Deep crawl** — tick companies in the tables below to queue them for the crawlers.")
+                st.markdown("**☑ Selection** — tick companies in the tables below, then crawl them or set their stage.")
             else:
                 seg_counts = by_id.loc[chosen, "segment"].value_counts()
                 per_segment = " · ".join(f"{seg_counts[s]} {s}" for s in SEGMENT_ORDER if s in seg_counts)
                 hidden = len([cid for cid in chosen if cid not in visible_ids])
                 hidden_note = f" · {hidden} hidden by filters" if hidden else ""
-                st.markdown(f"**🕸️ {n} selected** · {per_segment}{hidden_note}")
+                st.markdown(f"**☑ {n} selected** · {per_segment}{hidden_note}")
                 names = [by_id.at[cid, "legal_name"] for cid in chosen]
                 listed = ", ".join(names[:3]) + (f" +{n - 3} more" if n > 3 else "")
                 notes = [listed, f"about {_short_duration(estimate_seconds(n, workers))} at {workers} in parallel"]

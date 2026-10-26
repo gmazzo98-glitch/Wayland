@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 import cost_analytics as ca
 import cost_breakdown as cb
 from dossier_nav import render_open_dossier_picker
+from views.stage_controls import render_stage_bulk
 from models import Company
 
 PALETTE = ["#4C78A8", "#F58518", "#54A24B", "#B279A2", "#E45756", "#72B7B2", "#EECA3B", "#9D755D", "#BAB0AC"]
@@ -50,7 +51,7 @@ def _fmt_money(v):
 
 
 # ---------------------------------------------------------------------------------------------- Portfolio
-def _render_portfolio(frame: pd.DataFrame):
+def _render_portfolio(db: Session, frame: pd.DataFrame):
     st.markdown("Every company, every cost line. Pick the basis, filter, then click any column header to sort.")
     c1, c2, c3 = st.columns([2, 2, 2])
     basis_name = c1.radio("Show each line as", list(BASIS), key="cs_basis")
@@ -96,6 +97,7 @@ def _render_portfolio(frame: pd.DataFrame):
 
     render_open_dossier_picker({f"{r.legal_name} ({r.registration_number})": r.company_id for r in d.itertuples()},
                                key="cs_port", tab="costs")
+    render_stage_bulk(db, {f"{r.legal_name} ({r.registration_number})": r.company_id for r in d.itertuples()}, key="cs_stage")
 
     with st.expander("📊 Portfolio-wide distribution of each line"):
         stat = pd.DataFrame([{"Line": cb.LABELS[c], **{k: v for k, v in ca._stats(d[f'{c}_{suffix}']).items()}} for c in cb.CATEGORY_KEYS])
@@ -260,7 +262,7 @@ def render_cost_structure_page(db: Session, show_title: bool = True):
         return
     t1, t2, t3 = st.tabs(["🏭 Portfolio", "🚨 Outliers & movers", "🗺️ Sector map"])
     with t1:
-        _render_portfolio(frame)
+        _render_portfolio(db, frame)
     with t2:
         _render_outliers(db, frame)
     with t3:
