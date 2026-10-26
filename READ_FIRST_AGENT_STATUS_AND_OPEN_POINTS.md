@@ -218,15 +218,16 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
   - 2026-10-26: 2026-10-26: added by the mobile pass. Rendered all 9 pages at 390px on demo data, no sideways page scroll. Not checked: crawl card while a job runs, real data, text entry flows.
 
 ### OP-015: Finish Wayland to Wayland.my Neon cutover
-* status: OPEN
+* status: CHECKED_OUT
 * needs: agent work
-* owner: none
-* checked_out_at: none
-* lease_until: none
+* owner: Codex
+* checked_out_at: 2026-10-26T17:07:11Z
+* lease_until: 2026-10-28T17:07:11Z
 * blocked_by: none
 * context: Neon Wayland production plain-bar-03934367 in aws-us-east-2; Wayland.my production gentle-union-48468599 in aws-eu-central-1; Vercel vienna-worker-shim and main app DATABASE_URL
 * done_when: Source writes are paused or redirected; a final consistent dump is restored to Wayland.my; all public tables and data fingerprints match; app and worker connections use Frankfurt; no new writes reach the US source
 * notes:
+  - 2026-10-26: checked out by Codex
   - 2026-10-26: Read-only app smoke check through the updated local .env returned 953 companies from Frankfurt. Remaining action is Streamlit Community Cloud deployment secret and live app verification after Giorgio completes sign-in in the open browser tab; no production dashboard secret has been changed yet.
   - 2026-10-26: Giorgio confirmed the main dashboard is on Streamlit Community Cloud. Its deployment secret is not yet updated: the agent's Streamlit tab reached a sign-in dialog, and the computer-use skill requires Giorgio to sign in himself. Local .env and Vercel worker shim already use Frankfurt; after sign-in, update the Streamlit DATABASE_URL and verify it reads Wayland.my.
   - 2026-10-26: 2026-10-26 cutover: Vercel agri-portal access granted; vienna-worker-shim DATABASE_URL updated from US to Frankfurt and production redeployed as dpl_2nnUVFVgJCKb2g6ED4zkycJQveFK (READY). Local .env DATABASE_URL also changed to Frankfurt. At 16:41 UTC, source worker heartbeat remained at 16:39:32 while destination advanced to 16:41:04; 21 table counts and content fingerprints match with volatile crawler_workers.last_seen_at excluded, 142018 rows. Main app hosting remains unconfirmed, so keep this point OPEN until its production database setting is checked.
