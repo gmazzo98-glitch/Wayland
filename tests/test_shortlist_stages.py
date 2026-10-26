@@ -87,3 +87,30 @@ def test_bulk_control_sets_all_picked_companies(tmp_path):
     next(w for w in app.selectbox if w.key == "t_stage").select("rejected").run()
     next(b for b in app.button if b.key == "t_apply").click().run()
     assert {_stage_of(db_path, "c1"), _stage_of(db_path, "c2")} == {"rejected"}
+
+
+# ---- the per-stage lists ----------------------------------------------------------------------------------------
+import pandas as pd  # noqa: E402
+from views.stage_lists import list_counts, list_frame  # noqa: E402
+
+
+def test_list_frame_filters_by_stage_searches_and_ranks_by_need():
+    df = pd.DataFrame({
+        "id": ["a", "b", "c", "d"], "legal_name": ["Alfa Srl", "Beta Spa", "Alfieri Spa", "Gamma"],
+        "registration_number": ["IT1", "IT2", "IT3", "IT4"], "need_score": [10.0, 80.0, 50.0, 90.0],
+        "readiness_score": [1.0, 1.0, 1.0, 1.0], "stage_key": ["shortlisted", "shortlisted", "shortlisted", "candidate"]})
+    assert list_counts(df) == {"candidate": 1, "shortlisted": 3, "in_pilot": 0, "rejected": 0}
+    assert list(list_frame(df, "shortlisted")["id"]) == ["b", "c", "a"]
+    assert list(list_frame(df, "shortlisted", "alf")["id"]) == ["c", "a"]
+    assert list_frame(df, "in_pilot").empty
+
+
+def test_lists_page_shows_the_stage_and_removes_ticked_companies_from_it(tmp_path):
+    db_path = _seed(tmp_path)
+    app = _page_app(db_path, "from views.stage_lists import render_stage_lists\nrender_stage_lists(db)").run()
+    assert not app.exception, [e.value for e in app.exception]
+    assert app.session_state["lists_stage"] == "shortlisted"  # c1 (Rossi) is the seeded shortlisted company
+    app.session_state["matrix_crawl_selection"] = {"c1"}
+    app = app.run()
+    next(b for b in app.button if b.key == "list_leave_shortlisted").click().run()
+    assert _stage_of(db_path, "c1") == "candidate"

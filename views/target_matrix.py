@@ -537,15 +537,12 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
     )
 
 
-def render_target_matrix_page(db: Session, show_title: bool = True):
-    if show_title:
-        st.title("🎯 Scored Target Matrix (Need × Readiness)")
-    st.caption("2D Positioning Rubric, scored separately per segment — Midcap and SME are never pooled into one ranking (Section 5 of the Brief).")
-
+def matrix_frame(db: Session):
+    """One row per company with its scores, stage and prime flag (None when there are no companies).
+    Shared by the matrix and the stage lists so both show the same numbers."""
     companies = db.query(Company).all()
     if not companies:
-        st.warning("No target companies found in database. Run seed script or ingestion pipeline.")
-        return
+        return None
 
     indicator_defs = fetch_indicator_defs(db)
     scores_by_id = _score_all_companies(
@@ -555,8 +552,6 @@ def render_target_matrix_page(db: Session, show_title: bool = True):
     # The score cache's write-back commit expires every loaded Company; re-query once
     # (one round trip) so reading their attributes below doesn't lazy-refresh row by row.
     companies = db.query(Company).all()
-    _render_coverage_indicator()
-    st.markdown("---")
 
     matrix_data = []
     for comp in companies:
@@ -570,6 +565,7 @@ def render_target_matrix_page(db: Session, show_title: bool = True):
             "sector": comp.sector_name,
             "segment": comp.segment,
             "website_url": comp.website_url,
+            "stage_key": comp.shortlist_status,
             "shortlist_status": stage_label(comp.shortlist_status),
             "need_score": scores["need_score"],
             "readiness_score": scores["readiness_score"],
@@ -577,7 +573,20 @@ def render_target_matrix_page(db: Session, show_title: bool = True):
             "signals_checked": f"{scores['signals_checked']}/{scores['signals_total']}",
             "is_prime": is_prime_target(scores["need_score"], scores["readiness_score"]),
         })
-    df = pd.DataFrame(matrix_data)
+    return pd.DataFrame(matrix_data)
+
+
+def render_target_matrix_page(db: Session, show_title: bool = True):
+    if show_title:
+        st.title("🎯 Scored Target Matrix (Need × Readiness)")
+    st.caption("2D Positioning Rubric, scored separately per segment — Midcap and SME are never pooled into one ranking (Section 5 of the Brief).")
+
+    df = matrix_frame(db)
+    if df is None:
+        st.warning("No target companies found in database. Run seed script or ingestion pipeline.")
+        return
+    _render_coverage_indicator()
+    st.markdown("---")
 
     all_segments = [s for s in SEGMENT_ORDER if s in df["segment"].unique()]
     all_segments += [s for s in sorted(df["segment"].unique()) if s not in all_segments]
