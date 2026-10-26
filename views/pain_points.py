@@ -42,7 +42,6 @@ STATUS_META = {
 SEVERITY_COLORS = {"emerging": "#184f95", "moderate": "#3987e5", "severe": "#9ec5f4"}
 SURFACE = "#0F172A"
 
-ANY_PAIN_POINT = "Any pain point (all combined)"
 KIND_LABELS = {"derivation": "derive from data already held", "crawler": "crawler / adapter extension",
                "api": "new data source", "needs_source": "needs a real source", "manual": "manual entry",
                "aida_export": "tick it in the next AIDA export"}
@@ -287,15 +286,23 @@ def _render_portfolio_tab(db: Session, companies: dict, pain_defs: list):
     st.markdown("---")
     st.markdown("##### Which companies")
     by_label = {p["label"]: p for p in pain_defs}
-    pick = st.selectbox("Pain point", [ANY_PAIN_POINT] + list(by_label), key="pp_drill_pick")
-    is_any = pick == ANY_PAIN_POINT
+    picks = st.multiselect("Pain points (leave empty for all of them; pick several to combine)", list(by_label),
+                           key="pp_drill_picks")
+    is_any = len(picks) != 1
+    chosen = [by_label[p] for p in picks] or pain_defs
+    match_all = False
+    if len(picks) > 1:
+        match_all = st.radio("A company must have", ["any of these pain points", "all of these pain points"],
+                             horizontal=True, key="pp_drill_match") == "all of these pain points"
     statuses = st.multiselect(
         "Show", ["severe", "moderate", "emerging", "clear", "insufficient_data"],
         default=["severe", "moderate"], format_func=lambda s: STATUS_META[s][1], key="pp_drill_status")
     if is_any:
         # One row per company, however many pain points match: a company in pain on three fronts is listed once.
         def _matches(c):
-            hits = [(p, c["pp"][p["key"]]) for p in pain_defs if c["pp"][p["key"]]["status"] in statuses]
+            hits = [(p, c["pp"][p["key"]]) for p in chosen if c["pp"][p["key"]]["status"] in statuses]
+            if match_all and len(hits) < len(chosen):
+                return []
             return sorted(hits, key=lambda h: (-STATUS_ORDER.index(h[1]["status"]) if h[1]["status"] in STATUS_ORDER else 1,
                                                -(h[1]["score"] or 0)))
         matched = [(c, _matches(c)) for c in in_view.values()]
@@ -305,7 +312,7 @@ def _render_portfolio_tab(db: Session, companies: dict, pain_defs: list):
         if all(s["assessed"] == 0 for s in summary):
             st.warning("No company in view has usable data for any pain point yet — see the Data gaps tab for what would fill it.")
     else:
-        key = by_label[pick]["key"]
+        key = chosen[0]["key"]
         rows = [c for c in in_view.values() if c["pp"][key]["status"] in statuses]
         rows.sort(key=lambda c: (-STATUS_ORDER.index(c["pp"][key]["status"]) if c["pp"][key]["status"] in STATUS_ORDER else 1,
                                  -(c["pp"][key]["score"] or 0)))
