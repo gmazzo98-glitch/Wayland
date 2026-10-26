@@ -217,22 +217,17 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * notes:
   - 2026-10-26: 2026-10-26: added by the mobile pass. Rendered all 9 pages at 390px on demo data, no sideways page scroll. Not checked: crawl card while a job runs, real data, text entry flows.
 
-### OP-015: Finish Wayland to Wayland.my Neon cutover
-* status: CHECKED_OUT
-* needs: agent work
-* owner: Codex
-* checked_out_at: 2026-10-26T17:07:11Z
-* lease_until: 2026-10-28T17:07:11Z
+### OP-016: Decide EU hosting for Wayland app and worker
+* status: NEEDS_DECISION
+* needs: decision from Giorgio
+* owner: none
+* checked_out_at: none
+* lease_until: none
 * blocked_by: none
-* context: Neon Wayland production plain-bar-03934367 in aws-us-east-2; Wayland.my production gentle-union-48468599 in aws-eu-central-1; Vercel vienna-worker-shim and main app DATABASE_URL
-* done_when: Source writes are paused or redirected; a final consistent dump is restored to Wayland.my; all public tables and data fingerprints match; app and worker connections use Frankfurt; no new writes reach the US source
+* context: Streamlit Community Cloud hosts all apps in the US (https://docs.streamlit.io/deploy/streamlit-community-cloud/status); Vercel vienna-worker-shim production deployment reports region iad1, which Vercel maps to Washington D.C. (https://vercel.com/docs/regions); Neon Wayland.my database is in Frankfurt
+* done_when: Giorgio records whether Wayland requires EU-hosted application and worker processing and chooses a hosting plan or explicitly accepts the existing regions after appropriate review
 * notes:
-  - 2026-10-26: checked out by Codex
-  - 2026-10-26: Read-only app smoke check through the updated local .env returned 953 companies from Frankfurt. Remaining action is Streamlit Community Cloud deployment secret and live app verification after Giorgio completes sign-in in the open browser tab; no production dashboard secret has been changed yet.
-  - 2026-10-26: Giorgio confirmed the main dashboard is on Streamlit Community Cloud. Its deployment secret is not yet updated: the agent's Streamlit tab reached a sign-in dialog, and the computer-use skill requires Giorgio to sign in himself. Local .env and Vercel worker shim already use Frankfurt; after sign-in, update the Streamlit DATABASE_URL and verify it reads Wayland.my.
-  - 2026-10-26: 2026-10-26 cutover: Vercel agri-portal access granted; vienna-worker-shim DATABASE_URL updated from US to Frankfurt and production redeployed as dpl_2nnUVFVgJCKb2g6ED4zkycJQveFK (READY). Local .env DATABASE_URL also changed to Frankfurt. At 16:41 UTC, source worker heartbeat remained at 16:39:32 while destination advanced to 16:41:04; 21 table counts and content fingerprints match with volatile crawler_workers.last_seen_at excluded, 142018 rows. Main app hosting remains unconfirmed, so keep this point OPEN until its production database setting is checked.
-  - 2026-10-26: Fresh source snapshot restored into Frankfurt after crawler queue drained. Exact counts and two content fingerprints match on all 21 tables except crawler_workers.last_seen_at, which continues to heartbeat on the US source; all other crawler_workers fields match. Final row count 142018. Vercel team connector still returns 403 pending in-browser grant, so worker/app connection cutover remains open.
-  - 2026-10-26: 2026-10-26: Initial pg_dump/pg_restore succeeded into empty Frankfurt neondb. All 21 public tables and worker functions are present; schema exports match. Live crawler activity caused six tables to differ after the snapshot (company_source_runs, crawler_tasks, crawler_workers, raw_import_records, signal_records, source_health). Vercel agri-portal team access and main app host/write pause requested from Giorgio; no cutover yet.
+  - 2026-10-26: Neon database storage moved to Frankfurt, but Streamlit Community Cloud app and Vercel worker still execute in the US. Database location alone does not establish the location of all processing. This is a separate decision from the completed database migration.
 
 ## D. Decisions log
 
@@ -244,4 +239,20 @@ Only Giorgio's decisions. One line each: date, decision, who decided, quote or s
 
 Done points, with the commit hash of the work. Move the whole point here when it is DONE.
 
-_none yet_
+### OP-015: Finish Wayland to Wayland.my Neon cutover
+* status: DONE
+* needs: agent work
+* owner: none
+* checked_out_at: none
+* lease_until: none
+* blocked_by: none
+* context: Neon Wayland production plain-bar-03934367 in aws-us-east-2; Wayland.my production gentle-union-48468599 in aws-eu-central-1; Vercel vienna-worker-shim and main app DATABASE_URL
+* done_when: Source writes are paused or redirected; a final consistent dump is restored to Wayland.my; all public tables and data fingerprints match; app and worker connections use Frankfurt; no new writes reach the US source
+* notes:
+  - 2026-10-26: Frankfurt cutover verified: consistent PostgreSQL dump restored; 21 public tables and 142018 rows matched on counts and stable content fingerprints; six later signal updates synchronized; worker functions present. Local .env, Vercel vienna-worker-shim production, and Streamlit Community Cloud DATABASE_URL now use Wayland.my Frankfurt. Streamlit app booted through init_db; source had no newer tasks or signals at final check. Old US project retained. Commit e79fe14 records the earlier cutover status; database and hosted secret changes were external. (commit e79fe14)
+  - 2026-10-26: checked out by Codex
+  - 2026-10-26: Read-only app smoke check through the updated local .env returned 953 companies from Frankfurt. Remaining action is Streamlit Community Cloud deployment secret and live app verification after Giorgio completes sign-in in the open browser tab; no production dashboard secret has been changed yet.
+  - 2026-10-26: Giorgio confirmed the main dashboard is on Streamlit Community Cloud. Its deployment secret is not yet updated: the agent's Streamlit tab reached a sign-in dialog, and the computer-use skill requires Giorgio to sign in himself. Local .env and Vercel worker shim already use Frankfurt; after sign-in, update the Streamlit DATABASE_URL and verify it reads Wayland.my.
+  - 2026-10-26: 2026-10-26 cutover: Vercel agri-portal access granted; vienna-worker-shim DATABASE_URL updated from US to Frankfurt and production redeployed as dpl_2nnUVFVgJCKb2g6ED4zkycJQveFK (READY). Local .env DATABASE_URL also changed to Frankfurt. At 16:41 UTC, source worker heartbeat remained at 16:39:32 while destination advanced to 16:41:04; 21 table counts and content fingerprints match with volatile crawler_workers.last_seen_at excluded, 142018 rows. Main app hosting remains unconfirmed, so keep this point OPEN until its production database setting is checked.
+  - 2026-10-26: Fresh source snapshot restored into Frankfurt after crawler queue drained. Exact counts and two content fingerprints match on all 21 tables except crawler_workers.last_seen_at, which continues to heartbeat on the US source; all other crawler_workers fields match. Final row count 142018. Vercel team connector still returns 403 pending in-browser grant, so worker/app connection cutover remains open.
+  - 2026-10-26: 2026-10-26: Initial pg_dump/pg_restore succeeded into empty Frankfurt neondb. All 21 public tables and worker functions are present; schema exports match. Live crawler activity caused six tables to differ after the snapshot (company_source_runs, crawler_tasks, crawler_workers, raw_import_records, signal_records, source_health). Vercel agri-portal team access and main app host/write pause requested from Giorgio; no cutover yet.
