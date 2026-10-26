@@ -92,8 +92,19 @@ def render_standard_and_deep_dive(db: Session, company: Company, key: str = "ind
         if not config.crawler_llm_settings()["api_key"]:
             st.caption("Configure CRAWLER_LLM_API_KEY to enable this.")
         elif st.button(f"Run deep-dive crawl for {company.legal_name}", use_container_width=True, key=f"{key}_deep"):
-            with st.spinner(f"Deep-crawling {company.legal_name}'s website — this takes a few minutes..."):
-                result = company_website_crawler.sync_company_website(company, db, deep=True)
+            # Same routing as the standard crawl: on a hosted server (no Scraper folder / Node) this has to run
+            # on a Crawler Worker, never on the server itself.
+            from views.crawler_setup import resolve_crawl_target
+            from worker_hub import apply_worker_capacity, use_target
+            where = resolve_crawl_target(db)
+            if not where["ok"]:
+                st.error(where["problem"])
+                return
+            if where["target"]:
+                apply_worker_capacity(where["target"])
+            with st.spinner(f"Deep-crawling {company.legal_name}'s website on {where['label']} — this takes a few minutes..."):
+                with use_target(where["target"]):
+                    result = company_website_crawler.sync_company_website(company, db, deep=True)
             if result["mode"] == "live":
                 st.success(f"Deep-dive crawl complete for {company.legal_name}.")
             else:
