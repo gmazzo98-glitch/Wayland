@@ -15,6 +15,39 @@ def generate_uuid():
 
 SHORTLIST_STATUSES = ("candidate", "shortlisted", "in_pilot", "rejected")
 
+# The one definition of the company funnel. Every label, tooltip and "is this company unlocked?" check
+# in the app reads from here, so a stage means the same thing on every page.
+#   candidate -> shortlisted -> in_pilot      ('rejected' = parked, reversible, out of the working views)
+SHORTLIST_STAGES = {
+    "candidate": ("Candidate", "In the pool. Free data (Phase 1+2) only; paid pulls and manual entry are locked."),
+    "shortlisted": ("Shortlisted", "Chosen for in-depth work. Unlocks paid pulls and manual first-contact entry."),
+    "in_pilot": ("In pilot", "Shortlisted and a pilot with this company is running. Everything shortlisted has, plus pilot tracking."),
+    "rejected": ("Parked", "Ruled out for now. Hidden from the matrix and left out of crawl lists by default; can be reopened."),
+}
+UNLOCKED_STATUSES = ("shortlisted", "in_pilot")
+
+
+def is_shortlisted(status) -> bool:
+    """True for every stage that has passed the shortlist (shortlisted or in pilot)."""
+    return status in UNLOCKED_STATUSES
+
+
+def is_parked(status) -> bool:
+    return status == "rejected"
+
+
+def stage_label(status) -> str:
+    return SHORTLIST_STAGES.get(status, (status or "?", ""))[0]
+
+
+def set_shortlist_status(company, new_status: str) -> None:
+    """The only writer of Company.shortlist_status: keeps shortlisted_at consistent. Caller commits."""
+    if new_status not in SHORTLIST_STATUSES:
+        raise ValueError(f"Unknown status {new_status!r}; expected one of {SHORTLIST_STATUSES}")
+    company.shortlist_status = new_status
+    if is_shortlisted(new_status) and not company.shortlisted_at:
+        company.shortlisted_at = datetime.utcnow()
+
 
 class Company(Base):
     __tablename__ = "companies"

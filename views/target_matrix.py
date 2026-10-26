@@ -21,7 +21,7 @@ import plotly.express as px
 import pandas as pd
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from models import Company, SignalRecord, SourceHealth
+from models import Company, SignalRecord, SourceHealth, SHORTLIST_STATUSES, is_parked, stage_label
 from scoring import calculate_company_scores, rank_companies, is_prime_target, PRIME_NEED_MIN, PRIME_READINESS_BAND
 from dossier_nav import render_open_dossier_picker
 from indicators import fetch_indicator_defs
@@ -520,7 +520,7 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
             "readiness_score": st.column_config.NumberColumn("Readiness Score", format="%.1f"),
             "total_completeness_pct": st.column_config.ProgressColumn("Data Completeness", format="%.1f%%", min_value=0, max_value=100),
             "signals_checked": "Checked Signals",
-            "shortlist_status": "Shortlist Status",
+            "shortlist_status": "Stage",
         },
     )
 
@@ -558,7 +558,7 @@ def render_target_matrix_page(db: Session, show_title: bool = True):
             "sector": comp.sector_name,
             "segment": comp.segment,
             "website_url": comp.website_url,
-            "shortlist_status": comp.shortlist_status,
+            "shortlist_status": stage_label(comp.shortlist_status),
             "need_score": scores["need_score"],
             "readiness_score": scores["readiness_score"],
             "total_completeness_pct": scores["total_completeness_pct"],
@@ -570,7 +570,7 @@ def render_target_matrix_page(db: Session, show_title: bool = True):
     all_segments = [s for s in SEGMENT_ORDER if s in df["segment"].unique()]
     all_segments += [s for s in sorted(df["segment"].unique()) if s not in all_segments]
 
-    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+    col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
     with col_f1:
         country_options = ["All Countries", "Germany 🇩🇪", "Italy 🇮🇹"]
         selected_country = st.selectbox("Filter Country 🌐", country_options)
@@ -584,8 +584,15 @@ def render_target_matrix_page(db: Session, show_title: bool = True):
             "Segments (never pooled)",
             options=all_segments, default=all_segments,
         )
+    with col_f5:
+        stage_options = [stage_label(s) for s in SHORTLIST_STATUSES]
+        selected_stages = st.multiselect(
+            "Stage", options=stage_options,
+            default=[stage_label(s) for s in SHORTLIST_STATUSES if not is_parked(s)],
+            help="Parked companies are hidden by default; add 'Parked' to see them again.",
+        )
 
-    filtered_df = df.copy()
+    filtered_df = df[df["shortlist_status"].isin(selected_stages)].copy()
     if selected_country == "Germany 🇩🇪":
         filtered_df = filtered_df[filtered_df["country"] == "Germany"]
     elif selected_country == "Italy 🇮🇹":

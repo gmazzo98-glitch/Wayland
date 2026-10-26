@@ -408,7 +408,7 @@ def test_targets_page_holds_the_matrix_and_the_gate_and_the_gate_no_longer_clone
     app = app.run()
     assert not app.exception, [e.value for e in app.exception]
     text = _texts(app)
-    for needle in ("Target Shortlist Qualification Gate", "Remove from Shortlist", "In-depth work on a shortlisted company"):
+    for needle in ("The shortlist", "Candidates recommended for shortlisting", "Parked", "In-depth work on a shortlisted company"):
         assert needle in text, needle
     labels = {b.label for b in app.button}
     assert not any(l.startswith(("Run deep-dive", "Run standard crawl", "Generate / refresh", "📥")) for l in labels), labels

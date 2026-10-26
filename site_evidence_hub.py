@@ -22,7 +22,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from models import (Company, CrawlerTask, CrawlerWorker, RawImportRecord, SignalRecord, SiteEvidenceCompany,
-                    SiteEvidenceEvent, SiteEvidenceRun, SITE_EVIDENCE_RUN_ACTIVE, SITE_EVIDENCE_RUN_FINAL)
+                    SiteEvidenceEvent, SiteEvidenceRun, SITE_EVIDENCE_RUN_ACTIVE, SITE_EVIDENCE_RUN_FINAL,
+                    is_parked, is_shortlisted)
 import worker_hub
 
 CRAWLER = "site_evidence"
@@ -113,11 +114,12 @@ def build_company_list(db, order: str = "shortlist_first", only_shortlist: bool 
     the database function and the importer use. Companies without a website or a registration number are
     left out: there is nothing to read, or nothing to attach the result to."""
     rows = db.query(Company.registration_number, Company.website_url, Company.legal_name, Company.shortlist_status).all()
-    keep = [r for r in rows if (r.website_url or "").strip() and (r.registration_number or "").strip()]
-    priority = ("shortlisted", "in_pilot")
+    # Parked companies are ruled out for now, so they are not queued either.
+    keep = [r for r in rows if (r.website_url or "").strip() and (r.registration_number or "").strip()
+            and not is_parked(r.shortlist_status)]
     if only_shortlist:
-        keep = [r for r in keep if r.shortlist_status in priority]
-    keep.sort(key=lambda r: (0 if order == "shortlist_first" and r.shortlist_status in priority else 1, r.registration_number))
+        keep = [r for r in keep if is_shortlisted(r.shortlist_status)]
+    keep.sort(key=lambda r: (0 if order == "shortlist_first" and is_shortlisted(r.shortlist_status) else 1, r.registration_number))
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(["company_id", "homepage_url", "name"])

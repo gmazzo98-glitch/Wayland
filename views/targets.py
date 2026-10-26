@@ -12,7 +12,7 @@ from views.paid_shortlist_gate import render_paid_shortlist_gate_page
 from views.target_matrix import render_target_matrix_page
 
 SECTION_KEY = "targets_section"
-SECTIONS = [("matrix", "🎯 Scored matrix (Need × Readiness)"), ("gate", "⭐ Shortlist gate")]
+SECTIONS = [("matrix", "🎯 Scored matrix (Need × Readiness)"), ("gate", "⭐ Shortlist")]
 LABEL = dict(SECTIONS)
 RENDERERS = {"matrix": render_target_matrix_page, "gate": render_paid_shortlist_gate_page}
 

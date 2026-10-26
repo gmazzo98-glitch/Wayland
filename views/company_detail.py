@@ -18,7 +18,7 @@ import pandas as pd
 from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from models import Company, SignalRecord, PilotOutcome, RawImportRecord, CompanyPerson, CompanySourceRun, Competitor, SHORTLIST_STATUSES
+from models import Company, SignalRecord, PilotOutcome, RawImportRecord, CompanyPerson, CompanySourceRun, Competitor, SHORTLIST_STATUSES, is_shortlisted
 from indicators import SRC_AIDA, fetch_indicator_defs
 from scoring import calculate_company_scores
 from utils import get_signal_display_status
@@ -75,7 +75,7 @@ def _render_manual_entry_form(db: Session, company: Company, indicator_defs: dic
     # "specifically at the point a company moves into active first-contact/
     # Diagnosi status, not before" — gated on shortlist_status rather than
     # always available, now that the status field exists to gate on.
-    if company.shortlist_status not in ("shortlisted", "in_pilot"):
+    if not is_shortlisted(company.shortlist_status):
         st.info(
             f"Manual first-contact entry unlocks once **{company.legal_name}** is Shortlisted or In Pilot "
             "(set above) — these fields (org structure, approval chains, first-contact impressions) are "
@@ -1014,9 +1014,9 @@ def sec_score_cards(ctx: DossierContext) -> None:
         st.metric("Readiness Axis Score", f"{scores['readiness_score']}/100", f"Weighted completeness: {scores['readiness_completeness_pct']:.0f}%")
     with col_m3:
         st.metric("Overall Completeness", f"{scores['total_completeness_pct']:.1f}%", f"{scores['signals_checked']}/{scores['signals_total']} Signals")
-    paid_unlocked = company.shortlist_status in ("shortlisted", "in_pilot")
+    paid_unlocked = is_shortlisted(company.shortlist_status)
     with col_m4:
-        st.metric("Shortlist Status", SHORTLIST_STATUS_LABELS.get(company.shortlist_status, company.shortlist_status),
+        st.metric("Stage", SHORTLIST_STATUS_LABELS.get(company.shortlist_status, company.shortlist_status),
                    delta="Phase 3+ Unlocked" if paid_unlocked else "Phase 1+2 Only")
 
 
