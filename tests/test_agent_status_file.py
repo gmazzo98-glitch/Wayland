@@ -59,7 +59,8 @@ def test_sections_and_seed_points_exist():
     d = op.Doc(REAL)
     assert list(d.section_starts()) == ["A", "B", "C", "D", "E"]
     ids = [p.id for p in d.points()]
-    assert ids == [f"OP-{i:03d}" for i in range(1, 14)]
+    # The 13 seed points stay, numbered without gaps; later points (added by agents) only extend the list.
+    assert ids == [f"OP-{i:03d}" for i in range(1, len(ids) + 1)] and len(ids) >= 13
     text = REAL.read_text(encoding="utf-8")
     assert "Stay side by side until weights are approved | Giorgio | " in text and "2026-10-26" in text
     sec_b = text.split("## B.")[1].split("## C.")[0]
@@ -208,12 +209,13 @@ def test_note_works_on_decision_points_without_resolving_them(f):
 
 
 def test_add_uses_the_next_free_number_and_validates(f):
+    first = len(doc(f).points()) + 1
     assert run(f, "add", "--title", "New problem", "--needs", "agent work", "--context", "x.py",
                "--done-when", "x.py is fixed") == 0
-    p = doc(f).find("OP-014")
+    p = doc(f).find(f"OP-{first:03d}")
     assert p.get("status") == "OPEN" and p.section == "C"
     assert run(f, "add", "--title", "Needs Giorgio", "--needs", "decision from Giorgio", "--context", "y", "--done-when", "z") == 0
-    assert doc(f).find("OP-015").get("status") == "NEEDS_DECISION"
+    assert doc(f).find(f"OP-{first + 1:03d}").get("status") == "NEEDS_DECISION"
     assert run(f, "add", "--title", "Bad", "--needs", "agent work", "--context", "y", "--done-when", "z", "--blocked-by", "OP-777") == 2
     assert op.validate_text(doc(f)) == []
 

@@ -7,6 +7,7 @@ bars that eat the viewport, the floating crawl card, wide tables, tabs, touch ta
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 _MOBILE_CSS = """
 <style>
@@ -39,6 +40,11 @@ _MOBILE_CSS = """
     /* Stacked columns: even gaps, and equal-height controls no longer needed. */
     [data-testid="stHorizontalBlock"] { gap: 0.6rem !important; }
     [data-testid="stColumn"] { min-width: 100% !important; }
+
+    /* Rows of metrics sit two across instead of one per line (the list-like rows stay stacked). */
+    [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) > [data-testid="stColumn"] {
+        min-width: calc(50% - 0.6rem) !important; flex: 1 1 calc(50% - 0.6rem) !important; width: auto !important;
+    }
 
     /* Metrics: smaller numbers so long values like EUR amounts do not clip. */
     [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
@@ -95,3 +101,34 @@ _MOBILE_CSS = """
 def inject_mobile_css() -> None:
     """Add the responsive stylesheet (and a proper viewport hint) to the current run."""
     st.markdown(_MOBILE_CSS, unsafe_allow_html=True)
+
+
+# Streamlit leaves the sidebar drawer open after a page is picked, hiding the page on a phone.
+# This script lives in a zero height same origin iframe and watches the parent document once.
+_AUTOCLOSE_JS = """
+<script>
+(function () {
+  var win = window.parent, doc = win.document;
+  if (win.__viennaSidebarAutoClose) return;
+  win.__viennaSidebarAutoClose = true;
+  doc.addEventListener('click', function (e) {
+    if (win.innerWidth > 768) return;
+    var sidebar = doc.querySelector('[data-testid="stSidebar"]');
+    if (!sidebar || !sidebar.contains(e.target)) return;
+    // Only navigation choices close the drawer, not buttons or inputs further down the sidebar.
+    var choice = e.target.closest('[data-testid="stRadio"] label');
+    if (!choice) return;
+    setTimeout(function () {
+      var close = doc.querySelector('[data-testid="stSidebarCollapseButton"] button')
+        || doc.querySelector('[data-testid="stSidebarCollapseButton"]');
+      if (close) close.click();
+    }, 350);
+  }, true);
+})();
+</script>
+"""
+
+
+def inject_sidebar_autoclose() -> None:
+    """Close the sidebar drawer on phones after the user picks a page."""
+    components.html(_AUTOCLOSE_JS, height=0)
