@@ -496,8 +496,8 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
             "is_prime": False,
         },
         labels={
-            "need_score": "Need Axis Score (Could Innovate: Margin, Export, Digital)",
-            "readiness_score": "Readiness Axis Score (Is Innovating: R&D, IP, Grants)",
+            "need_score": "Need Axis Score<br>(Could Innovate: Margin, Export, Digital)",
+            "readiness_score": "Readiness Axis Score<br>(Is Innovating: R&D, IP, Grants)",
         },
         color_discrete_map={True: "#22C55E", False: SEGMENT_COLORS.get(seg_name, "#94A3B8")},
         size_max=30,
@@ -513,7 +513,7 @@ def _segment_section(seg_name: str, seg_df: pd.DataFrame):
     fig.add_annotation(x=75, y=(PRIME_READINESS_BAND[0] + PRIME_READINESS_BAND[1]) / 2, text="🎯 PRIME BAND", showarrow=False, font=dict(color="#22C55E", size=12))
 
     fig.update_layout(
-        xaxis=dict(range=[-5, 105]), yaxis=dict(range=[-5, 105]),
+        xaxis=dict(range=[-5, 105], automargin=True), yaxis=dict(range=[-5, 105], automargin=True),
         template="plotly_dark", height=480, showlegend=False,
     )
     st.plotly_chart(fig, use_container_width=True, key=f"scatter_{seg_name}")

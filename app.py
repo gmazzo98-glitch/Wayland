@@ -6,7 +6,7 @@ Main Streamlit Application Entrance & Navigation
 from collections import Counter
 import streamlit as st
 from access_control import require_app_access
-from mobile_ui import inject_mobile_css
+from mobile_ui import inject_mobile_css, inject_sidebar_autoclose
 
 # Page Configuration
 st.set_page_config(
@@ -82,6 +82,7 @@ st.sidebar.caption("GG Signal Sourcing & Scoring Dashboard")
 
 st.sidebar.markdown("---")
 
+inject_sidebar_autoclose()
 page_selection = st.sidebar.radio(
     "Navigation Surface",
     [

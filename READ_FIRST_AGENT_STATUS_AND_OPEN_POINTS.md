@@ -25,6 +25,7 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * Wired into the app, database or Target Matrix: nothing. The 4 DREAMY rows are not in `INDICATOR_SEED`, the database, `GAP_PLAN` or `docs/indicator_catalog.json`.
 * Live engine: `scoring.py`, per-indicator database weights 0-5, gates multiply the axis score down, rank-halving redundancy dampening, no distress cap.
 * New engine: `gg_indicators/`, versioned weight sets summing to 1 per axis (only the labelled placeholder "PLACEHOLDER, NOT A DECISION" exists), gates only set `qualification_flag`, four observation states with coverage, distress cap inert until calibrated.
+* Mobile layer: `mobile_ui.py` (CSS only, injected from `app.py` before the login gate) makes the app usable at phone width: collapsed sidebar that closes after picking a page, 16px inputs, 44px touch targets, scrollable tabs and tables, two across metrics, non-sticky header bars, compact crawl card. No feature was removed. Follow up: OP-014.
 * Tests: 80 new tests in `tests/test_gg_indicators.py` pass. 2 legacy failures in the full run: `tests/test_worker_hub.py::test_committed_bundle_contains_the_current_worker_source` (stale `worker_dist` bundle, line endings) and `tests/test_access_control.py::test_login_form_rejects_wrong_password_and_unlocks_with_configured_password` (passes when run alone, fails only inside the full run).
 * Run tests: `python -m pytest tests --capture=no -q -p no:cacheprovider` (never bare `pytest`; `tests/conftest.py` forces a throwaway SQLite DB).
 * Regenerate the contract after editing the workbook or settings: `python scripts/build_indicator_contract.py` (`--check` to verify).
@@ -201,6 +202,18 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * done_when: Giorgio has recorded a go (or no-go) for seeding catalog rows into the live database.
 * notes:
   - 2026-10-26: added while seeding because OP-007 names this go as a blocker and every blocker needs an id. Recommendation (agent): seed with weight 0 so existing scores do not move.
+
+### OP-014: Check the mobile layer on a real phone and with a crawl running
+* status: OPEN
+* needs: agent work
+* owner: none
+* checked_out_at: none
+* lease_until: none
+* blocked_by: none
+* context: mobile_ui.py (responsive CSS, sidebar auto close script); app.py; views/crawl_widget.py floating card; views/target_matrix.py scatter titles
+* done_when: The floating crawl card, long company names and large tables have been checked at 390px with real data and any CSS fix is merged, with no feature removed.
+* notes:
+  - 2026-10-26: 2026-10-26: added by the mobile pass. Rendered all 9 pages at 390px on demo data, no sideways page scroll. Not checked: crawl card while a job runs, real data, text entry flows.
 
 ## D. Decisions log
 
