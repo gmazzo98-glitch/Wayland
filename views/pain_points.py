@@ -42,6 +42,7 @@ STATUS_META = {
 SEVERITY_COLORS = {"emerging": "#184f95", "moderate": "#3987e5", "severe": "#9ec5f4"}
 SURFACE = "#0F172A"
 
+ANY_PAIN_POINT = "Any pain point (all combined)"
 KIND_LABELS = {"derivation": "derive from data already held", "crawler": "crawler / adapter extension",
                "api": "new data source", "needs_source": "needs a real source", "manual": "manual entry",
                "aida_export": "tick it in the next AIDA export"}
@@ -286,20 +287,48 @@ def _render_portfolio_tab(db: Session, companies: dict, pain_defs: list):
     st.markdown("---")
     st.markdown("##### Which companies")
     by_label = {p["label"]: p for p in pain_defs}
-    pick = st.selectbox("Pain point", list(by_label), key="pp_drill_pick")
-    key = by_label[pick]["key"]
+    pick = st.selectbox("Pain point", [ANY_PAIN_POINT] + list(by_label), key="pp_drill_pick")
+    is_any = pick == ANY_PAIN_POINT
     statuses = st.multiselect(
         "Show", ["severe", "moderate", "emerging", "clear", "insufficient_data"],
         default=["severe", "moderate"], format_func=lambda s: STATUS_META[s][1], key="pp_drill_status")
-    rows = [c for c in in_view.values() if c["pp"][key]["status"] in statuses]
-    rows.sort(key=lambda c: (-STATUS_ORDER.index(c["pp"][key]["status"]) if c["pp"][key]["status"] in STATUS_ORDER else 1,
-                             -(c["pp"][key]["score"] or 0)))
-    assessed_n = next(s["assessed"] for s in summary if s["key"] == key)
-    if assessed_n == 0:
-        st.warning("No company in view has usable data for this pain point yet — see the Data gaps tab for what would fill it.")
+    if is_any:
+        # One row per company, however many pain points match: a company in pain on three fronts is listed once.
+        def _matches(c):
+            hits = [(p, c["pp"][p["key"]]) for p in pain_defs if c["pp"][p["key"]]["status"] in statuses]
+            return sorted(hits, key=lambda h: (-STATUS_ORDER.index(h[1]["status"]) if h[1]["status"] in STATUS_ORDER else 1,
+                                               -(h[1]["score"] or 0)))
+        matched = [(c, _matches(c)) for c in in_view.values()]
+        matched = [(c, hits) for c, hits in matched if hits]
+        matched.sort(key=lambda ch: (-len(ch[1]), -(ch[1][0][1]["score"] or 0)))
+        rows = [c for c, _ in matched]
+        if all(s["assessed"] == 0 for s in summary):
+            st.warning("No company in view has usable data for any pain point yet — see the Data gaps tab for what would fill it.")
+    else:
+        key = by_label[pick]["key"]
+        rows = [c for c in in_view.values() if c["pp"][key]["status"] in statuses]
+        rows.sort(key=lambda c: (-STATUS_ORDER.index(c["pp"][key]["status"]) if c["pp"][key]["status"] in STATUS_ORDER else 1,
+                                 -(c["pp"][key]["score"] or 0)))
+        assessed_n = next(s["assessed"] for s in summary if s["key"] == key)
+        if assessed_n == 0:
+            st.warning("No company in view has usable data for this pain point yet — see the Data gaps tab for what would fill it.")
     st.caption(f"{len(rows)} compan{'y' if len(rows) == 1 else 'ies'} shown · Need and Readiness are alongside for context "
                "and are never combined with the pain score.")
-    if rows:
+    if rows and is_any:
+        st.dataframe(pd.DataFrame([{
+            "Company": c["name"], "Reg. no.": c["reg"], "Segment": c["segment"],
+            "Pain points": len(hits),
+            "Worst status": _status_text(hits[0][1]["status"]),
+            "Top pain score": hits[0][1]["score"],
+            "Which": " · ".join(f"{p['label']} ({STATUS_META[h['status']][1]})" for p, h in hits),
+            "Need": c["need"], "Readiness": c["readiness"],
+        } for c, hits in matched]), hide_index=True, width="stretch", column_config={
+            "Top pain score": st.column_config.NumberColumn("Top pain score", format="%.0f",
+                                                            help="Score of this company's strongest matching pain point (0-100)."),
+            "Which": st.column_config.TextColumn("Which pain points", width="large"),
+            "Need": st.column_config.NumberColumn(format="%.1f"), "Readiness": st.column_config.NumberColumn(format="%.1f"),
+        })
+    if rows and not is_any:
         st.dataframe(pd.DataFrame([{
             "Company": c["name"], "Reg. no.": c["reg"], "Segment": c["segment"],
             "Status": _status_text(c["pp"][key]["status"]),
@@ -315,6 +344,7 @@ def _render_portfolio_tab(db: Session, companies: dict, pain_defs: list):
             "Evidence": st.column_config.TextColumn(width="large"),
             "Need": st.column_config.NumberColumn(format="%.1f"), "Readiness": st.column_config.NumberColumn(format="%.1f"),
         })
+    if rows:
         render_open_dossier_picker({f"{c['name']} ({c['reg']})": c["id"] for c in rows}, key="pp_open", tab="diagnosis",
                                    label="Open a company's dossier (full evidence behind each row)")
 
