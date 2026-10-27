@@ -1,0 +1,1143 @@
+{
+  "schema": 1,
+  "program": "intel",
+  "spec": "docs/INTEL_ROADMAP.md",
+  "plan": "docs/INTEL_ROADMAP.md",
+  "stale_after_hours": 8,
+  "updated_at": "2026-10-27T09:00:00Z",
+  "tickets": {
+    "I01": {
+      "title": "Golden benchmark and gap scorer (ASCO Filtri)",
+      "wave": 0,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "docs/intel/golden/asco_filtri.json",
+        "scripts/intel_gap.py",
+        "tests/test_intel_gap.py",
+        "docs/intel/results/I01.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "DONE",
+      "claimed_by": "claude-code-founder",
+      "claimed_at": "2026-10-27T09:00:00Z",
+      "heartbeat_at": "2026-10-27T09:00:00Z",
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "claim"
+        },
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "done",
+          "note": "Golden ASCO file, scorer, tests. Baseline: the tool holds 23 percent of the human-found facts, the crawlers alone 3 percent."
+        }
+      ],
+      "done_at": "2026-10-27T09:00:00Z",
+      "result": "docs/intel/results/I01.md"
+    },
+    "I02": {
+      "title": "Evidence ledger, collector contract, polite fetcher, runner, board, reference collector",
+      "wave": 0,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [],
+      "files": [
+        "intel/__init__.py",
+        "intel/ledger.py",
+        "intel/collector.py",
+        "intel/fetch.py",
+        "intel/collectors/__init__.py",
+        "intel/collectors/site_headers.py",
+        "scripts/intel_board.py",
+        "scripts/intel_run.py",
+        "tests/test_intel_ledger.py",
+        "tests/test_intel_board.py",
+        "docs/intel/results/I02.md"
+      ],
+      "needs": [],
+      "status": "DONE",
+      "claimed_by": "claude-code-founder",
+      "claimed_at": "2026-10-27T09:00:00Z",
+      "heartbeat_at": "2026-10-27T09:00:00Z",
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "claim"
+        },
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "done",
+          "note": "Ledger, collector contract, fetcher, runner, board shim, reference collector site-headers."
+        }
+      ],
+      "done_at": "2026-10-27T09:00:00Z",
+      "result": "docs/intel/results/I02.md"
+    },
+    "I03": {
+      "title": "Golden set: six more companies chosen to break the tool (hold-out set)",
+      "wave": 0,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "I01"
+      ],
+      "files": [
+        "docs/intel/golden/*.json",
+        "docs/intel/golden/README.md",
+        "docs/intel/results/I03.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I04": {
+      "title": "LLM provider pool: many keys, per-task routing, token budgets, and the worker env allowlist",
+      "wave": 0,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/llm_pool.py",
+        "tests/test_intel_llm_pool.py",
+        "worker/worker.mjs",
+        ".env.example",
+        "docs/intel/results/I04.md"
+      ],
+      "needs": [
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I05": {
+      "title": "Web research layer: search, hardened fetch, readability, query planner",
+      "wave": 0,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/fetch.py",
+        "intel/search.py",
+        "intel/queryplan.py",
+        "tests/test_intel_search.py",
+        "tests/test_intel_fetch.py",
+        "requirements.txt",
+        "docs/intel/results/I05.md"
+      ],
+      "needs": [
+        "web",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I06": {
+      "title": "Verification gate: entity match, quote grounding, contradiction handling",
+      "wave": 0,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/verify.py",
+        "tests/test_intel_verify.py",
+        "docs/intel/results/I06.md"
+      ],
+      "needs": [
+        "web",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I10": {
+      "title": "Deep site reader: whole-site and PDF digest into profile facts (new Node crawler + collector)",
+      "wave": 1,
+      "priority": "P0",
+      "size": "XL",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "@scraper-repo/deep-profile-crawler",
+        "scrapers/deep_profile_crawler.py",
+        "intel/collectors/deep_site.py",
+        "tests/test_intel_deep_site.py",
+        "docs/intel/results/I10.md"
+      ],
+      "needs": [
+        "web",
+        "llm",
+        "scraper_repo"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "ID-02",
+        "ID-03",
+        "ID-04",
+        "CT-01",
+        "CT-02",
+        "EV-01",
+        "EV-02",
+        "PR-01",
+        "PR-02",
+        "LO-01",
+        "DC-01"
+      ]
+    },
+    "I11": {
+      "title": "Document reader: certificates, manuals, brochures, annual reports (PDF, OCR fallback)",
+      "wave": 1,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/pdf.py",
+        "intel/collectors/documents.py",
+        "tests/test_intel_documents.py",
+        "docs/intel/results/I11.md"
+      ],
+      "needs": [
+        "web",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "PR-03",
+        "CE-01",
+        "CE-02",
+        "CE-03",
+        "DC-01"
+      ]
+    },
+    "I12": {
+      "title": "Ownership classification and group flag: who really controls the company",
+      "wave": 1,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/ownership.py",
+        "intel/collectors/ownership.py",
+        "tests/test_intel_ownership.py",
+        "docs/intel/results/I12.md"
+      ],
+      "needs": [
+        "live_db_read",
+        "web",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "OW-04",
+        "OW-06",
+        "PE-07",
+        "LO-01"
+      ]
+    },
+    "I13": {
+      "title": "Corporate events timeline: deals, plants, subsidiaries, leadership changes, awards",
+      "wave": 1,
+      "priority": "P0",
+      "size": "XL",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/events.py",
+        "intel/collectors/events.py",
+        "tests/test_intel_events.py",
+        "docs/intel/results/I13.md"
+      ],
+      "needs": [
+        "web",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "OW-02",
+        "OW-04",
+        "OW-05",
+        "EV-01",
+        "EV-02",
+        "EV-03",
+        "PE-02",
+        "PE-03",
+        "PE-05",
+        "PR-04"
+      ]
+    },
+    "I14": {
+      "title": "People and contact finder: who to call and the published ways to reach them",
+      "wave": 1,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/people.py",
+        "intel/collectors/people.py",
+        "intel/collectors/contacts.py",
+        "tests/test_intel_people.py",
+        "docs/intel/results/I14.md"
+      ],
+      "needs": [
+        "web",
+        "llm",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "CT-01",
+        "CT-02",
+        "EV-03",
+        "PE-02",
+        "PE-03",
+        "PE-04",
+        "PE-05",
+        "PE-07"
+      ]
+    },
+    "I15": {
+      "title": "Certification and compliance register lookups (Accredia, notified bodies, ASME, Achilles)",
+      "wave": 1,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/collectors/certifications.py",
+        "tests/test_intel_certifications.py",
+        "docs/intel/results/I15.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "CE-01",
+        "CE-02",
+        "CE-03"
+      ]
+    },
+    "I16": {
+      "title": "Trade fairs, associations and programmes (exhibitor lists, member directories, IPCEI, CORDIS)",
+      "wave": 1,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/collectors/networks.py",
+        "tests/test_intel_networks.py",
+        "docs/intel/results/I16.md"
+      ],
+      "needs": [
+        "web",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "NW-01",
+        "NW-02"
+      ]
+    },
+    "I17": {
+      "title": "Hiring and employer-brand intelligence (careers, job boards, reviews, LinkedIn page)",
+      "wave": 1,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/collectors/hiring.py",
+        "tests/test_intel_hiring.py",
+        "docs/intel/results/I17.md"
+      ],
+      "needs": [
+        "web",
+        "llm",
+        "gg_approval"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I18": {
+      "title": "Technology and digital footprint v2 (extends the header collector; ledger only, no signal changes)",
+      "wave": 1,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/collectors/site_headers.py",
+        "intel/collectors/tech_stack.py",
+        "tests/test_intel_tech_stack.py",
+        "docs/intel/results/I18.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "DG-02",
+        "DG-03"
+      ]
+    },
+    "I19": {
+      "title": "Patents and trademarks v2: EPO reliability, group applicants, designs",
+      "wave": 1,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "adapters/epo_ops.py",
+        "intel/collectors/ip.py",
+        "tests/test_intel_ip.py",
+        "docs/intel/results/I19.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I20": {
+      "title": "Italian registry and institutional lookups (INI-PEC, Registro Imprese open data, UIBM, ANAC, RNA)",
+      "wave": 1,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/collectors/registry_it.py",
+        "tests/test_intel_registry_it.py",
+        "docs/intel/results/I20.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "ID-01",
+        "ID-02",
+        "ID-03",
+        "CT-02",
+        "FI-02"
+      ]
+    },
+    "I21": {
+      "title": "Customers, references and channel position (OEM, EPC, distributor, end user)",
+      "wave": 1,
+      "priority": "P2",
+      "size": "M",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/collectors/customers.py",
+        "tests/test_intel_customers.py",
+        "docs/intel/results/I21.md"
+      ],
+      "needs": [
+        "web",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I22": {
+      "title": "Peer and competitor candidates (suggest-only, a human confirms)",
+      "wave": 1,
+      "priority": "P2",
+      "size": "M",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/collectors/peers.py",
+        "tests/test_intel_peers.py",
+        "docs/intel/results/I22.md"
+      ],
+      "needs": [
+        "live_db_read",
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "PS-01"
+      ]
+    },
+    "I90": {
+      "title": "Release captain, wave 1: integrate, full test run, golden score report, bundle rebuild",
+      "wave": 1,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "I03",
+        "I04",
+        "I05",
+        "I06",
+        "I10",
+        "I12",
+        "I13",
+        "I14"
+      ],
+      "files": [
+        "@bundle",
+        "docs/intel/WAVE1_ACCEPTANCE.md",
+        "worker_dist/*",
+        "worker_shim/app/*",
+        "docs/intel/results/I90.md"
+      ],
+      "needs": [
+        "scraper_repo"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I30": {
+      "title": "Deep-profile orchestrator: iterative research loop, budgets, resumable, multi-PC",
+      "wave": 2,
+      "priority": "P0",
+      "size": "XL",
+      "depends_on": [
+        "I02",
+        "I04",
+        "I05",
+        "I06",
+        "I10"
+      ],
+      "files": [
+        "intel/orchestrator.py",
+        "intel/budget.py",
+        "tests/test_intel_orchestrator.py",
+        "docs/intel/results/I30.md"
+      ],
+      "needs": [
+        "live_db_read",
+        "llm",
+        "web",
+        "worker"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I31": {
+      "title": "Freshness and change detection: re-check what can change, emit trigger events",
+      "wave": 2,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I30"
+      ],
+      "files": [
+        "intel/freshness.py",
+        "tests/test_intel_freshness.py",
+        "docs/intel/results/I31.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I32": {
+      "title": "Portfolio batch runner over all 953 companies (resumable, cost-capped, fleet-aware)",
+      "wave": 2,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I30"
+      ],
+      "files": [
+        "@live-db-write",
+        "intel/batch.py",
+        "scripts/intel_batch.py",
+        "tests/test_intel_batch.py",
+        "docs/intel/results/I32.md"
+      ],
+      "needs": [
+        "live_db_write",
+        "gg_approval",
+        "worker"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I33": {
+      "title": "Own-Site Scrape reliability: 77 percent errors from guessing About/Team paths",
+      "wave": 2,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "scrapers/management_diversity.py",
+        "tests/test_management_diversity.py",
+        "docs/intel/results/I33.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I34": {
+      "title": "Make Reviews, Innovation and News crawlers live without paid keys (they are simulated today)",
+      "wave": 2,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I05"
+      ],
+      "files": [
+        "@scraper-repo/review-crawler",
+        "@scraper-repo/news-signals-crawler",
+        "@scraper-repo/innovation-participation-crawler",
+        "scrapers/review_crawler.py",
+        "scrapers/news_signals_crawler.py",
+        "scrapers/innovation_participation_crawler.py",
+        "tests/test_intel_live_crawlers.py",
+        "docs/intel/results/I34.md"
+      ],
+      "needs": [
+        "web",
+        "llm",
+        "scraper_repo"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I35": {
+      "title": "Semantic audit of existing producers (Kompass is not a trade fair, product_types are fluids, 12 vs 17 lines)",
+      "wave": 2,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [],
+      "files": [
+        "docs/intel/AUDIT_EXISTING_PRODUCERS.md",
+        "scrapers/directory_listing_crawler.py",
+        "scrapers/wappalyzer_local.py",
+        "scrapers/company_website_crawler.py",
+        "tests/test_intel_producer_audit.py",
+        "docs/intel/results/I35.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read",
+        "gg_approval"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I91": {
+      "title": "Release captain, wave 2: integrate, full test run, golden score report, bundle rebuild",
+      "wave": 2,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "I30"
+      ],
+      "files": [
+        "@bundle",
+        "docs/intel/WAVE2_ACCEPTANCE.md",
+        "worker_dist/*",
+        "worker_shim/app/*",
+        "docs/intel/results/I91.md"
+      ],
+      "needs": [
+        "scraper_repo"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I40": {
+      "title": "Dossier UI v2: the ledger shown with sources, conflicts and a coverage meter",
+      "wave": 3,
+      "priority": "P1",
+      "size": "L",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "views/company_intel.py",
+        "views/company_dossier.py",
+        "tests/test_company_intel_view.py",
+        "docs/intel/results/I40.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I41": {
+      "title": "Research brief and contact sheet export (facts only; Excel, PDF, Markdown)",
+      "wave": 3,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "I02"
+      ],
+      "files": [
+        "intel/brief.py",
+        "intel/export.py",
+        "tests/test_intel_brief.py",
+        "docs/intel/results/I41.md"
+      ],
+      "needs": [
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I42": {
+      "title": "Qualification flags in the Target Matrix (controlled subsidiary, PE-held, dissolved); no score change",
+      "wave": 3,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "I12"
+      ],
+      "files": [
+        "intel/qualification.py",
+        "views/target_matrix.py",
+        "tests/test_intel_qualification.py",
+        "docs/intel/results/I42.md"
+      ],
+      "needs": [
+        "live_db_read",
+        "gg_approval"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ],
+      "golden": [
+        "OW-06"
+      ]
+    },
+    "I43": {
+      "title": "Evaluation CI: recorded-page regression, nightly live golden run, precision audit",
+      "wave": 3,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "I10"
+      ],
+      "files": [
+        "tests/golden/*",
+        "tests/test_intel_golden_regression.py",
+        "scripts/intel_gap.py",
+        "docs/intel/results/I43.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I44": {
+      "title": "Security, privacy and source register (keys sent to workers, GDPR for contacts, robots/ToS, kill switches)",
+      "wave": 3,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "docs/intel/SECURITY_AND_SOURCES.md",
+        "intel/policy.py",
+        "tests/test_intel_policy.py",
+        "docs/intel/results/I44.md"
+      ],
+      "needs": [
+        "gg_input"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I45": {
+      "title": "Worker fleet v2: capability routing, shared per-domain throttle, safe update rollout",
+      "wave": 3,
+      "priority": "P2",
+      "size": "L",
+      "depends_on": [
+        "I30",
+        "I90"
+      ],
+      "files": [
+        "worker/*",
+        "worker_hub.py",
+        "worker_shim/app/*",
+        "tests/test_worker_hub.py",
+        "docs/intel/results/I45.md"
+      ],
+      "needs": [
+        "worker",
+        "scraper_repo"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I92": {
+      "title": "Release captain, wave 3: live pilot on 12 companies, acceptance with GG, rollout notes",
+      "wave": 3,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "I40",
+        "I43"
+      ],
+      "files": [
+        "@bundle",
+        "docs/intel/WAVE3_ACCEPTANCE.md",
+        "worker_dist/*",
+        "worker_shim/app/*",
+        "docs/intel/results/I92.md"
+      ],
+      "needs": [
+        "scraper_repo",
+        "gg_approval"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "history": [
+        {
+          "at": "2026-10-27T09:00:00Z",
+          "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    }
+  }
+}
