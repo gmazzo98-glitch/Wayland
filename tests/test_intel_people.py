@@ -433,6 +433,38 @@ def test_site_search_endpoint_follows_only_links_that_carry_the_company_slug():
     assert any("no search client" in e for e in res.errors)          # web search was not available, and it says so
 
 
+def test_a_slow_empty_web_search_cannot_starve_the_pages_already_found(monkeypatch):
+    # regression: under load the web search used the whole 240 s deadline, and the deal stories the declared source
+    # had already offered were never read. Reliable pages are read first and the search gets a share of the budget.
+    import types
+    deal = "https://bebeez.it/private-equity/meccanica-brambilla-nuovo-socio/"
+    pages = {
+        BEBEEZ_SEARCH: Page(url=BEBEEZ_SEARCH, ok=True, status=200, text="Risultati", links=[deal], content_hash="s"),
+        deal: Page(url=deal, ok=True, status=200, title="Nuovo socio",
+                   text=("Un fondo entra in Meccanica Brambilla S.r.l., azienda di Lecco. Sara Fontana (amministratore "
+                         "delegato, che resta alla guida) ha dichiarato che il piano continua."), content_hash="d"),
+    }
+    clock = [0.0]
+    monkeypatch.setattr(people, "time", types.SimpleNamespace(monotonic=lambda: clock[0]))
+
+    class SlowSilent:
+        def __init__(self):
+            self.calls = 0
+
+        def search(self, query, kind="web", lang="it", n=10):
+            self.calls += 1
+            clock[0] += 100.0                       # every query "takes" 100 s and finds nothing
+            return []
+
+    slow = SlowSilent()
+    company = _company(website_url=None, people=[])
+    res = people.run(CollectorContext(company=company, ledger=Ledger(None), budget=Budget(deadline_seconds=240),
+                                      search=slow, fetch=lambda u: pages.get(u) or Page(url=u, ok=False, status=404)))
+    assert [f.value["name"] for f in res.facts if f.key == "people.managing_director"] == ["Sara Fontana"]
+    assert slow.calls == 2                               # stopped at 55% of the budget, not at the deadline
+    assert any("search stopped at the deadline" in e for e in res.errors)
+
+
 def test_web_search_that_returns_nothing_is_reported_and_never_read_as_absence():
     class Silent:
         def search(self, query, kind="web", lang="it", n=10):

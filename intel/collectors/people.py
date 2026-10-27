@@ -59,6 +59,7 @@ MAX_RESULTS_PER_QUERY = 8
 LOCALITY_CHARS = 250            # a third-party page must name the company this close to the person
 MAX_CANDIDATES_PER_PAGE = 12
 MAX_SCAN_CHARS = 200_000        # characters of one page scanned for people
+SEARCH_SHARE = 0.55             # share of the time budget the web search may use before pages are read
 
 # Sources with an internal site search that a deal story about ANY Italian company can be found with (roadmap section 4
 # lists the outlet as a readable deal-story source). {q} is the company name. Read through the polite, robots-aware
@@ -572,41 +573,46 @@ def run(ctx: CollectorContext) -> CollectorResult:
             result.errors.append("company has no website_url: own-site pages not read")
             seen_urls = set()
 
-        # 3. Press, deal stories and profile pages: the internal search of declared sources, then web search
-        press_urls: List[str] = []
+        # 3. Press, deal stories and profile pages. Order matters: the declared sources' own search is reliable and
+        #    cheap, so its pages are READ FIRST; the web search is slower and may return nothing at all, so it gets a
+        #    share of the time budget (SEARCH_SHARE) and can never starve the pages already found.
+        def read_press(urls: Sequence[str]) -> None:
+            nonlocal press_pages_read
+            for url in urls:
+                if press_pages_read >= MAX_PRESS_PAGES or result.pages_fetched >= max_pages                         or time.monotonic() > deadline:
+                    break
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                page = ctx.fetch(url)
+                result.pages_fetched += 1
+                if not page.ok or not page.text:
+                    continue
+                press_pages_read += 1
+                if not name_in_text(names, page.text):
+                    continue
+                for cand, text in _extract_candidates(page.text, page.url, "press", names, False, owners):
+                    web_cands.append((cand, text, "C"))
+
         if not names:
             result.errors.append("company has no usable name: press and deal stories were not searched")
         else:
             site_urls, site_readable = _site_search_urls(ctx, names, own_host, seen_urls, result)
-            press_urls.extend(site_urls)
             searched = searched or site_readable
+            read_press(site_urls)
             if ctx.search is None:
                 result.errors.append("no search client supplied: the web was not searched for press and deal stories")
             else:
                 queries = _search_queries(company, max(1, int(ctx.budget.max_search_queries)))
-                ranked, raw = _rank_results(ctx, queries, names, own_host, result, deadline)
+                search_deadline = started + SEARCH_SHARE * (deadline - started)
+                ranked, raw = _rank_results(ctx, queries, names, own_host, result, search_deadline)
                 if queries and raw == 0:
                     result.errors.append(
                         f"web search returned no result for any of {len(result.queries)} queries "
                         "(provider blocked, rate limited or no coverage); this is not evidence of absence")
                 else:
                     searched = True
-                press_urls.extend(normalise_url(item.url) for item in ranked)
-        for url in press_urls:
-            if press_pages_read >= MAX_PRESS_PAGES or result.pages_fetched >= max_pages or time.monotonic() > deadline:
-                break
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-            page = ctx.fetch(url)
-            result.pages_fetched += 1
-            if not page.ok or not page.text:
-                continue
-            press_pages_read += 1
-            if not name_in_text(names, page.text):
-                continue
-            for cand, text in _extract_candidates(page.text, page.url, "press", names, False, owners):
-                web_cands.append((cand, text, "C"))
+                read_press([normalise_url(item.url) for item in ranked])
 
     # 4. Verify every web candidate with the I06 gate; keep what passes, say what was dropped and why
     kept: List[Tuple[PersonCandidate, Fact]] = []
