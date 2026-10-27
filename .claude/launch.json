@@ -12,6 +12,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["scripts/run_preview_server.py"],
       "port": 8503
+    },
+    {
+      "name": "landing-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8510", "--directory", "landing"],
+      "port": 8510
     }
   ]
 }

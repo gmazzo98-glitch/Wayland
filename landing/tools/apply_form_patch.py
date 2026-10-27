@@ -94,6 +94,11 @@ def main(argv):
             return 2
         print("Patched the form handlers to POST to /api/submit.")
 
+    if 'termsAccepted' not in tpl or '/privacy' not in tpl or '/terms' not in tpl:
+        print('This export has no terms checkbox or privacy/terms links: the API would reject it (400).')
+        print('Ask Claude Design again with the prompt in landing/README.md, then re-export. Nothing was written.')
+        return 2
+
     for phrase in STANDING_REMOVALS:
         if phrase in tpl:
             print("NOTE: the page contains a phrase Giorgio asked to remove earlier: " + phrase)

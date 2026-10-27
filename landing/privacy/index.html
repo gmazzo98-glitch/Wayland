@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Informativa Privacy — WAYLAND</title>
+  <meta name="description" content="Informativa sul trattamento dei dati personali ai sensi degli artt. 13 e 14 del Regolamento (UE) 2016/679 (GDPR) per il sito wayland.my.">
+  <style>
+    :root {
+      --color-navy: #10223a;
+      --color-rust: #a24f1a;
+      --color-rust-light: #fbf1ea;
+      --color-text: #1e293b;
+      --color-text-muted: #4a5b74;
+      --color-border: #d0d7de;
+      --color-bg-subtle: #f8fafc;
+      --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-serif: 'Source Serif 4', Georgia, serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      color: var(--color-text);
+      background: #ffffff;
+      line-height: 1.65;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+    header {
+      border-bottom: 1px solid var(--color-border);
+      background: #ffffff;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-inner {
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand-logo {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: 0.04em;
+      color: var(--color-navy);
+      text-decoration: none;
+    }
+    .back-link {
+      color: var(--color-rust);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.15s ease;
+    }
+    .back-link:hover {
+      color: var(--color-navy);
+      text-decoration: underline;
+    }
+    main {
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+    .doc-meta {
+      display: inline-block;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      color: var(--color-rust);
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(30px, 4vw, 40px);
+      line-height: 1.2;
+      color: var(--color-navy);
+      margin-bottom: 8px;
+    }
+    .doc-version {
+      font-size: 14px;
+      color: var(--color-text-muted);
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 2px solid var(--color-navy);
+    }
+    .doc-intro {
+      font-size: 17px;
+      line-height: 1.6;
+      color: var(--color-navy);
+      margin-bottom: 36px;
+    }
+    h2 {
+      font-family: var(--font-serif);
+      font-size: 22px;
+      line-height: 1.3;
+      color: var(--color-navy);
+      margin: 36px 0 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+    }
+    h3 {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--color-navy);
+      margin: 24px 0 10px;
+    }
+    p {
+      margin-bottom: 16px;
+    }
+    ul, ol {
+      margin: 0 0 20px 24px;
+    }
+    li {
+      margin-bottom: 10px;
+    }
+    li::marker {
+      color: var(--color-rust);
+    }
+    strong {
+      color: var(--color-navy);
+    }
+    .placeholder {
+      background: #f1f5f9;
+      color: #334155;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      border: 1px dashed #cbd5e1;
+    }
+    .callout {
+      background: var(--color-bg-subtle);
+      border-left: 3px solid var(--color-navy);
+      padding: 16px 20px;
+      margin: 24px 0;
+      font-size: 15px;
+    }
+    footer {
+      border-top: 1px solid var(--color-border);
+      background: var(--color-bg-subtle);
+      padding: 32px 24px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--color-text-muted);
+    }
+    .footer-inner {
+      max-width: 840px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .footer-links {
+      display: flex;
+      gap: 18px;
+    }
+    .footer-links a {
+      color: var(--color-navy);
+      text-decoration: underline;
+    }
+    .footer-links a:hover {
+      color: var(--color-rust);
+    }
+    @media (max-width: 600px) {
+      main { padding: 32px 18px 60px; }
+      .header-inner, .footer-inner { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <a href="/" class="brand-logo" aria-label="WAYLAND homepage">WAYLAND</a>
+      <a href="/" class="back-link">← Torna a wayland.my</a>
+    </div>
+  </header>
+
+  <main>
+    <span class="doc-meta">Informativa sul trattamento dei dati personali</span>
+    <h1>Informativa privacy</h1>
+    <div class="doc-version">Versione 1.0 — ultimo aggiornamento: 27 ottobre 2026</div>
+
+    <p class="doc-intro">
+      Ai sensi degli artt. 13 e 14 del Regolamento (UE) 2016/679 (&ldquo;GDPR&rdquo;), <span class="placeholder">[NOME / FORMA GIURIDICA: Da definire]</span> (&ldquo;WAYLAND&rdquo;, &ldquo;noi&rdquo;), in qualit&agrave; di titolare del trattamento, ti informa che i dati personali conferiti tramite questo sito web (&ldquo;Sito&rdquo;) saranno trattati secondo le modalit&agrave; e per le finalit&agrave; descritte di seguito.
+    </p>
+
+    <h2>1. Titolare del trattamento</h2>
+    <p>
+      Il titolare del trattamento &egrave; <strong><span class="placeholder">[NOME / FORMA GIURIDICA: Da definire]</span></strong>, con sede legale in <strong><span class="placeholder">[SEDE: Da definire]</span></strong>, Partita IVA / Codice fiscale <strong><span class="placeholder">[PIVA: Da definire]</span></strong>, indirizzo di posta elettronica <strong><span class="placeholder">[EMAIL: info@wayland.my]</span></strong>, PEC <strong><span class="placeholder">[PEC: Da definire]</span></strong>.
+    </p>
+    <p>
+      Per qualsiasi questione relativa al trattamento dei tuoi dati personali, incluso l'esercizio dei diritti di cui alla sezione 7, puoi scrivere a <strong><span class="placeholder">[PRIVACY-EMAIL: privacy@wayland.my]</span></strong>.
+    </p>
+    <p>
+      L'elenco dei responsabili del trattamento (art. 28 GDPR) &egrave; disponibile su richiesta, scrivendo a <strong><span class="placeholder">[PRIVACY-EMAIL: privacy@wayland.my]</span></strong>.
+    </p>
+
+    <h2>2. Quali dati trattiamo, per quali finalit&agrave; e su quale base giuridica</h2>
+
+    <h3>2.1 Modulo &laquo;Azienda&raquo;</h3>
+    <p><strong>Dati trattati:</strong> nome e cognome; ragione sociale; indirizzo email di lavoro; descrizione facoltativa di inefficienze o criticit&agrave; operative della tua azienda.</p>
+    <p><strong>Finalit&agrave;:</strong> valutare la tua richiesta di collaborazione, ricontattarti per approfondirla e preparare un eventuale percorso di collaborazione tra la tua azienda e startup selezionate.</p>
+    <p><strong>Base giuridica:</strong> art. 6, par. 1, lett. b) GDPR (esecuzione di misure precontrattuali su tua richiesta) per la valutazione della richiesta e per ricontattarti.</p>
+    <p><strong>Natura del conferimento:</strong> il conferimento di nome e cognome, ragione sociale ed email di lavoro &egrave; <strong>necessario</strong> per valutare e rispondere alla tua richiesta: il loro mancato inserimento rende impossibile darvi seguito. La descrizione delle criticit&agrave; operative &egrave; facoltativa e serve solo a rendere la valutazione pi&ugrave; precisa.</p>
+
+    <h3>2.2 Modulo &laquo;Startup&raquo;</h3>
+    <p><strong>Dati trattati:</strong> nome della startup; indirizzo del sito web; indirizzo email di lavoro; breve descrizione della proposta (&ldquo;pitch&rdquo;); tipologia di dati che ti servono dall'azienda partner.</p>
+    <p><strong>Finalit&agrave;:</strong> valutare la tua proposta, verificarne la compatibilit&agrave; con le esigenze delle aziende con cui collaboriamo. Non condividiamo la tua proposta con le aziende senza il tuo consenso specifico (sezione 3).</p>
+    <p><strong>Base giuridica:</strong> art. 6, par. 1, lett. b) GDPR per la valutazione della proposta; art. 6, par. 1, lett. a) GDPR (consenso specifico, richiesto separatamente prima) per l'eventuale condivisione con le aziende (sezione 3).</p>
+    <p><strong>Natura del conferimento:</strong> il nome della startup, l'email di lavoro e la tipologia di dati richiesti sono <strong>necessari</strong> per valutare la proposta. Il consenso alla condivisione con le aziende sar&agrave; richiesto <strong>prima di ogni condivisione</strong> ed &egrave; necessario solo per l'abbinamento: senza tale consenso la proposta potr&agrave; essere valutata ma non condivisa.</p>
+
+    <h3>2.3 Dati di navigazione</h3>
+    <p>
+      I sistemi informatici e le procedure software preposte al funzionamento del Sito acquisiscono, durante il loro normale funzionamento, alcuni dati la cui trasmissione &egrave; implicita nell'uso dei protocolli di comunicazione di Internet (indirizzi IP, parametri di connessione, log di sicurezza). Tali dati sono trattati ai soli fini di sicurezza e corretto funzionamento del Sito, sulla base dell'art. 6, par. 1, lett. f) GDPR e dell'art. 132 del D.Lgs. 196/2003 (Codice Privacy), per tempi limitati.
+    </p>
+
+    <h2>3. Consensi</h2>
+    <p>La spunta richiesta per inviare i moduli attesta che hai letto i Termini di servizio e preso visione della presente informativa. Non &egrave; un consenso al trattamento dei dati, che si fonda sulle basi giuridiche indicate alla sezione 2. Di ogni invio conserviamo la data e la versione dei testi mostrati.</p>
+    <p>Non ti invieremo comunicazioni promozionali e non condivideremo la tua richiesta o la tua proposta con aziende o startup senza un tuo <strong>consenso specifico e separato</strong>, che ti chiederemo in anticipo (ad esempio via email). Ogni consenso &egrave; <strong>facoltativo e revocabile in ogni momento</strong> (art. 7, par. 3, GDPR) scrivendo a <strong><span class="placeholder">[PRIVACY-EMAIL: privacy@wayland.my]</span></strong>; la revoca non pregiudica la valutazione della tua richiesta.</p>
+
+    <h2>4. A chi comunichiamo i tuoi dati (destinatari)</h2>
+    <p>I tuoi dati potranno essere comunicati, per le finalit&agrave; indicate, a:</p>
+    <ul>
+      <li><strong>personale incaricato</strong> del trattamento, debitamente autorizzato e formato;</li>
+      <li><strong>fornitori di servizi IT e di hosting</strong>: Vercel Inc. (hosting del sito e delle funzioni, eseguite in Germania) e Neon, Inc. (database, ospitato a Francoforte, Germania), in qualit&agrave; di responsabili del trattamento ex art. 28 GDPR;</li>
+      <li><strong>servizio di notifica</strong> ntfy.sh, che riceve soltanto il tipo di modulo e il nome dell'azienda o della startup (nessun indirizzo email n&eacute; altri dati) per avvisarci dell'arrivo di una nuova richiesta;</li>
+      <li><strong>fornitori di servizi di posta elettronica</strong> (<span class="placeholder">[EMAIL PROVIDER: Da definire]</span>), in qualit&agrave; di responsabili del trattamento ex art. 28 GDPR;</li>
+      <li><strong>aziende selezionate</strong>, esclusivamente per la finalit&agrave; di abbinamento descritta alle sezioni 2.2 e 3 e <strong>solo</strong> se hai prestato il relativo consenso.</li>
+    </ul>
+    <p>I tuoi dati non saranno diffusi n&eacute; comunicati ad altri soggetti, salvo obblighi di legge o richieste delle autorit&agrave; competenti.</p>
+
+    <h2>5. Trasferimento dei dati verso paesi terzi</h2>
+    <p>
+      I dati sono conservati prevalentemente presso server ubicati in <strong>Unione Europea (Francoforte, Germania)</strong>. Eventuali trasferimenti verso paesi extra-UE, qualora necessari per l'erogazione dei servizi di hosting o infrastruttura, avverranno esclusivamente previa adozione di garanzie adeguate ex artt. 44–49 GDPR, quali una decisione di adeguatezza della Commissione UE o le clausole contrattuali standard (decisione di esecuzione (UE) 2021/914), i cui moduli sono disponibili su richiesta.
+    </p>
+
+    <h2>6. Quanto tempo conserviamo i tuoi dati</h2>
+    <p>I dati saranno conservati per il tempo strettamente necessario alle finalit&agrave; sopra indicate e, in particolare:</p>
+    <ul>
+      <li>richieste del modulo &laquo;Azienda&raquo; evase: <strong>24 mesi</strong> dall'ultimo contatto utile, successivamente cancellati o anonimizzati;</li>
+      <li>proposte del modulo &laquo;Startup&raquo; non abbinate: <strong>12 mesi</strong> dalla valutazione, successivamente cancellati o anonimizzati;</li>
+      <li>documentazione di eventuali collaborazioni avviate: per la durata del rapporto e dei successivi <strong>10 anni</strong>, per finalit&agrave; amministrative e di tutela legale;</li>
+      <li>log di sicurezza: <strong>6–12 mesi</strong>.</li>
+    </ul>
+    <p>La conservazione oltre tali termini &egrave; ammessa solo su tua richiesta o per obblighi di legge.</p>
+
+    <h2>7. I tuoi diritti</h2>
+    <p>Ai sensi degli artt. 15–22 GDPR, hai il diritto di:</p>
+    <ul>
+      <li><strong>accedere</strong> ai tuoi dati personali (art. 15) e ottenerne copia;</li>
+      <li><strong>rettificare</strong> i dati inesatti o integrare quelli incompleti (art. 16);</li>
+      <li>ottenere la <strong>cancellazione</strong> dei dati (&ldquo;diritto all'oblio&rdquo;), nei casi previsti dall'art. 17 GDPR;</li>
+      <li>ottenere la <strong>limitazione</strong> del trattamento (art. 18);</li>
+      <li>ricevere i dati in un formato strutturato, leggibile da dispositivo automatico, e <strong>trasferirli</strong> ad altro titolare senza impedimenti, nei casi previsti dall'art. 20 (<strong>portabilit&agrave;</strong>);</li>
+      <li><strong>opporti</strong> al trattamento (art. 21), anche in tutto o in parte, quando basato sul legittimo interesse;</li>
+      <li><strong>revocare il consenso</strong> in ogni momento (art. 7, par. 3, GDPR), senza pregiudicare la liceit&agrave; del trattamento effettuato sulla base del consenso prima della revoca.</li>
+    </ul>
+    <p>
+      Puoi esercitare i tuoi diritti in qualsiasi momento scrivendo a <strong><span class="placeholder">[PRIVACY-EMAIL: privacy@wayland.my]</span></strong>. WAYLAND risponde entro un mese dal ricevimento della richiesta, prorogabile di due mesi per casi complessi (art. 12, par. 3, GDPR), dandone congrua comunicazione.
+    </p>
+    <p>
+      Ti &egrave; inoltre riconosciuto il diritto di <strong>presentare reclamo al Garante per la protezione dei dati personali</strong> &mdash; <a href="https://www.garanteprivacy.it" target="_blank" rel="noopener noreferrer" style="color:var(--color-rust)">www.garanteprivacy.it</a> &mdash; Piazza Venezia 11 / Piazza di Monte Citorio 121, 00186 Roma &mdash; protocollo@gpdp.it, qualora ritenga che il trattamento violi la normativa applicabile.
+    </p>
+
+    <h2>8. Decisioni automatizzate e profilazione</h2>
+    <p>
+      Il Sito <strong>non utilizza</strong> processi decisionali automatizzati ex art. 22 GDPR n&eacute; attivit&agrave; di profilazione. Nessuna decisione che produca effetti giuridici o incida in modo analogo significativo su di te &egrave; presa sulla base della sola elaborazione automatizzata dei dati.
+    </p>
+
+    <h2>9. Sicurezza</h2>
+    <p>
+      I dati sono trattati con misure tecniche e organizzative adeguate al rischio, ex art. 32 GDPR, tra cui: connessione cifrata HTTPS, limitazione degli accessi al personale autorizzato, minimizzazione dei dati.
+    </p>
+
+    <h2>10. Indicazioni sull'inserimento dei dati</h2>
+    <div class="callout">
+      Ti invitiamo a <strong>non inserire nei moduli dati personali di terzi non strettamente necessari</strong> (ad esempio, indicare generiche funzioni aziendali anzich&eacute; nomi di colleghi) n&eacute; dati che rivelino categorie particolari ex art. 9 GDPR (per esempio dati relativi alla salute, convinzioni religiose o politiche). I campi a testo libero vanno limitati alle informazioni strettamente pertinenti alla richiesta.
+    </div>
+
+    <h2>11. Aggiornamenti dell'informativa</h2>
+    <p>
+      La presente informativa potr&agrave; essere aggiornata per sopravvenute modifiche normative, organizzative o del Sito. La versione in vigore &egrave; quella pubblicata nel Sito alla data dell'ultimo aggiornamento indicato in testa al documento; essa si applica a ciascun invio dei moduli effettuato dalla data di pubblicazione.
+    </p>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <div>&copy; 2026 WAYLAND. Tutti i diritti riservati.</div>
+      <div class="footer-links">
+        <a href="/terms">Termini di servizio</a>
+        <a href="/">Torna alla home</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

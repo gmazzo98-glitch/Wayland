@@ -8,6 +8,11 @@ const ALLOWED_HOSTS = new Set(['wayland.my', 'www.wayland.my']);
 
 const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
+// Every request must come with the visitor's tick on "read the Terms and saw the Privacy notice"
+// and the version of those texts that was on screen (page.html LEGAL_VERSION, e.g. "1.0").
+const VERSION = /^\d{1,3}\.\d{1,3}$/;
+const termsVersion = (b) => (b.termsAccepted === true && VERSION.test(b.termsVersion) ? b.termsVersion : null);
+
 // Best-effort push notification through ntfy.sh (NTFY_TOPIC is the private topic name).
 // It never blocks or fails a submission, and carries no email address.
 async function notify(title, text) {
@@ -54,11 +59,12 @@ export default async function handler(req, res) {
       const companyName = clean(b.companyName, 200);
       const workEmail = clean(b.workEmail, 254);
       const painPoints = clean(b.painPoints, 5000) || null;
-      if (!fullName || !companyName || !EMAIL.test(workEmail)) {
+      const terms = termsVersion(b);
+      if (!fullName || !companyName || !EMAIL.test(workEmail) || !terms) {
         return res.status(400).json({ error: 'invalid' });
       }
-      await sql`INSERT INTO landing.company_requests (full_name, company_name, work_email, pain_points)
-                VALUES (${fullName}, ${companyName}, ${workEmail}, ${painPoints})`;
+      await sql`INSERT INTO landing.company_requests (full_name, company_name, work_email, pain_points, terms_accepted_at, terms_version)
+                VALUES (${fullName}, ${companyName}, ${workEmail}, ${painPoints}, now(), ${terms})`;
       await notify('New company request', `${companyName}. Details in Neon: landing.company_requests`);
       return res.status(200).json({ ok: true });
     }
@@ -70,11 +76,12 @@ export default async function handler(req, res) {
       const workEmail = clean(b.workEmail, 254);
       const pitch = clean(b.pitch, 5000) || null;
       const dataNeeded = clean(b.dataNeeded, 5000);
-      if (!startupName || !EMAIL.test(workEmail) || !dataNeeded) {
+      const terms = termsVersion(b);
+      if (!startupName || !EMAIL.test(workEmail) || !dataNeeded || !terms) {
         return res.status(400).json({ error: 'invalid' });
       }
-      await sql`INSERT INTO landing.startup_proposals (startup_name, website, work_email, pitch, data_needed)
-                VALUES (${startupName}, ${website || null}, ${workEmail}, ${pitch}, ${dataNeeded})`;
+      await sql`INSERT INTO landing.startup_proposals (startup_name, website, work_email, pitch, data_needed, terms_accepted_at, terms_version)
+                VALUES (${startupName}, ${website || null}, ${workEmail}, ${pitch}, ${dataNeeded}, now(), ${terms})`;
       await notify('New startup proposal', `${startupName}. Details in Neon: landing.startup_proposals`);
       return res.status(200).json({ ok: true });
     }

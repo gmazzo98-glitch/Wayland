@@ -10,7 +10,7 @@ Publishes the Claude Design landing page to https://wayland.my. Background: `lan
 Fixed facts:
 - Vercel project `wayland_landingpage`, id `prj_YfwZkHxUIA8frHj0ahlWaFCDOUdm`, team agri-portal. Do not pass `teamId` to the Vercel project tools (an explicit teamId made them return 404 in this account); `create_deployment` works without it.
 - Deploys come from GitHub `gmazzo98-glitch/Wayland`, branch master, root directory `landing`. The project is not git-linked, so a push alone publishes nothing: call the Vercel MCP `create_deployment` with the pushed sha (params below).
-- Form API: `landing/api/submit.js` writes to Neon schema `landing` (`company_requests`, `startup_proposals`). Fields it accepts: company `fullName, companyName, workEmail, painPoints`; startup `startupName, website, workEmail, pitch, dataNeeded`.
+- Form API: `landing/api/submit.js` writes to Neon schema `landing` (`company_requests`, `startup_proposals`). Fields it accepts: company `fullName, companyName, workEmail, painPoints`; startup `startupName, website, workEmail, pitch, dataNeeded`; both also require `termsAccepted: true` and `termsVersion` (stored as `terms_accepted_at`, `terms_version`). The page links `/privacy` and `/terms` (static pages in `landing/privacy`, `landing/terms`). A new export without the terms checkbox is refused by `apply_form_patch.py`: use the prompt in `landing/README.md`.
 
 Steps:
 1. Pick the file. Use the argument if given, otherwise the newest `C:\Users\gmazz\Downloads\Wayland*.html` (list the three newest with dates and say which one you took). If its date is older than the last deploy, say so and ask before using it.

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Termini di Servizio — WAYLAND</title>
+  <meta name="description" content="Termini di servizio e condizioni generali di utilizzo del sito web wayland.my.">
+  <style>
+    :root {
+      --color-navy: #10223a;
+      --color-rust: #a24f1a;
+      --color-rust-light: #fbf1ea;
+      --color-text: #1e293b;
+      --color-text-muted: #4a5b74;
+      --color-border: #d0d7de;
+      --color-bg-subtle: #f8fafc;
+      --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-serif: 'Source Serif 4', Georgia, serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      color: var(--color-text);
+      background: #ffffff;
+      line-height: 1.65;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+    header {
+      border-bottom: 1px solid var(--color-border);
+      background: #ffffff;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-inner {
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand-logo {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: 0.04em;
+      color: var(--color-navy);
+      text-decoration: none;
+    }
+    .back-link {
+      color: var(--color-rust);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.15s ease;
+    }
+    .back-link:hover {
+      color: var(--color-navy);
+      text-decoration: underline;
+    }
+    main {
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+    .doc-meta {
+      display: inline-block;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      color: var(--color-rust);
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(30px, 4vw, 40px);
+      line-height: 1.2;
+      color: var(--color-navy);
+      margin-bottom: 8px;
+    }
+    .doc-version {
+      font-size: 14px;
+      color: var(--color-text-muted);
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 2px solid var(--color-navy);
+    }
+    h2 {
+      font-family: var(--font-serif);
+      font-size: 22px;
+      line-height: 1.3;
+      color: var(--color-navy);
+      margin: 36px 0 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+    }
+    p {
+      margin-bottom: 16px;
+    }
+    ul, ol {
+      margin: 0 0 20px 24px;
+    }
+    li {
+      margin-bottom: 10px;
+    }
+    li::marker {
+      color: var(--color-rust);
+    }
+    strong {
+      color: var(--color-navy);
+    }
+    .placeholder {
+      background: #f1f5f9;
+      color: #334155;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      border: 1px dashed #cbd5e1;
+    }
+    .callout {
+      background: var(--color-bg-subtle);
+      border-left: 3px solid var(--color-navy);
+      padding: 16px 20px;
+      margin: 24px 0;
+      font-size: 15px;
+    }
+    .specific-approval {
+      background: #fbf1ea;
+      border: 1px solid #e3a272;
+      padding: 18px 22px;
+      margin-top: 40px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #4d2509;
+    }
+    footer {
+      border-top: 1px solid var(--color-border);
+      background: var(--color-bg-subtle);
+      padding: 32px 24px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--color-text-muted);
+    }
+    .footer-inner {
+      max-width: 840px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .footer-links {
+      display: flex;
+      gap: 18px;
+    }
+    .footer-links a {
+      color: var(--color-navy);
+      text-decoration: underline;
+    }
+    .footer-links a:hover {
+      color: var(--color-rust);
+    }
+    @media (max-width: 600px) {
+      main { padding: 32px 18px 60px; }
+      .header-inner, .footer-inner { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <a href="/" class="brand-logo" aria-label="WAYLAND homepage">WAYLAND</a>
+      <a href="/" class="back-link">← Torna a wayland.my</a>
+    </div>
+  </header>
+
+  <main>
+    <span class="doc-meta">Condizioni generali di utilizzo</span>
+    <h1>Termini di servizio</h1>
+    <div class="doc-version">Versione 1.0 — ultimo aggiornamento: 27 ottobre 2026</div>
+
+    <h2>1. Accettazione</h2>
+    <p>
+      <strong>1.1</strong> I presenti Termini di servizio (&ldquo;Termini&rdquo;) regolano l'utilizzo del sito web di WAYLAND (&ldquo;Sito&rdquo;) e l'invio dei moduli ivi disponibili. I Termini sono pubblicati in versione datata; fa fede la versione in vigore al momento di ciascun invio.
+    </p>
+    <p>
+      <strong>1.2</strong> <strong>L'invio dei moduli &egrave; subordinato alla spunta della casella &ldquo;Ho letto e accetto i Termini di servizio&rdquo;.</strong> Con tale spunta l'utente dichiara di aver letto, compreso e integralmente accettato i presenti Termini e di aver preso visione dell'Informativa privacy (art. 13 GDPR).
+    </p>
+    <p>
+      <strong>1.3</strong> L'Informativa privacy non &egrave; oggetto di accettazione ma di presa visione. Eventuali consensi ulteriori (ad esempio alla condivisione con aziende o a comunicazioni promozionali) non sono dati con la spunta di cui al punto 1.2 e saranno richiesti separatamente e in modo specifico.
+    </p>
+    <p>
+      <strong>1.4</strong> L'utilizzo del Sito da parte di chi non accetti i presenti Termini non &egrave; consentito.
+    </p>
+
+    <h2>2. Titolare del Sito</h2>
+    <p>
+      Il Sito &egrave; gestito da <strong><span class="placeholder">[NOME / FORMA GIURIDICA: Da definire]</span></strong>, con sede legale in <strong><span class="placeholder">[SEDE: Da definire]</span></strong>, Partita IVA / Codice fiscale <strong><span class="placeholder">[PIVA: Da definire]</span></strong>, indirizzo di posta elettronica <strong><span class="placeholder">[EMAIL: info@wayland.my]</span></strong>, PEC <strong><span class="placeholder">[PEC: Da definire]</span></strong> (&ldquo;WAYLAND&rdquo;).
+    </p>
+
+    <h2>3. Natura del Sito</h2>
+    <p>
+      <strong>3.1</strong> Il Sito ha finalit&agrave; esclusivamente informativa in vista del lancio (&ldquo;coming soon&rdquo;) delle attivit&agrave; di WAYLAND, volte a supportare le PMI industriali italiane nell'individuazione di inefficienze operative e nell'adozione di tecnologie di startup europee.
+    </p>
+    <p>
+      <strong>3.2</strong> Nessun servizio professionale o contrattuale &egrave; al momento fornito n&eacute; offerto tramite il Sito e nessun rapporto professionale, di consulenza o di agenzia sorge dal solo invio dei moduli.
+    </p>
+
+    <h2>4. Contenuti inviati dagli utenti</h2>
+    <p>
+      <strong>4.1</strong> Le informazioni inviate tramite i moduli <strong>non sono riservate</strong>. Salvo diverso accordo scritto, il loro invio non comporta alcun obbligo di riservatezza a carico di WAYLAND e non costituisce accordo di riservatezza (NDA). L'utente &egrave; pertanto invitato a non trasmettere informazioni segrete, confidenziali, coperte da brevetto o da diritti di terzi.
+    </p>
+    <p>
+      <strong>4.2</strong> L'invio di una proposta o di una richiesta <strong>non crea alcuna aspettativa</strong> di collaborazione, abbinamento, riscontro o compenso. La valutazione &egrave; libera e selettiva e WAYLAND non &egrave; tenuta a motivare le proprie scelte n&eacute; a restituire o distruggere i materiali ricevuti, fermi restando i diritti dell'interessato in materia di trattamento dei dati personali di cui all'Informativa privacy.
+    </p>
+    <p>
+      <strong>4.3</strong> L'utente dichiara e garantisce di disporre del diritto di comunicare i contenuti inviati e che tali contenuti non violano diritti di terzi n&eacute; la normativa applicabile.
+    </p>
+
+    <h2>5. Propriet&agrave; intellettuale</h2>
+    <p>
+      I contenuti del Sito &mdash; inclusi marchi, logo, testi, immagini, grafica e layout &mdash; sono di propriet&agrave; esclusiva di <strong><span class="placeholder">[NOME / FORMA GIURIDICA: Da definire]</span></strong>. &Egrave; vietata la riproduzione, anche parziale, con qualsiasi mezzo senza il consenso scritto preventivo del titolare.
+    </p>
+
+    <h2>6. Limitazione di responsabilit&agrave;</h2>
+    <p>
+      <strong>6.1</strong> Le informazioni pubblicate sul Sito sono fornite &ldquo;cos&igrave; come sono&rdquo; (&ldquo;as is&rdquo;) senza garanzie di alcun tipo, esplicite o implicite. WAYLAND non risponde, nella misura massima consentita dalla legge, di errori, omissioni, imprecisioni o danni, diretti o indiretti, derivanti dall'utilizzo del Sito o dall'attendibilit&agrave; dei suoi contenuti.
+    </p>
+    <p>
+      <strong>6.2</strong> WAYLAND non risponde dell'operato, dei prodotti o dei servizi delle startup eventualmente messe in contatto con le aziende, n&eacute; degli esiti di eventuali collaborazioni tra le stesse.
+    </p>
+
+    <h2>7. Minori</h2>
+    <p>
+      Il Sito non &egrave; rivolto a minori di 18 anni e non raccoglie intenzionalmente dati personali di minori. Chi invia i moduli dichiara di essere maggiorenne.
+    </p>
+
+    <h2>8. Modifiche ai Termini</h2>
+    <p>
+      WAYLAND potr&agrave; aggiornare i presenti Termini in qualunque momento, pubblicando sul Sito la nuova versione datata. Ai rapporti e agli invii effettuati continuano ad applicarsi i Termini accettati al momento del rispettivo invio; l'invio successivo alla pubblicazione di una nuova versione comporta l'accettazione della medesima.
+    </p>
+
+    <h2>9. Legge applicabile e foro competente</h2>
+    <p>
+      I presenti Termini e l'utilizzo del Sito sono regolati dalla legge italiana. Per ogni controversia derivante da o connessa ai presenti Termini &egrave; competente in via esclusiva il Foro di <strong><span class="placeholder">[FORO: Da definire]</span></strong>, salva la competenza del foro generale obbligatorio del consumatore ai sensi degli artt. 63 e 66-bis del Codice del Consumo (D.Lgs. 206/2005).
+    </p>
+
+    <div class="specific-approval">
+      <strong>Approvazione specifica delle clausole:</strong><br>
+      Ai sensi dell'art. 1341 e 1342 c.c., l'utente dichiara di aver letto e accettato specificamente le clausole di cui ai punti <strong>1 (Accettazione)</strong>, <strong>4 (Contenuti inviati dagli utenti)</strong>, <strong>6 (Limitazione di responsabilit&agrave;)</strong> e <strong>9 (Legge applicabile e foro competente)</strong>.
+    </div>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <div>&copy; 2026 WAYLAND. Tutti i diritti riservati.</div>
+      <div class="footer-links">
+        <a href="/privacy">Informativa privacy</a>
+        <a href="/">Torna alla home</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

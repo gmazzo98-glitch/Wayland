@@ -28,6 +28,7 @@ REQUIRED_STRINGS = (
     '/api/submit', "form: 'company'", "form: 'startup'",
     'fullName', 'companyName', 'workEmail', 'painPoints',
     'startupName', 'website', 'pitch', 'dataNeeded',
+    'termsAccepted', 'termsVersion', '/privacy', '/terms',
 )
 
 
@@ -60,6 +61,11 @@ def write(path, text):
             time.sleep(0.5)
 
 
+def missing_in(page):
+    return [s for s in REQUIRED_STRINGS
+            if not re.search(r'(?<![A-Za-z0-9_])' + re.escape(s) + r'(?![A-Za-z0-9_])', page)]
+
+
 def read_src():
     return SRC.read_text(encoding='utf-8').replace('\r\n', '\n')
 
@@ -67,8 +73,7 @@ def read_src():
 def pack():
     text, m, _ = read_index()
     page = read_src()
-    missing = [s for s in REQUIRED_STRINGS
-               if not re.search(r'(?<![A-Za-z0-9_])' + re.escape(s) + r'(?![A-Za-z0-9_])', page)]
+    missing = missing_in(page)
     if missing:
         sys.exit('page.html no longer contains: ' + ', '.join(missing) +
                  '\nThe form must keep posting these fields to /api/submit (see landing/README.md).')
@@ -88,6 +93,11 @@ def unpack():
 
 def check():
     _, _, tpl = read_index()
+    missing = missing_in(tpl)
+    if missing:
+        print('The page no longer contains: ' + ', '.join(missing))
+        print('The forms must post the terms consent to /api/submit and link /privacy and /terms (see landing/README.md).')
+        return 1
     if not SRC.exists() or read_src() != tpl:
         print('landing/src/page.html and landing/index.html are out of sync.')
         print('If you edited page.html run: python landing/tools/pack.py')

@@ -239,6 +239,15 @@ body{overflow-x:hidden}
 .wl-soon{animation:wlUp .7s cubic-bezier(.2,.8,.2,1) 3.7s both,wlPulse 2.8s ease-out 4.9s infinite !important}
 .wl-mission{animation:wlUp .8s cubic-bezier(.2,.8,.2,1) 3.85s both !important}
 .wl-chi{animation:wlUp .7s cubic-bezier(.2,.8,.2,1) 4.05s both !important}
+.wl-footer{border-top:1px solid #d0d7de;padding:36px clamp(20px,4vw,32px);text-align:center;font-size:14px;color:#4a5b74}
+.wl-footer-inner{max-width:880px;margin:0 auto;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px}
+.wl-footer-links{display:flex;align-items:center;gap:16px}
+.wl-footer-links a{color:#10223a;text-decoration:underline;cursor:pointer}
+.wl-footer-links a:hover{color:#a24f1a}
+.wl-checkbox-label{display:flex;align-items:flex-start;gap:10px;margin-top:18px;cursor:pointer;font-size:14px;line-height:1.45;color:#33445e}
+.wl-checkbox-label input[type="checkbox"]{margin-top:2px;width:17px;height:17px;cursor:pointer;accent-color:#10223a;flex-shrink:0}
+.wl-checkbox-label a{color:#10223a;font-weight:600;text-decoration:underline}
+.wl-checkbox-label a:hover{color:#a24f1a}
 </style>
 </helmet>
 <div class="wl-grid" aria-hidden="true"></div>
@@ -265,6 +274,7 @@ body{overflow-x:hidden}
 <div style="display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))">
 <sc-for list="{{ coFields }}" as="x" hint-placeholder-count="4"><label style="display:block"><div style="font-size:15px;font-weight:600;color:#33445e;margin-bottom:6px">{{ x.label }}</div><input type="{{ x.type }}" value="{{ x.value }}" placeholder="{{ x.ph }}" sc-camel-on-input="{{ x.on }}" style="width:100%;padding:12px 14px;border:1px solid #8393ab;font-size:16px;color:#10223a;border-radius:0;background:#fff"></label></sc-for>
 <label style="display:block;grid-column:1 / -1"><div style="font-size:15px;font-weight:600;color:#33445e;margin-bottom:6px">Dove perdete soldi o tempo nei progetti?</div><textarea rows="3" value="{{ f.coPain }}" sc-camel-on-input="{{ onCoPain }}" placeholder="Ad esempio: margini di commessa poco chiari, previsioni inaffidabili" style="width:100%;padding:12px 14px;border:1px solid #8393ab;font-size:16px;color:#10223a;border-radius:0;background:#fff;resize:vertical;line-height:1.5"></textarea></label></div>
+<label class="wl-checkbox-label"><input type="checkbox" checked="{{ f.coTerms }}" sc-camel-on-change="{{ onCoTerms }}"><span>Ho letto e accetto i <a href="/terms" target="_blank" rel="noopener">Termini di servizio</a> e ho preso visione dell'<a href="/privacy" target="_blank" rel="noopener">Informativa privacy</a>.</span></label>
 <sc-if value="{{ coErr }}" hint-placeholder-val="{{ false }}"><div role="alert" style="margin-top:18px;padding:12px 16px;border:1px solid #a24f1a;background:#fbf1ea;color:#4d2509;font-weight:600">{{ coErr }}</div></sc-if>
 <div style="margin-top:22px;display:flex;gap:16px 24px;align-items:center;flex-wrap:wrap"><button disabled="{{ coBusy }}" sc-camel-on-click="{{ sendCo }}" style="background:#10223a;color:#fff;border:0;padding:14px 26px;min-height:44px;font:600 16px 'Public Sans',sans-serif;cursor:pointer" style-hover="background:#a24f1a">Invia la richiesta</button></div></div></sc-if>
 <sc-if value="{{ coDone }}" hint-placeholder-val="{{ false }}"><div style="margin-top:24px;background:#fff;color:#10223a;padding:clamp(18px,3vw,28px)"><div style="font-family:'Source Serif 4',serif;font-weight:600;font-size:24px;line-height:1.25">Grazie, {{ f.coName }}. Ti ricontatteremo a {{ f.coEmail }}.</div><button sc-camel-on-click="{{ backCo }}" style="margin-top:18px;background:none;border:1px solid #10223a;padding:10px 18px;min-height:44px;font:500 15px 'Public Sans',sans-serif;cursor:pointer">Modifica</button></div></sc-if>
@@ -279,16 +289,35 @@ body{overflow-x:hidden}
 <sc-if value="{{ x.area }}" hint-placeholder-val="{{ false }}"><textarea rows="3" value="{{ x.value }}" placeholder="{{ x.ph }}" sc-camel-on-input="{{ x.on }}" style="width:100%;padding:12px 14px;border:1px solid #8393ab;font-size:16px;color:#10223a;border-radius:0;background:#fff;resize:vertical;line-height:1.5"></textarea></sc-if>
 <sc-if value="{{ x.line }}" hint-placeholder-val="{{ true }}"><input type="{{ x.type }}" value="{{ x.value }}" placeholder="{{ x.ph }}" sc-camel-on-input="{{ x.on }}" style="width:100%;padding:12px 14px;border:1px solid #8393ab;font-size:16px;color:#10223a;border-radius:0;background:#fff"></sc-if>
 <sc-if value="{{ x.help }}" hint-placeholder-val="{{ false }}"></sc-if></label></sc-for></div>
+<label class="wl-checkbox-label"><input type="checkbox" checked="{{ f.stTerms }}" sc-camel-on-change="{{ onStTerms }}"><span>Ho letto e accetto i <a href="/terms" target="_blank" rel="noopener">Termini di servizio</a> e ho preso visione dell'<a href="/privacy" target="_blank" rel="noopener">Informativa privacy</a>.</span></label>
 <sc-if value="{{ stErr }}" hint-placeholder-val="{{ false }}"><div role="alert" style="margin-top:18px;padding:12px 16px;border:1px solid #a24f1a;background:#fbf1ea;color:#4d2509;font-weight:600">{{ stErr }}</div></sc-if>
 <div style="margin-top:22px;display:flex;gap:16px 24px;align-items:center;flex-wrap:wrap"><button disabled="{{ stBusy }}" sc-camel-on-click="{{ sendSt }}" style="background:#10223a;color:#fff;border:0;padding:14px 26px;min-height:44px;font:600 16px 'Public Sans',sans-serif;cursor:pointer" style-hover="background:#a24f1a">Invia la proposta</button></div></div></sc-if>
 <sc-if value="{{ stDone }}" hint-placeholder-val="{{ false }}"><div style="margin-top:24px;border-top:2px solid #10223a;padding-top:20px"><div style="font-family:'Source Serif 4',serif;font-weight:600;font-size:24px;line-height:1.25">Proposta ricevuta, {{ f.stName }}. Risponderemo a {{ f.stEmail }}.</div><button sc-camel-on-click="{{ backSt }}" style="margin-top:18px;background:none;border:1px solid #10223a;padding:10px 18px;min-height:44px;font:500 15px 'Public Sans',sans-serif;cursor:pointer">Modifica</button></div></sc-if>
 </section>
 </div>
+
+<footer class="wl-footer">
+  <div class="wl-footer-inner">
+    <div>&copy; 2026 WAYLAND. Tutti i diritti riservati.</div>
+    <div class="wl-footer-links">
+      <a href="/privacy" target="_blank" rel="noopener">Informativa privacy</a>
+      <span aria-hidden="true" style="color:#8393ab">&middot;</span>
+      <a href="/terms" target="_blank" rel="noopener">Termini di servizio</a>
+    </div>
+  </div>
+</footer>
+
 </main>
 </x-dc>
 <script type="text/x-dc" data-dc-script="">
 class Component extends DCLogic {
-  state = { co: 'closed', st: 'closed', coErr: '', stErr: '', coBusy: false, stBusy: false, f: { coName: '', coCompany: '', coEmail: '', coPain: '', stName: '', stWeb: '', stEmail: '', stDesc: '', stData: '' } };
+  state = {
+    co: 'closed', st: 'closed', coErr: '', stErr: '', coBusy: false, stBusy: false,
+    f: {
+      coName: '', coCompany: '', coEmail: '', coPain: '', coTerms: false,
+      stName: '', stWeb: '', stEmail: '', stDesc: '', stData: '', stTerms: false
+    }
+  };
   componentDidMount() {
     const vid = document.getElementById('wl-intro');
     if (vid) { vid.muted = true; vid.playbackRate = 2; const STOP = 8.0;
@@ -301,6 +330,7 @@ class Component extends DCLogic {
       els.forEach(el => { el.classList.add('wl-rv'); io.observe(el); });
     }, 0);
   }
+  LEGAL_VERSION = '1.0'; // = version shown in /privacy and /terms; stored with each request. Bump both together.
   post(payload) { return fetch('/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(r => { if (!r.ok) throw new Error('http ' + r.status); return r; }); }
   set(k, v) { this.setState(s => ({ f: { ...s.f, [k]: v } })); }
   renderVals() {
@@ -309,6 +339,8 @@ class Component extends DCLogic {
     const fl = (key, label, ph, type, area, span, help) => ({ label, ph, type: type || 'text', area: !!area, line: !area, value: f[key], on: e => this.set(key, e.target.value), help, wrap: { display: 'block', gridColumn: span ? '1 / -1' : 'auto' } });
     return {
       f, coErr, stErr, coBusy, stBusy,
+      onCoTerms: (e) => this.set('coTerms', !!e.target.checked),
+      onStTerms: (e) => this.set('stTerms', !!e.target.checked),
       coClosed: co === 'closed', coForm: co === 'form', coDone: co === 'done',
       stClosed: st === 'closed', stForm: st === 'form', stDone: st === 'done',
       openCo: () => this.setState({ co: 'form' }), backCo: () => this.setState({ co: 'form' }),
@@ -318,18 +350,34 @@ class Component extends DCLogic {
       stFields: [fl('stName', 'Nome della startup (obbligatorio)', 'Nome della startup'), fl('stWeb', 'Sito web', 'https://'), fl('stEmail', 'Email di lavoro (obbligatorio)', 'founder@tuastartup.it', 'email', false, true),
         fl('stDesc', 'Cosa risolvi (breve pitch)', 'Ad esempio: ridurre l\'errore di previsione dei costi di commessa da circa 18% a meno dell\'8%', 'text', true, true),
         fl('stData', 'Dati che ti servono dall\'azienda (obbligatorio)', 'Ad esempio: 24 mesi di consuntivi di costo per commessa, export ERP', 'text', true, true)],
-      sendCo: () => { if (coBusy) return; const m = []; if (!f.coName.trim()) m.push('nome e cognome'); if (!f.coCompany.trim()) m.push('ragione sociale'); if (!f.coEmail.trim()) m.push('email di lavoro'); else if (!ok(f.coEmail)) m.push('email di lavoro (indirizzo non valido)');
+      sendCo: () => {
+        if (coBusy) return;
+        const m = [];
+        if (!f.coName.trim()) m.push('nome e cognome');
+        if (!f.coCompany.trim()) m.push('ragione sociale');
+        if (!f.coEmail.trim()) m.push('email di lavoro');
+        else if (!ok(f.coEmail)) m.push('email di lavoro (indirizzo non valido)');
+        if (!f.coTerms) m.push('accettazione dei Termini di servizio e presa visione dell\'Informativa privacy');
         if (m.length) { this.setState({ coErr: 'Completa questi campi: ' + m.join(', ') + '.' }); return; }
         this.setState({ coErr: '', coBusy: true });
-        this.post({ form: 'company', fullName: f.coName.trim(), companyName: f.coCompany.trim(), workEmail: f.coEmail.trim(), painPoints: f.coPain.trim() })
+        this.post({ form: 'company', termsAccepted: true, termsVersion: this.LEGAL_VERSION, fullName: f.coName.trim(), companyName: f.coCompany.trim(), workEmail: f.coEmail.trim(), painPoints: f.coPain.trim() })
           .then(() => this.setState({ co: 'done', coBusy: false }))
-          .catch(() => this.setState({ coErr: 'Invio non riuscito. Riprova tra qualche istante.', coBusy: false })); },
-      sendSt: () => { if (stBusy) return; const m = []; if (!f.stName.trim()) m.push('nome della startup'); if (!f.stEmail.trim()) m.push('email di lavoro'); else if (!ok(f.stEmail)) m.push('email di lavoro (indirizzo non valido)'); if (!f.stData.trim()) m.push('dati che ti servono dall\'azienda');
+          .catch(() => this.setState({ coErr: 'Invio non riuscito. Riprova tra qualche istante.', coBusy: false }));
+      },
+      sendSt: () => {
+        if (stBusy) return;
+        const m = [];
+        if (!f.stName.trim()) m.push('nome della startup');
+        if (!f.stEmail.trim()) m.push('email di lavoro');
+        else if (!ok(f.stEmail)) m.push('email di lavoro (indirizzo non valido)');
+        if (!f.stData.trim()) m.push('dati che ti servono dall\'azienda');
+        if (!f.stTerms) m.push('accettazione dei Termini di servizio e presa visione dell\'Informativa privacy');
         if (m.length) { this.setState({ stErr: 'Completa questi campi: ' + m.join(', ') + '.' }); return; }
         this.setState({ stErr: '', stBusy: true });
-        this.post({ form: 'startup', startupName: f.stName.trim(), website: f.stWeb.trim(), workEmail: f.stEmail.trim(), pitch: f.stDesc.trim(), dataNeeded: f.stData.trim() })
+        this.post({ form: 'startup', termsAccepted: true, termsVersion: this.LEGAL_VERSION, startupName: f.stName.trim(), website: f.stWeb.trim(), workEmail: f.stEmail.trim(), pitch: f.stDesc.trim(), dataNeeded: f.stData.trim() })
           .then(() => this.setState({ st: 'done', stBusy: false }))
-          .catch(() => this.setState({ stErr: 'Invio non riuscito. Riprova tra qualche istante.', stBusy: false })); }
+          .catch(() => this.setState({ stErr: 'Invio non riuscito. Riprova tra qualche istante.', stBusy: false }));
+      }
     };
   }
 }
