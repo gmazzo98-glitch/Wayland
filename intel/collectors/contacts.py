@@ -1,42 +1,59 @@
 """
-Collector: Published business contact points (Ticket I14).
+Collector: Published business contact points (ticket I14, reworked by ticket I95).
 
 Discovers:
   - contact.switchboard (phone number)
   - contact.generic_email (generic published email, e.g. info@, contact@)
   - contact.pec (Certified Electronic Mail)
-  - contact.contact_page (URL of contact page)
-  - contact.languages (supported/published languages)
+  - contact.contact_page (URL of the contact page, evidenced by the page's own text)
+  - contact.languages (languages the site is written in, each evidenced by a real line of the page)
 
 Rules:
   - Only contact points published by the company itself or verified public registers (G3).
   - Never guess personal email patterns (e.g. firstname.lastname@company.com).
-  - Check quotes with quote_in_text() against fetched page text.
+  - Check quotes with quote_in_text() against fetched page text; a quote must SUPPORT the claim it is attached to
+    (a switchboard number quotes the number, a contact page quotes a line of that page).
   - Record checked_absent for keys looked for and not found.
+  - No company name, address or page of any benchmark company appears in this file.
 """
 
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
 from intel.collector import Collector, CollectorContext, CollectorResult
-from intel.fetch import normalise_url
+from intel.fetch import Page, normalise_url
 from intel.ledger import Evidence, Fact, MIN_QUOTE_CHARS, quote_in_text
 from intel.people import (
-    detect_languages,
     extract_emails,
     extract_pec,
     extract_phones,
     is_generic_business_email,
     is_suppressed,
+    language_evidence,
 )
 
+# Standard contact paths tried ONLY when the homepage offers no contact link (bounded, polite, at most 4)
 COMMON_CONTACT_PATHS = [
-    "/contatti", "/contact", "/contacts", "/it/contatti", "/en/contact",
-    "/Home/Contatti", "/chi-siamo", "/about", "/about-us", "/dove-siamo",
+    "/contatti", "/contact", "/contacts", "/kontakt", "/it/contatti", "/en/contact",
+    "/chi-siamo", "/about", "/about-us", "/dove-siamo",
 ]
+CONTACT_PATH_HINTS = ("/contatti", "/contact", "/contacts", "/kontakt", "/dove-siamo", "/recapiti", "/sede")
+CONTACT_WORDS = ("contatti", "contattaci", "contact", "kontakt", "telefono", "phone", "e-mail", "email",
+                 "indirizzo", "address", "sede", "tel.", "fax")
+
+
+def _contact_page_quote(text: str) -> Optional[str]:
+    """A real line of the contact page that shows it is a contact page (not the first characters of the homepage)."""
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if len(s) >= MIN_QUOTE_CHARS and any(w in s.lower() for w in CONTACT_WORDS):
+            s = s[:200]
+            if quote_in_text(s, text):
+                return s
+    return None
 
 
 def _build_safe_quote(short_target: str, full_text: str, label_hint: str = "") -> str:
@@ -86,7 +103,8 @@ def run(ctx: CollectorContext) -> CollectorResult:
     result.pages_fetched += 1
     seen_urls.add(normalise_url(home_page.url or website))
 
-    contact_page_url: Optional[str] = None
+    contact_page: Optional[Page] = None     # the fetched contact page: its own text is the evidence
+    lang_evidence: Dict[str, Evidence] = {}
     all_links: List[str] = []
 
     if home_page.ok and home_page.text:
@@ -95,11 +113,9 @@ def run(ctx: CollectorContext) -> CollectorResult:
         for link in home_page.links:
             norm_link = normalise_url(link)
             path = urlparse(norm_link).path.lower()
-            if any(p in path for p in ("/contatti", "/contact", "/contacts", "/dove-siamo", "/recapiti", "/sede")):
-                if norm_link not in seen_urls:
+            if any(p in path for p in CONTACT_PATH_HINTS):
+                if norm_link not in seen_urls and norm_link not in pages_to_visit:
                     pages_to_visit.append(norm_link)
-                    if not contact_page_url:
-                        contact_page_url = norm_link
 
     # Add standard fallback paths if no contact link was found
     if len(pages_to_visit) == 1:
@@ -123,43 +139,16 @@ def run(ctx: CollectorContext) -> CollectorResult:
             all_links.extend(page.links)
 
         text = page.text
-        # A. Detect Languages
-        if "contact.languages" not in found_keys:
-            langs = detect_languages(text, all_links)
-            if langs:
-                quote = f"Language support: {', '.join(langs).upper()}"
-                # Find an actual language text snippet on page for quote verification
-                lang_quote = ""
-                for l_str in ("english", "italiano", "contact", "contatti", "home"):
-                    if l_str in text.lower():
-                        pos = text.lower().find(l_str)
-                        lang_quote = text[pos:pos + len(l_str) + 12].strip()
-                        if len(lang_quote) >= MIN_QUOTE_CHARS:
-                            break
-                if not lang_quote or not quote_in_text(lang_quote, text):
-                    # Use a clean slice from the page
-                    lang_quote = text[:MIN_QUOTE_CHARS + 10].strip()
+        # A. Languages: a language counts only when a real line of a fetched page shows the site is written in it
+        for lang, line in language_evidence(text):
+            if lang not in lang_evidence and quote_in_text(line, text):
+                lang_evidence[lang] = Evidence(source_type="company_site", url=page.url, quote=line,
+                                               content_hash=page.content_hash)
 
-                if quote_in_text(lang_quote, text):
-                    result.facts.append(Fact(
-                        key="contact.languages",
-                        value=langs,
-                        grade="B",
-                        confidence=0.90,
-                        verified=True,
-                        collector="I14:contacts@1",
-                        evidence=[Evidence(
-                            source_type="company_site",
-                            url=page.url,
-                            quote=lang_quote,
-                            content_hash=page.content_hash,
-                        )]
-                    ))
-                    found_keys.add("contact.languages")
-
-        # B. Contact Page URL
-        if not contact_page_url and any(p in page.url.lower() for p in ("contatt", "contact")):
-            contact_page_url = page.url
+        # B. The contact page: the fetched page whose PATH says so (never the domain name, never the homepage)
+        if contact_page is None and target_url != website and any(
+                h in urlparse(page.url).path.lower() for h in CONTACT_PATH_HINTS):
+            contact_page = page
 
         # C. Switchboard Phone
         if "contact.switchboard" not in found_keys:
@@ -173,7 +162,7 @@ def run(ctx: CollectorContext) -> CollectorResult:
                         grade="B",
                         confidence=0.95,
                         verified=True,
-                        collector="I14:contacts@1",
+                        collector="I14:contacts@2",
                         evidence=[Evidence(
                             source_type="company_site",
                             url=page.url,
@@ -201,7 +190,7 @@ def run(ctx: CollectorContext) -> CollectorResult:
                         grade="B",
                         confidence=0.95,
                         verified=True,
-                        collector="I14:contacts@1",
+                        collector="I14:contacts@2",
                         evidence=[Evidence(
                             source_type="company_site",
                             url=page.url,
@@ -224,7 +213,7 @@ def run(ctx: CollectorContext) -> CollectorResult:
                         grade="B",
                         confidence=0.95,
                         verified=True,
-                        collector="I14:contacts@1",
+                        collector="I14:contacts@2",
                         evidence=[Evidence(
                             source_type="company_site",
                             url=page.url,
@@ -234,25 +223,30 @@ def run(ctx: CollectorContext) -> CollectorResult:
                     ))
                     found_keys.add("contact.pec")
 
-    # Record contact.contact_page if confirmed
-    if contact_page_url and "contact.contact_page" not in found_keys:
-        quote = _build_safe_quote(contact_page_url, home_page.text if home_page.ok else "")
-        if not quote or not quote_in_text(quote, home_page.text):
-            # Quote page title or first heading
-            quote = home_page.text[:MIN_QUOTE_CHARS + 15].strip() if home_page.ok and home_page.text else ""
-        if quote and home_page.ok and quote_in_text(quote, home_page.text):
+    # contact.languages: one fact, one evidence per language
+    if lang_evidence:
+        order = [c for c in ("it", "en", "de", "fr") if c in lang_evidence]
+        result.facts.append(Fact(
+            key="contact.languages", value=order, grade="B", confidence=0.85, verified=True,
+            collector="I14:contacts@2", evidence=[lang_evidence[c] for c in order]))
+        found_keys.add("contact.languages")
+
+    # contact.contact_page: the page we actually fetched, quoted from its own text
+    if contact_page is not None and "contact.contact_page" not in found_keys:
+        quote = _contact_page_quote(contact_page.text)
+        if quote:
             result.facts.append(Fact(
                 key="contact.contact_page",
-                value=contact_page_url,
+                value=contact_page.url,
                 grade="B",
                 confidence=0.95,
                 verified=True,
-                collector="I14:contacts@1",
+                collector="I14:contacts@2",
                 evidence=[Evidence(
                     source_type="company_site",
-                    url=home_page.url,
+                    url=contact_page.url,
                     quote=quote,
-                    content_hash=home_page.content_hash,
+                    content_hash=contact_page.content_hash,
                 )]
             ))
             found_keys.add("contact.contact_page")
@@ -288,7 +282,7 @@ def _harvest_registry_contacts(
                 grade="A",
                 confidence=0.98,
                 verified=True,
-                collector="I14:contacts@1",
+                collector="I14:contacts@2",
                 evidence=[Evidence(
                     source_type="registry",
                     ref="AIDA / Registro Imprese certified_email",
@@ -306,7 +300,7 @@ def _harvest_registry_contacts(
                 grade="A",
                 confidence=0.95,
                 verified=True,
-                collector="I14:contacts@1",
+                collector="I14:contacts@2",
                 evidence=[Evidence(
                     source_type="registry",
                     ref="AIDA company profile telephone",

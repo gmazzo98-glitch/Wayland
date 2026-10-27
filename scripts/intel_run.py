@@ -97,6 +97,18 @@ def build_llm() -> Optional[MiniLLM]:
     return MiniLLM(s) if s.get("api_key") else None
 
 
+def build_search(fetcher: Any, enabled: bool = True, delay: float = 1.0) -> Optional[Any]:
+    """The same polite SearchClient (ticket I05) the orchestrator will give collectors, so a collector that discovers
+    pages by search can be proven live here. None when disabled (--no-search) or when it cannot be built."""
+    if not enabled:
+        return None
+    try:
+        from intel.search import SearchClient
+        return SearchClient(fetcher=fetcher, delay=delay)
+    except Exception:
+        return None
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--company", help="golden file or companies JSON")
@@ -105,6 +117,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--out", help="write facts + run report here")
     ap.add_argument("--no-llm", action="store_true", help="do not build an LLM client even if a key is configured")
+    ap.add_argument("--no-search", action="store_true", help="do not give collectors a web search client")
     ap.add_argument("--delay", type=float, default=1.0, help="seconds between requests to one host")
     a = ap.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
@@ -129,6 +142,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ledger = Ledger(company.get("id"))
     fetcher = PoliteFetcher(delay=a.delay)
     llm = None if a.no_llm else build_llm()
+    search = build_search(fetcher, enabled=not a.no_search, delay=a.delay)
     exit_code, report = 0, []
     for coll in chosen:
         missing = [r for r in coll.requires if r == "llm" and llm is None]
@@ -136,7 +150,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"SKIP {coll.name}: needs {missing} (no CRAWLER_LLM_API_KEY configured, or --no-llm)")
             report.append({"collector": coll.name, "skipped": f"needs {missing}"})
             continue
-        ctx = CollectorContext(company=company, ledger=ledger, budget=Budget(), llm=llm, fetch=fetcher,
+        ctx = CollectorContext(company=company, ledger=ledger, budget=Budget(), llm=llm, search=search, fetch=fetcher,
                                log=lambda m, n=coll.name: print(f"  [{n}] {m}"))
         t0 = time.time()
         try:
