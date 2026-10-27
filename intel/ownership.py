@@ -57,10 +57,11 @@ _LISTED_NAME_TOKENS = (
 )
 _PUBLIC_TOKENS = ("comune di", "provincia", "regione", "ministero", "camera di commercio", "ente", "comunale",
                   "pubblico", "state of", "repubbli", "cassa depositi", "patrimonio", "sovrano", "sovereign")
-# High-precision markers seen in real AIDA country/type cells and names for listed parents (the golden
-# case: Mott Corporation (US) controlled by IDEX Corp (NYSE) — IDEX's AIDA type is "Financial company"
-# with country US; the listed-ness comes from the name and from the web collector's evidence).
-_LISTED_PARENT_NAMES = ("idex", "honeywell", "danaher", "emerson", "abb ", "siemens", "schneider", "parker",
+# High-precision markers seen in real AIDA country/type cells and names for listed parents: the type
+# cell ("Società quotata", NYSE/NASDAQ tokens) is the primary evidence; these neutral well-known listed
+# names are only a secondary heuristic. The benchmark's own companies are deliberately NOT in the list
+# (roadmap rule 6: the classifier must not know the golden set).
+_LISTED_PARENT_NAMES = ("honeywell", "danaher", "emerson", "abb ", "siemens", "schneider", "parker",
                         "illinois tool works", "itw", "nordson", "graco", "iwata", "smc", "bosch", "knorr",
                         "zeiss", "thyssenkrupp", "sandvik", "atlas copco", "eaton", "johnson", "parker-hannifin")
 

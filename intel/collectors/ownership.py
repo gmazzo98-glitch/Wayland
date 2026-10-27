@@ -155,8 +155,8 @@ def _extract_footprint(text: str) -> List[Dict[str, Any]]:
 
 
 def _extract_site_acquisition(text: str, brand: str) -> List[Dict[str, Any]]:
-    """The company's own pages naming its acquirer / group parent ("IDEX ... acquired Mott ... along with
-    Asco Filtri", "parte del gruppo X"). Returns values with the verbatim quote attached."""
+    """The company's own pages naming its acquirer / group parent ("a listed group ... acquired the
+    holding ... along with <company>", "parte del gruppo X"). Returns values with the verbatim quote attached."""
     out: List[Dict[str, Any]] = []
     for m in SITE_ACQ_PAT.finditer(text):
         q = re.sub(r"\s+", " ", m.group(1)).strip()
@@ -729,7 +729,7 @@ def run(ctx: CollectorContext) -> CollectorResult:
                 q = m.group(1).strip()
                 q_owner = any(_owner_in(q, on) for on in owner_names)
                 if not q_owner:
-                    # the sentence may cut just before the organisation ("... CEO of Mott Corporation.")
+                    # the sentence may cut just before the organisation ("... CEO of the acquirer.")
                     tail = text[m.end():m.end() + 80].lstrip(" ,:;")
                     if any(_owner_in(tail[:len(on) + 30], on) for on in owner_names):
                         q = (q + " " + tail.split(".")[0]).strip()
@@ -795,7 +795,7 @@ def _person_from_quote(quote: str, owner_names: List[str]) -> Optional[Dict[str,
         return None
     name = f"{m.group(1)} {m.group(2)}"
     org = next((on for on in owner_names if _owner_in(quote, on)), "")
-    # the name must not be the owner company's own words (e.g. 'Mott Corporation' matched as a person)
+    # the name must not be the owner company's own words (e.g. the owner's own name matched as a person)
     if org and _owner_in(name, org):
         return None
     role = "executive"
