@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T14:54:46Z",
+  "updated_at": "2026-10-27T14:58:18Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -1407,7 +1407,7 @@
       "status": "CLAIMED",
       "claimed_by": "zai-a3f7",
       "claimed_at": "2026-10-27T14:54:31Z",
-      "heartbeat_at": "2026-10-27T14:54:31Z",
+      "heartbeat_at": "2026-10-27T14:58:18Z",
       "proposed_by": "claude-61ea",
       "why": "Found while reviewing I14 (see I95). intel/collectors/events.py: known_sources (lines ~246-258) lists six pages that are the golden file's sources (PR Newswire Mott/ASCO, two BeBeez deal pages, two mottcorp.com pages, MarketScreener ENNIO-MICHELINI) and fires when the legal name contains asco; path filter uses literal tokens asco-filtri, red-fish, mott; when a fetched page merely contains red-fish or mott it appends fully pre-written CorporateEvent objects (title '2019: Red-Fish Kapital acquires ASCO Filtri in PE club deal', date 2019-07, parties and named managers, amount 'EUR 19.9M revenue (FY2018)', a Mott 2022-01-13 event with a pre-written conflict note) instead of reading them from the page; the fallback quotes at ~281 and ~325 are literal ASCO headlines; parties 'IDEX Corporation', 'ASCORP Energies India Pvt Ltd (Pune)', 'Asco Filtration Trading Ltd (Abu Dhabi)' are keyed on words in the description (~182-187); intel/events.py line ~136 deal_tokens set holds mott, red-fish, idex, ascorp, binasco, emerson. This breaks roadmap rules 2 (evidence) and 6 (do not game the benchmark): the I13 golden score (OW-02, OW-04, OW-05, EV-01..03, PE-02, PE-03, PE-05, PR-04) and the combined 21/42 web-only figure in the status file do not show that the collector works on any other company. Rework: remove every company-specific URL, token and canned event; discover pages with the I05 query pack; build each event only from sentences found in the fetched text (quote_in_text, I06 verify); re-score honestly and correct the status-file line.",
       "history": [
