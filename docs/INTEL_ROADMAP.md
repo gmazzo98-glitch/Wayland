@@ -354,6 +354,10 @@ State is on the board, not here. `python scripts/intel_board.py status` shows it
 
 ### I102 — Golden set: add a genuinely JavaScript-only development company
 **Why:** I94 found that Corrada is server-rendered, so the development set has no JavaScript-only case; the only one is the HF Group site behind the Pomini hold-out file. **Do:** find a roster company whose own site answers any path with the same empty shell (check with a nonsense path, as in the I94 note), research it as the others (quote-grounded, not_found list), mark it `development`, update the README.
+### I100 — Verifier: compound-entity detector reads a line break as a space
+**Why:** `intel/verify.py` `_compound_entity_hits()` matched '{Capitalized} {brand}' with `\s+`, which spans a line break, so a page whose headline ends in a capitalised word and whose next line starts with the company name was read as a foreign compound entity and the fact was rejected as a name collision. Headline-then-body is the normal shape of extracted press text, so ordinary true facts were silently lost (the reject direction: safe, but costly in recall).
+**Do:** do not let a compound cross a newline or a sentence end (horizontal whitespace only between the two tokens), keep every genuine same-line compound detected, and add the repro as a regression test.
+**Accept:** the ticket's minimal repro (invented 'Meccanica Brambilla') is no longer a collision and verifies; real same-line compounds still hit; the I93 TUNE/HOLDOUT precision and recall splits still pass unchanged.
 
 ### I90 — Release captain, wave 1
 **Before you start:** run `python scripts/intel_board.py status` and read every ticket proposed after a ticket of this wave was marked DONE (the rework tickets that reviews raised, for example I93 to I96). The board cannot add dependencies to a claimed ticket, so you are the check: **do not ship, and do not report the wave's coverage, while a rework ticket on a wave-1 deliverable is open**, or record in the acceptance note exactly which numbers are inflated by it. Run `tests/test_intel_no_golden_leak.py` and report its baseline list.
