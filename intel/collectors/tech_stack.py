@@ -41,7 +41,7 @@ from urllib.parse import urldefrag, urlparse
 from intel.collector import Collector, CollectorContext, CollectorResult
 from intel.collectors.site_headers import FactSink, fetch_homepage, header_block, registrable_host
 from intel.fetch import Page
-from intel.ledger import quote_in_text
+from intel.ledger import Evidence, quote_in_text
 from intel.verify import extract_brand_tokens, normalize_vat
 
 COLLECTOR_TAG = "I18:tech-stack@1"
@@ -228,7 +228,7 @@ PORTAL_HOST = re.compile(
     r"<a\b[^>]*\bhref=[\"'](?P<href>https?://(?:portal|extranet|customer|clienti|partner|dealer|rivenditori|b2b|service|support|assistenza|ticket|"
     r"helpdesk|iot|cloud|connect|my)\.[a-z0-9.-]+[^\"']*)[\"'][^>]*>", re.I)
 CONFIGURATOR_LINK = re.compile(
-    r"<a\b[^>]*\bhref=[\"'][^\"']*(?:configurator|configuratore|konfigurator|product-?selector|selettore-?prodott)[^\"']*[\"'][^>]*>", re.I)
+    r"<a\b[^>]*\bhref=[\"'](?P<href>[^\"']*(?:configurator|configuratore|konfigurator|product-?selector|selettore-?prodott)[^\"']*)[\"'][^>]*>", re.I)
 CONFIGURATOR_TEXT = re.compile(
     r"<a\b[^>]*>\s*[^<]{0,40}(?:configuratore|configurator|konfigurator)[^<]{0,40}</a>", re.I)
 QUOTE_REQUEST = re.compile(
@@ -244,6 +244,8 @@ PLATFORM_WORDS = re.compile(r"wordpress|joomla|drupal|elementor|wix|shopify|wooc
 def _snippet(raw: str, start: int, end: int, limit: int = 300) -> str:
     """A verbatim piece of the markup around a match: the enclosing tag when the match is inside one and the tag
     is short, otherwise 60 characters either side."""
+    if raw[start:start + 1] == "<" and raw[end - 1:end] == ">" and end - start <= limit:
+        return raw[start:end]          # the match IS a whole tag
     lt = raw.rfind("<", max(0, start - 400), start + 1)
     if lt != -1 and raw.find(">", lt, start) == -1:
         gt = raw.find(">", end, end + 400)
@@ -413,9 +415,12 @@ def find_stale_copyright(text: str, raw: str, now: datetime) -> Optional[Tuple[i
     year is written by a script (we cannot tell what it renders) or the page has no copyright line."""
     best = None
     for m in COPYRIGHT.finditer(text):
+        if not m.group("y2") and re.match(r"\s*[-–—/]", text[m.end():m.end() + 4]):
+            continue   # "© 1999-" : the end year of the range is written by a script, so the rendered year is unknown
         year = int(m.group("y2") or m.group("y1"))
         if best is None or year > best[0]:
-            best = (year, m.group(0))
+            a, b = max(0, m.start() - 30), min(len(text), m.end() + 50)
+            best = (year, re.sub(r"\s+", " ", text[a:b]).strip())
     if best is None:
         return None
     if DYNAMIC_YEAR.search(raw):
@@ -423,6 +428,12 @@ def find_stale_copyright(text: str, raw: str, now: datetime) -> Optional[Tuple[i
     if best[0] > now.year - STALE_COPYRIGHT_YEARS:
         return None
     return best
+
+
+ISO_639_1 = frozenset(
+    "aa ab af ak am ar as az be bg bn bo br bs ca cs cy da de dz el en eo es et eu fa fi fo fr ga gl gu he hi hr hu hy id is it ja "
+    "ka kk km kn ko ku ky la lb lo lt lv mk ml mn mr ms mt my nb ne nl nn no pa pl ps pt ro ru sk sl sq sr sv sw ta te tg th tk tr "
+    "uk ur uz vi zh".split())
 
 
 STOPWORDS = {
@@ -461,8 +472,10 @@ def mixed_languages(text: str) -> Optional[Tuple[str, str, float]]:
 
 SOCIAL_PATTERNS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
     ("linkedin", re.compile(r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/(?:company|school|showcase)/[^/?#\"'\s<>\\]+", re.I)),
-    ("facebook", re.compile(r"https?://(?:www\.|[a-z]{2}-[a-z]{2}\.)?facebook\.com/(?!sharer|share|dialog|plugins|tr[?/]|login|policies)"
-                            r"(?:pages/[^/?#\"'\s<>\\]+/\d+|profile\.php\?id=\d+|[A-Za-z0-9.\-]{3,})", re.I)),
+    ("facebook", re.compile(
+        r"https?://(?:www\.|[a-z]{2}-[a-z]{2}\.)?facebook\.com/(?:pages/(?:category/[^/?#\"'\s<>\\]+/)?[^/?#\"'\s<>\\]+(?:/\d+)?|profile\.php\?id=\d+|"
+        r"(?!(?:pages|groups|events|watch|business|help|about|public|policies|legal|marketplace|gaming|sharer|share|dialog|plugins|tr|login)(?:[/?#\"'\s<>\\]|$))"
+        r"[A-Za-z0-9.\-]{3,})", re.I)),
     ("instagram", re.compile(r"https?://(?:www\.)?instagram\.com/(?!p/|explore|accounts|reel/|stories/)[A-Za-z0-9_.]{2,30}", re.I)),
     ("youtube", re.compile(r"https?://(?:www\.)?youtube\.com/(?:channel/UC[\w-]{20,}|c/[^/?#\"'\s<>\\]+|@[\w.\-]+|user/[^/?#\"'\s<>\\]+)", re.I)),
     ("x", re.compile(r"https?://(?:www\.)?(?:twitter|x)\.com/(?!intent|share|home|i/|search|hashtag)[A-Za-z0-9_]{2,15}(?=[\"'/?#\s<>\\])", re.I)),
@@ -702,7 +715,7 @@ def run(ctx: CollectorContext, now: Optional[datetime] = None) -> CollectorResul
     for m in re.finditer(r"<link\b[^>]*hreflang=[\"']([a-zA-Z]{2,3})(?:-[a-zA-Z]+)?[\"'][^>]*>", home.raw, re.I):
         langs.setdefault(m.group(1).lower(), _snippet(home.raw, m.start(), m.end()))
     for lang, snip in sorted(langs.items()):
-        if lang != "x" and sink.add("digital.site_language", lang, quote=snip, source_text=home.raw, url=home.url,
+        if lang in ISO_639_1 and sink.add("digital.site_language", lang, quote=snip, source_text=home.raw, url=home.url,
                                     confidence=0.9, content_hash=home.content_hash, title="page markup"):
             emitted_keys.add("digital.site_language")
 
@@ -715,15 +728,11 @@ def run(ctx: CollectorContext, now: Optional[datetime] = None) -> CollectorResul
         if sink.add(f"digital.social_{network}", url, quote=snip, source_text=pg.raw, url=pg.url, confidence=0.9,
                     content_hash=pg.content_hash, title="page markup"):
             emitted_keys.add(f"digital.social_{network}")
-    for network, url in sorted((n, u) for (n, _), (u, _, _) in socials.items() if n == "youtube"):
-        _youtube_activity(ctx, sink, url, readable)
-        break
 
-    # ---- domain facts (only when the homepage really names this company) ------------------------------
-    if site_mentions_company(ctx.company, home.text or ""):
-        _domain_facts(ctx, sink, result, home)
-    else:
-        result.errors.append("the homepage does not name the company (name, brand or VAT): domain facts withheld")
+    # ---- redirect to another domain, then domain facts (only when the homepage names this company) ----
+    if _redirect_fact(ctx, sink, home, asked_url):
+        emitted_keys.add("digital.site_redirect")
+    _domain_facts(ctx, sink, result, home, asked_url)
 
     # ---- what was checked and not found ---------------------------------------------------------------
     for key in ("cms", "ecommerce_platform", "analytics", "tag_manager", "marketing_automation", "crm", "live_chat",
@@ -756,8 +765,35 @@ def _broken_links(home: Page, subpages: Sequence[Page]) -> List[Tuple[str, int, 
     return out
 
 
-def _domain_facts(ctx: CollectorContext, sink: FactSink, result: CollectorResult, home: Page) -> None:
-    domain = registrable_domain(registrable_host(home.url))
+def homepage_evidence(company: Dict[str, object], home: Page) -> Optional[Evidence]:
+    """The sentence of the homepage that names the company (legal name, brand token or VAT): the reason a fact about
+    the DOMAIN is attributed to THIS company. None when the homepage names nobody (then domain facts are withheld)."""
+    text = home.text or ""
+    low = text.lower()
+    name = str(company.get("legal_name") or "").lower()
+    vat = normalize_vat(str(company.get("vat") or company.get("registration_number") or ""))
+    needles = [n for n in ([name] if name else []) + extract_brand_tokens(name) if n]
+    if vat and len(vat) >= 7:
+        needles.append(vat)
+    for needle in needles:
+        i = low.find(needle) if needle != vat else text.find(vat)
+        if i >= 0:
+            a, b = max(0, i - 30), min(len(text), i + len(needle) + 50)
+            quote = re.sub(r"\s+", " ", text[a:b]).strip()
+            if len(quote) >= 12:
+                return Evidence(source_type="company_site", url=home.url, quote=quote, title="homepage naming the company",
+                                content_hash=home.content_hash)
+    return None
+
+
+def _domain_facts(ctx: CollectorContext, sink: FactSink, result: CollectorResult, home: Page, asked_url: str) -> None:
+    """RDAP registration date and Internet Archive first capture of the company's CONFIGURED domain. Each fact
+    carries a second Evidence: the homepage sentence that names the company (why the domain is attributed to it)."""
+    link = homepage_evidence(ctx.company, home)
+    domain = registrable_domain(registrable_host(asked_url or home.url))
+    if link is None:
+        result.errors.append("the homepage does not name the company (name, brand or VAT): domain facts withheld")
+        return
     if not domain or ctx.fetch is None:
         return
     # registration date: RDAP through the public bootstrap redirector; only TLDs that publish RDAP answer
@@ -769,7 +805,7 @@ def _domain_facts(ctx: CollectorContext, sink: FactSink, result: CollectorResult
         if ev and d:
             sink.add("digital.domain_registered_on", d.group(1), quote=ev.group(0), source_text=rdap.raw, url=rdap.url,
                      grade="A", source_type="public_register", confidence=0.95, as_of=d.group(1),
-                     content_hash=rdap.content_hash, title=f"RDAP record of {domain}")
+                     content_hash=rdap.content_hash, title=f"RDAP record of {domain}", extra_evidence=[link])
     elif rdap is not None and rdap.status == 404:
         result.errors.append(f"no RDAP record for {domain} (the TLD publishes none, e.g. .it, .de, .eu, .ch, .at): "
                              "registration date unknown, not absent")
@@ -783,33 +819,21 @@ def _domain_facts(ctx: CollectorContext, sink: FactSink, result: CollectorResult
             first = f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}"
             sink.add("digital.wayback_first_seen", first, quote=m.group(0), source_text=cdx.raw, url=cdx.url, grade="C",
                      source_type="public_register", confidence=0.9, as_of=first, content_hash=cdx.content_hash,
-                     title=f"Internet Archive capture index of {domain}",
+                     title=f"Internet Archive capture index of {domain}", extra_evidence=[link],
                      notes="Earliest capture with HTTP 200; the site existed no later than this date.")
 
 
-def _youtube_activity(ctx: CollectorContext, sink: FactSink, channel_url: str, readable: Sequence[Page]) -> None:
-    """Last public upload of the company's YouTube channel, from the channel's own public feed (no login)."""
-    if ctx.fetch is None:
-        return
-    m = re.search(r"/channel/(UC[\w-]{20,})", channel_url)
-    channel_id = m.group(1) if m else None
-    if not channel_id:
-        page = ctx.fetch(channel_url)
-        if page is not None and page.ok and page.raw:
-            cm = re.search(r"\"channelId\"\s*:\s*\"(UC[\w-]{20,})\"|channel/(UC[\w-]{20,})", page.raw)
-            channel_id = (cm.group(1) or cm.group(2)) if cm else None
-    if not channel_id:
-        return
-    feed = ctx.fetch(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}")
-    if feed is None or not feed.ok or not feed.raw:
-        return
-    dates = sorted(re.findall(r"<published>(\d{4}-\d{2}-\d{2})T[^<]*</published>", feed.raw))
-    if dates:
-        last = dates[-1]
-        quote = re.search(r"<published>" + re.escape(last) + r"T[^<]*</published>", feed.raw).group(0)
-        sink.add("digital.social_youtube_last_upload", last, quote=quote, source_text=feed.raw, url=feed.url, grade="B",
-                 source_type="social", confidence=0.9, as_of=last, content_hash=feed.content_hash,
-                 title="YouTube channel feed (public)")
+def _redirect_fact(ctx: CollectorContext, sink: FactSink, home: Page, asked_url: str) -> bool:
+    """The configured website address now answers from ANOTHER registrable domain (a company folded into its
+    group's site, a rebrand): worth a fact of its own, and the reason domain facts follow the configured domain."""
+    asked, final = registrable_domain(registrable_host(asked_url)), registrable_domain(registrable_host(home.url))
+    if not asked or not final or asked == final:
+        return False
+    obs = f"{asked_url} redirects to {home.url}"
+    return bool(sink.add("digital.site_redirect", f"{asked} -> {final}", quote=obs, source_text=obs, url=asked_url,
+                         confidence=0.9, title="HTTP redirect observed by the fetcher",
+                         notes="The address on record answers from another domain: a rebrand, a group site or the company's own other "
+                               "domain. Read the target before drawing a conclusion."))
 
 
 COLLECTOR = Collector(

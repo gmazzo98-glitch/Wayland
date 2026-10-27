@@ -1,9 +1,9 @@
 """
 Collector `site-headers`: what the company's own web server says about itself, and how its transport is secured.
 
-Written first as the worked example every other collector copies (ticket I02), and it fixes a real false negative:
-scrapers/wappalyzer_local.py only knows 18 HTML signatures (WordPress, Shopify, ...), so ASCO Filtri's site, which
-answers `Server: Microsoft-IIS/10.0` and `X-Powered-By: ASP.NET`, was recorded as "no technology detected".
+Written first as the worked example every other collector copies (ticket I02), and it fixed a real false negative:
+scrapers/wappalyzer_local.py only knows 18 HTML signatures (WordPress, Shopify, ...), so a site answering
+`Server: Microsoft-IIS/10.0` and `X-Powered-By: ASP.NET` was recorded as "no technology detected".
 Ticket I18 extended it: CDN and hosting from headers, framework from session cookies, end-of-life server software,
 the security-header set, and the TLS certificate. The markup side (scripts, meta tags, site quality) is in
 `intel/collectors/tech_stack.py`; both write under `digital.` and share the helpers defined here (`FactSink`,
@@ -127,7 +127,9 @@ class FactSink:
 
     `anchor_text` is the homepage text: it is appended to the text the gate sees, so the gate can answer "does this
     site talk about THIS company?" even for a fact whose own source (a header block, an API answer) names nobody.
-    A site that never names the company yields `unverified` facts, which the dossier hides by default."""
+    The registered-domain discriminator comes from the Evidence URL being on the company's own domain; a source on
+    another domain (RDAP, the Internet Archive) therefore carries a second Evidence, the homepage sentence naming the
+    company. A site that never names the company yields `unverified` facts, which the dossier hides by default."""
 
     def __init__(self, ctx: CollectorContext, result: CollectorResult, tag: str, anchor_text: str = "") -> None:
         self.ctx, self.result, self.tag, self.anchor_text = ctx, result, tag, anchor_text
@@ -137,7 +139,7 @@ class FactSink:
     def add(self, key: str, value: Any, *, quote: str, source_text: str, url: str, grade: str = "B",
             confidence: float = 0.9, source_type: str = "company_site", title: Optional[str] = None,
             as_of: Optional[str] = None, notes: Optional[str] = None, content_hash: Optional[str] = None,
-            published_at: Optional[str] = None) -> Optional[Fact]:
+            published_at: Optional[str] = None, extra_evidence: Optional[List[Evidence]] = None) -> Optional[Fact]:
         quote = re.sub(r"\s+", " ", quote or "").strip()
         if not quote_in_text(quote, source_text):
             self.dropped += 1
@@ -146,9 +148,18 @@ class FactSink:
         fact = Fact(key=key, value=value, grade=grade, confidence=confidence, collector=self.tag, as_of=as_of,
                     notes=notes, evidence=[Evidence(source_type=source_type, url=url, quote=quote[:400], title=title,
                                                     content_hash=content_hash, published_at=published_at)])
+        for extra in extra_evidence or []:
+            if not quote_in_text(extra.quote or "", self.anchor_text):
+                self.dropped += 1
+                self.result.errors.append(f"{key}: the second evidence quote is not in the homepage text, fact dropped")
+                return None
+            fact.evidence.append(extra)
         if fact.id in self._seen:
             return None
-        verdict = verify(fact, source_text + "\n" + self.anchor_text, self.ctx.company, self.ctx.ledger)
+        # The gate sees the quote (already grounded in the real source above) plus the homepage's visible text: the
+        # entity check must read what a visitor reads, not the markup, where the brand sits in every asset path.
+        gate_text = quote + "\n" + self.anchor_text + "\n" + "\n".join(e.quote or "" for e in fact.evidence[1:])
+        verdict = verify(fact, gate_text, self.ctx.company, self.ctx.ledger)
         if verdict.decision == "rejected":
             self.dropped += 1
             self.result.errors.append(f"{key}: rejected by the verification gate: {'; '.join(verdict.reasons)[:160]}")
@@ -284,8 +295,15 @@ def run(ctx: CollectorContext, now: Optional[datetime] = None) -> CollectorResul
     # 1. what the server announces
     for name, key in HEADER_FACTS.items():
         value = lowered.get(name)
-        if value:
-            emit(key, value.strip(), f"{_original_case(headers, name)}: {value}")
+        if not value:
+            continue
+        line = f"{_original_case(headers, name)}: {value}"
+        if name == "x-powered-by" and "," in value:
+            # "PHP/8.3.36, PleskLin": several products in one header; a hosting panel is not a framework
+            for token in (t.strip() for t in value.split(",") if t.strip()):
+                emit("digital.hosting_panel" if token.lower().startswith("plesk") else key, token, line)
+        else:
+            emit(key, value.strip(), line)
 
     # 2. application framework from session-cookie names
     cookies = lowered.get("set-cookie", "")
@@ -318,8 +336,10 @@ def run(ctx: CollectorContext, now: Optional[datetime] = None) -> CollectorResul
         csp_is_permissive(lowered["content-security-policy"]) else ""
     summary = f"{len(present)} of {len(SECURITY_HEADERS)} present: " + (", ".join(present) or "none") + weak + \
               ("; missing: " + ", ".join(missing) if missing else "")
-    emit("digital.security_headers", summary, quote_prefix(text), confidence=0.9,
-         notes="Derived from the full response header set of the homepage; the quote shows its first lines.")
+    first_present = next((f"{_original_case(headers, h)}: {lowered[h]}" for _, h in SECURITY_HEADERS if lowered.get(h)), None)
+    emit("digital.security_headers", summary, first_present or quote_prefix(text), confidence=0.9,
+         notes="Derived from the full response header set of the homepage; the quote is one of the headers it rests on "
+               "(or the first header lines when none of the six is present).")
     if lowered.get("strict-transport-security"):
         emit("digital.hsts", lowered["strict-transport-security"].strip(),
              f"{_original_case(headers, 'strict-transport-security')}: {lowered['strict-transport-security']}")
