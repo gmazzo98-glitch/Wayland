@@ -67,17 +67,20 @@ def parse_event_year(text: str) -> Optional[int]:
     return None
 
 
-def merge_events(events: List[CorporateEvent]) -> List[CorporateEvent]:
+def merge_events(events: List[CorporateEvent], company_name: str = "") -> List[CorporateEvent]:
     """
     Merge duplicate reports of the same event across outlets into one event with multiple sources.
     Detects and records conflicting dates as conflicts rather than discarding or overwriting.
+    `company_name` (when the caller knows it) excludes the subject's own tokens from the
+    same-event test, so two different milestones that both mention the company stay separate.
     """
     merged: List[CorporateEvent] = []
+    own = {t for t in re.findall(r"\b[a-z0-9\-]{4,}\b", (company_name or "").lower())}
 
     for ev in events:
         matched = False
         for existing in merged:
-            if _is_same_event(existing, ev):
+            if _is_same_event(existing, ev, own_tokens=own):
                 matched = True
                 # Merge sources & quotes
                 if ev.source_url and ev.source_url not in existing.sources:
@@ -122,20 +125,22 @@ def merge_events(events: List[CorporateEvent]) -> List[CorporateEvent]:
     return sorted(merged, key=lambda x: (x.year if x.year else 9999, x.date or ""))
 
 
-def _is_same_event(a: CorporateEvent, b: CorporateEvent) -> bool:
-    """True if two events represent the same real-world corporate milestone."""
+def _is_same_event(a: CorporateEvent, b: CorporateEvent, own_tokens: Optional[Set[str]] = None) -> bool:
+    """True if two events represent the same real-world corporate milestone. Generic: same kind plus
+    enough overlap between the entity names the two sentences mention (no company-specific tokens)."""
     if a.kind != b.kind:
         return False
 
-    # Check shared key parties or distinctive entities (e.g. Mott, Red-Fish, IDEX)
     a_tokens = set(re.findall(r"\b[A-Za-z0-9\-]{4,}\b", (a.title + " " + " ".join(a.parties)).lower()))
     b_tokens = set(re.findall(r"\b[A-Za-z0-9\-]{4,}\b", (b.title + " " + " ".join(b.parties)).lower()))
-    shared_parties = a_tokens.intersection(b_tokens)
+    shared_parties = a_tokens.intersection(b_tokens) - (own_tokens or set())
 
-    # Distinctive deal tokens
-    deal_tokens = {"mott", "red-fish", "redfish", "idex", "ascorp", "binasco", "emerson"}
-    distinctive_overlap = shared_parties.intersection(deal_tokens)
-    if distinctive_overlap:
+    # A shared party token that is not generic vocabulary says these are the same deal/milestone
+    generic = {"company", "italy", "europe", "group", "holding", "corporation", "srl", "spa",
+               "acquisition", "acquires", "acquired", "investment", "merger", "deal", "founded",
+               "year", "new", "plant", "facility", "subsidiary"}
+    distinctive = shared_parties - generic
+    if distinctive:
         return True
 
     # Same year and strong token overlap
