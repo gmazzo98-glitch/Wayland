@@ -40,6 +40,50 @@ def test_plan_skips_missing_capabilities_and_worker_without_adapter():
     assert [c.name for c in o.plan()] == ["web"]
 
 
+def test_worker_adapter_unlocks_worker_collector_and_runs_it():
+    worker = _collector("worker", "documents.item", requires=("web", "worker"))
+
+    def run_worker(coll, ctx):
+        return coll.run(ctx)
+
+    o = DeepProfileOrchestrator(collectors={worker.name: worker}, fetch=lambda _: Page(),
+                                worker_runner=run_worker)
+    assert [c.name for c in o.plan()] == ["worker"]
+    out = o.run({"id": "a", "legal_name": "Company Alpha"},
+                budget=Budget(max_rounds=1, coverage_target=0.01))
+    assert len(out.ledger.facts) == 1
+
+
+def test_checkpoint_resume_skips_finished_collectors(tmp_path):
+    calls = []
+
+    def first(ctx):
+        calls.append("first")
+        return CollectorResult(facts=[Fact(
+            key="identity.name", value="found", grade="B", confidence=.8, verified=True,
+            evidence=[Evidence(source_type="company_site", url="https://example.test", quote="Company Alpha evidence")],
+        )])
+
+    def second(ctx):
+        calls.append("second")
+        return CollectorResult(facts=[Fact(
+            key="digital.stack", value="found", grade="B", confidence=.8, verified=True,
+            evidence=[Evidence(source_type="company_site", url="https://example.test", quote="Company Alpha evidence")],
+        )])
+
+    c1 = Collector("first", "TEST", ("identity.",), first)
+    c2 = Collector("second", "TEST", ("digital.",), second)
+    path = str(tmp_path / "resume.json")
+    o = DeepProfileOrchestrator(collectors={c.name: c for c in (c1, c2)}, fetch=lambda _: Page())
+    out = o.run({"id": "a", "legal_name": "Company Alpha"}, budget=Budget(max_rounds=1, coverage_target=1),
+                checkpoint_path=path)
+    assert calls == ["first", "second"]
+    resumed = o.run({"id": "a", "legal_name": "Company Alpha"}, budget=Budget(max_rounds=1, coverage_target=1),
+                    checkpoint_path=path)
+    assert calls == ["first", "second"]
+    assert len(resumed.ledger.facts) == len(out.ledger.facts)
+
+
 def test_orchestrator_merges_per_collector_and_records_absence(tmp_path):
     c1 = _collector("identity", "identity.name")
     c2 = _collector("digital", "digital.stack")
@@ -63,7 +107,7 @@ def test_verification_gate_is_called_before_merge():
 
     o = DeepProfileOrchestrator(collectors={c.name: c}, fetch=lambda _: Page(), verifier=verifier)
     out = o.run({"id": "a", "legal_name": "Company Alpha"}, budget=Budget(max_rounds=1, coverage_target=1.0))
-    assert called == [("identity.name", "Company Alpha evidence")]
+    assert called == [("identity.name", "Company Alpha evidence\nhttps://example.test")]
     assert out.collectors[0].verification == {"verified": 1}
 
 

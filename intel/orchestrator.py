@@ -98,6 +98,8 @@ class DeepProfileOrchestrator:
         self.capabilities = set(capabilities or ("web", "search"))
         if llm is not None:
             self.capabilities.add("llm")
+        if worker_runner is not None:
+            self.capabilities.add("worker")
         if fetch is not None:
             self.capabilities.add("web")
         self.fetch, self.search, self.llm = fetch, search, llm
@@ -196,6 +198,11 @@ class DeepProfileOrchestrator:
             if not follow_ups:
                 stopped_reason = "no new follow-up queries"
                 break
+            # A follow-up is a new bounded pass over the collectors.  Ledger
+            # merge is idempotent, so repeated evidence is coalesced while a
+            # newly discovered lead can add facts.  The round limit and hard
+            # budget keep this from becoming an open-ended loop.
+            completed.clear()
         else:
             stopped_reason = "round limit"
 
@@ -274,7 +281,11 @@ class DeepProfileOrchestrator:
             if ev.url and self.fetch:
                 try:
                     page = self.fetch(ev.url)
-                    page_texts.append(getattr(page, "text", "") or "")
+                    # The URL is part of the fetched evidence context.  This
+                    # matters for header-only facts: the response headers can
+                    # prove IIS/ASP.NET, while the entity discriminator is the
+                    # company's domain rather than body text.
+                    page_texts.append("\n".join((getattr(page, "text", "") or "", getattr(page, "url", "") or ev.url)))
                 except Exception:
                     pass
         page_text = "\n".join(page_texts) or "\n".join(e.quote or "" for e in fact.evidence)
@@ -376,10 +387,14 @@ class DeepProfileOrchestrator:
                           runs: List[CollectorRun], budget: Budget, result: Optional[OrchestrationResult] = None) -> None:
         if not path:
             return
-        payload = result.to_dict() if result else {"run_id": run_id, "ledger": ledger.to_dict(),
-                                                    "completed": sorted(completed),
-                                                    "collectors": [r.to_dict() for r in runs],
-                                                    "budget": budget.snapshot()}
+        if result:
+            payload = result.to_dict()
+            payload["completed"] = sorted(completed)
+        else:
+            payload = {"run_id": run_id, "ledger": ledger.to_dict(),
+                       "completed": sorted(completed),
+                       "collectors": [r.to_dict() for r in runs],
+                       "budget": budget.snapshot()}
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(target.suffix + ".tmp")

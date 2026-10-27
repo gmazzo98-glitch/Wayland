@@ -62,7 +62,7 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
   ```
   Expect differences by design (open points OP-003, OP-004): the live engine scores a company with no data as 0.0, the new one returns no score and 0% coverage.
 
-* Deep-intelligence I30 (2026-10-27, codex-a7f2): partial implementation in the isolated branch adds run budgets, capability-aware parallel orchestration, verification-before-merge, checkpoints, coverage/unknown reporting, optional follow-up planning, resource-governor use and CompanySourceRun mirroring. I30 acceptance is not complete: the bounded ASCO smoke run stopped after five facts, and worker/resume/three-company proof remains open; the full suite retains pre-existing failures including access-control timing, status-file ordering, stale worker bundle and deep-site golden-leak checks.
+* Deep-intelligence I30 (2026-10-27, codex-a7f2): partial implementation in the isolated branch adds run budgets, capability-aware parallel orchestration, verification-before-merge, checkpoints, coverage/unknown reporting, optional follow-up planning, resource-governor use and CompanySourceRun mirroring. Focused I30 tests are 8 passed, including offline worker-adapter and checkpoint-resume coverage; bounded no-write smoke runs completed for four golden companies at 0.1111 weighted coverage each. I30 acceptance is not complete: full ASCO 70% coverage, real worker claim/failover, process-kill resume and full-collector three-company proof remain open; the full suite retains pre-existing failures including access-control timing, status-file ordering, stale worker bundle and deep-site golden-leak checks.
 
 ## C. Open points
 
