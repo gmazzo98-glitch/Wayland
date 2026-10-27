@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
+import os
 import re
 import threading
 import time
@@ -89,7 +91,8 @@ def pdf_to_text(data: bytes) -> str:
 
 class PoliteFetcher:
     def __init__(self, delay: float = DEFAULT_DELAY, timeout: int = 20, respect_robots: bool = True,
-                 session: Optional[requests.Session] = None) -> None:
+                 session: Optional[requests.Session] = None, cache_dir: Optional[str] = None,
+                 cache_ttl: int = 86400, browser_fallback: bool = False) -> None:
         self.delay, self.timeout, self.respect_robots = delay, timeout, respect_robots
         self.session = session or requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT, "Accept-Language": "it,en;q=0.8,de;q=0.6"})
@@ -97,6 +100,45 @@ class PoliteFetcher:
         self._last: Dict[str, float] = {}
         self._lock = threading.Lock()
         self.pages_fetched = 0
+        self.cache_dir = cache_dir
+        self.cache_ttl = cache_ttl
+        self.browser_fallback = browser_fallback
+
+    def _cache_path(self, url: str) -> Optional[str]:
+        if not self.cache_dir:
+            return None
+        return os.path.join(self.cache_dir, hashlib.sha256(url.encode()).hexdigest() + ".json")
+
+    def _read_cache(self, url: str) -> Optional[dict]:
+        path = self._cache_path(url)
+        if not path or not os.path.exists(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as fh:
+                item = json.load(fh)
+            if self.cache_ttl >= 0 and time.time() - item.get("saved", 0) > self.cache_ttl:
+                return None
+            return item
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def _write_cache(self, url: str, page: Page) -> None:
+        path = self._cache_path(url)
+        if not path:
+            return
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"saved": time.time(), "page": page.__dict__}, fh)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _page_from_cache(item: dict) -> Optional[Page]:
+        try:
+            return Page(**item["page"])
+        except (KeyError, TypeError):
+            return None
 
     def _allowed(self, url: str) -> bool:
         if not self.respect_robots:
@@ -127,11 +169,23 @@ class PoliteFetcher:
         url = normalise_url(url)
         if not url:
             return Page(url="", ok=False, note="empty url")
+        cached = self._read_cache(url)
+        cached_page = self._page_from_cache(cached) if cached else None
+        if cached_page is not None:
+            return cached_page
         if not self._allowed(url):
             return Page(url=url, ok=False, note="blocked by robots.txt")
         self._wait(urlparse(url).netloc)
         try:
-            resp = self.session.get(url, timeout=self.timeout, stream=True, allow_redirects=True)
+            request_headers = {}
+            if cached and cached.get("etag"):
+                request_headers["If-None-Match"] = cached["etag"]
+            if cached and cached.get("last_modified"):
+                request_headers["If-Modified-Since"] = cached["last_modified"]
+            resp = self.session.get(url, timeout=self.timeout, stream=True, allow_redirects=True,
+                                    headers=request_headers)
+            if resp.status_code == 304 and cached_page:
+                return cached_page
             raw = resp.raw.read(MAX_BYTES + 1, decode_content=True)
         except requests.RequestException as exc:
             return Page(url=url, ok=False, note=f"{type(exc).__name__}: {str(exc)[:160]}")
@@ -152,8 +206,14 @@ class PoliteFetcher:
                 page.ok, page.note = False, f"pdf not readable: {type(exc).__name__}"
             return page
         if "html" in ctype or ctype in ("", "text/plain"):
-            html = raw[:MAX_BYTES].decode(resp.encoding or "utf-8", errors="replace")
+            encoding = resp.encoding or (resp.apparent_encoding if hasattr(resp, "apparent_encoding") else None) or "utf-8"
+            html = raw[:MAX_BYTES].decode(encoding, errors="replace")
             page.title, page.text, hrefs = html_to_text(html)
+            if self.browser_fallback and len(page.text.strip()) < 80:
+                rendered = self._render_with_browser(resp.url)
+                if rendered:
+                    page.title, page.text, hrefs = html_to_text(rendered)
+                    page.note = "rendered with optional browser fallback"
             seen, links = set(), []
             for h in hrefs:
                 absolute = urldefrag(urljoin(resp.url, h.strip()))[0]
@@ -161,4 +221,20 @@ class PoliteFetcher:
                     seen.add(absolute)
                     links.append(absolute)
             page.links = links
+        self._write_cache(url, page)
         return page
+
+    def _render_with_browser(self, url: str) -> str:
+        """Best-effort Playwright fallback; it is optional and never makes fetching fail."""
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                try:
+                    page = browser.new_page()
+                    page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+                    return page.content()
+                finally:
+                    browser.close()
+        except Exception:
+            return ""
