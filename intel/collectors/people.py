@@ -58,6 +58,7 @@ MAX_PRESS_PAGES = 10            # pages fetched from search results
 MAX_RESULTS_PER_QUERY = 8
 LOCALITY_CHARS = 250            # a third-party page must name the company this close to the person
 MAX_CANDIDATES_PER_PAGE = 12
+MAX_SCAN_CHARS = 200_000        # characters of one page scanned for people
 
 # Sources with an internal site search that a deal story about ANY Italian company can be found with (roadmap section 4
 # lists the outlet as a readable deal-story source). {q} is the company name. Read through the polite, robots-aware
@@ -199,7 +200,9 @@ def _extract_candidates(
     found: List[Tuple[PersonCandidate, str]] = []
     seen: Set[Tuple[str, str]] = set()
     company_tokens = {tok.lower() for n in names for tok in re.split(r"\W+", n) if tok}
-    for name, role_text, span, start in _raw_matches(text):
+    # bounded work on any page: adversarial text (very long capitalised runs) made the patterns take seconds; a page's
+    # people are in its first 200,000 characters (positions below stay valid, the quote is checked on the full text)
+    for name, role_text, span, start in _raw_matches(text[:MAX_SCAN_CHARS]):
         name = clean_name(name)
         if not plausible_person_name(name):
             continue

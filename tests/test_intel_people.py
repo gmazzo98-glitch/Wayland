@@ -463,6 +463,14 @@ def test_names_and_titles_split_over_lines_by_inline_links_are_still_found():
         assert quote_in_text(cand.quote, text)
 
 
+def test_only_the_first_characters_of_a_page_are_scanned_for_people():
+    head = "Giorgio Salvi, amministratore delegato di Alfa Beta spa, ha commentato. "
+    text = head + ("Testo d'altro. " * 20000) + " Luisa Mancini, direttore generale di Alfa Beta spa, ha detto."
+    assert len(text) > people.MAX_SCAN_CHARS
+    found = {c.full_name for c, _t in people._extract_candidates(text, "https://x.example/a", "press", ["Alfa Beta"], False, [])}
+    assert found == {"Giorgio Salvi"}                                    # the second person is past the scan limit
+
+
 def test_team_page_pairs_do_not_shift_when_names_and_titles_alternate():
     raw = people._raw_matches("Luca Verdi\nDirettore Generale\nAnna Neri\nResponsabile Acquisti\n")
     pairs = {(n, r) for n, r, _s, _i in raw}
