@@ -6,146 +6,708 @@
     "legal_name": "EUROSICMA - COSTRUZIONI MACCHINE AUTOMATICHE S.P.A. IN BREVE EUROSICMA S.P.A.",
     "vat": "00730100153",
     "website": "https://www.eurosicma.it",
-    "city": "Segrate (MI)"
+    "website_note": "redirects (301) to https://imagroup.com/brands/eurosicma/, the parent group's brand page",
+    "city": "Vignate (MI)"
   },
   "researched_on": "2026-10-27",
-  "researcher": "antigravity-e2f4 (manual web research: IMA Group press releases, Poggi & Associati deal announcements, UCIMA member lists, public registry; public sources only).",
-  "how_to_read": "Each fact is something an expert researcher found about EUROSICMA S.P.A. (Italian industrial group subsidiary case, IMA Group). `match` is verified by scripts/intel_gap.py against stored tool text. `split` is hold-out.",
+  "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",
+  "how_to_read": "Each fact is something a researcher found about EUROSICMA S.P.A. (subsidiary of an Italian group) and could re-check: every `quote` is verbatim text from a page that was fetched, or from the AIDA text held in the tool, and `match` is what scripts/intel_gap.py looks for in the tool's text. `not_found` lists what was searched for and not found (absent is not the same as unchecked). Hold-out: only release captains and I43 score against this file.",
   "facts": [
-    {"id": "ID-01", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "Legal name EUROSICMA - COSTRUZIONI MACCHINE AUTOMATICHE S.P.A. (short form EUROSICMA S.P.A.), Partita IVA / Codice Fiscale 00730100153, REA MI-606927.",
-     "sources": ["https://www.eurosicma.it", "https://ufficiocamerale.it/00730100153/eurosicma-costruzioni-macchine-automatiche-spa"],
-     "match": {"any": ["00730100153"]}, "closed_by": ["I20"]},
-    {"id": "ID-02", "category": "identity", "weight": 2, "grade": "B",
-     "claim": "Operational plant at Via Michelangelo Buonarroti 4/6, 20090 Segrate (MI); legal registered office at Via Fratelli Gabba 6, 20121 Milano.",
-     "sources": ["https://www.eurosicma.it", "https://ufficiocamerale.it/00730100153/eurosicma-costruzioni-macchine-automatiche-spa"],
-     "match": {"any": ["segrate", "via michelangelo buonarroti 4", "via fratelli gabba 6"]}, "closed_by": ["I10", "I20"]},
-    {"id": "ID-03", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "Share capital EUR 1,000,000.00 fully paid up.",
-     "sources": ["https://ufficiocamerale.it/00730100153/eurosicma-costruzioni-macchine-automatiche-spa"],
-     "match": {"any": ["1[.,]000[.,]000", "capitale sociale.{0,20}1000000"]}, "closed_by": ["I10", "I20"]},
-    {"id": "ID-04", "category": "identity", "weight": 2, "grade": "B",
-     "claim": "Founded in 1965 by the Redaelli family; corporate registration dates back to November 1962.",
-     "sources": ["https://www.eurosicma.it", "https://wemakepackaging.it"],
-     "match": {"any": ["founded in 1965", "fondata nel 1965", "1965"]}, "closed_by": ["I10"]},
-    {"id": "ID-05", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "ATECO 28.29.30: Manufacture of machinery for dosing, packaging and wrapping (confezionatrici orizzontali flow-pack e piega).",
-     "sources": ["https://reportaziende.it/eurosicma_spa"],
-     "match": {"any": ["28\\.29\\.30", "dosatura, la confezione e per l'imballaggio"]}, "closed_by": ["I20"]},
-
-    {"id": "CT-01", "category": "contact", "weight": 3, "grade": "B",
-     "claim": "Telephone: +39 02 2137241, Fax: +39 02 2137976.",
-     "sources": ["https://www.eurosicma.it"],
-     "match": {"any": ["02 ?2137241", "\\+39 ?02 ?2137241"]}, "closed_by": ["I10", "I14"]},
-    {"id": "CT-02", "category": "contact", "weight": 3, "grade": "B",
-     "claim": "Email contact: info@eurosicma.it, certified email (PEC): eurosicma@pec.eurosicma.it.",
-     "sources": ["https://www.eurosicma.it", "https://ufficiocamerale.it/00730100153/eurosicma-costruzioni-macchine-automatiche-spa"],
-     "match": {"any": ["info@eurosicma\\.it", "eurosicma@pec\\.eurosicma\\.it"]}, "closed_by": ["I10", "I14", "I20"]},
-
-    {"id": "OW-01", "category": "ownership", "weight": 3, "grade": "A",
-     "claim": "Controlled subsidiary of I.M.A. Industria Macchine Automatiche S.p.A. (IMA S.p.A., Bologna).",
-     "sources": ["https://www.imagroup.com", "AIDA export held in the tool"],
-     "match": {"any": ["industria macchine automatiche", "\\bima s\\.p\\.a\\b", "\\bima group\\b"]}, "closed_by": ["I12"]},
-    {"id": "OW-02", "category": "ownership", "weight": 3, "grade": "C",
-     "claim": "IMA acquired 60% of Eurosicma on 25 July 2017 for EUR 25.8M (EV ~EUR 43.5M) with put/call options on the remaining 40%.",
-     "sources": ["https://www.soldionline.it", "https://poggieassociati.it"],
-     "match": {"all": ["ima", "eurosicma"], "any": ["2017", "25[.,]8", "26 million|26 milioni"]}, "closed_by": ["I12", "I13"]},
-    {"id": "OW-03", "category": "ownership", "weight": 2, "grade": "A",
-     "claim": "Ultimate controlling shareholder chain: SO.FI.M.A. S.p.A. (Vacchi family) and BDT & MSD Partners through Alps Holding.",
-     "sources": ["AIDA export held in the tool", "https://www.imagroup.com"],
-     "match": {"any": ["so\\.fi\\.m\\.a\\.", "vacchi", "bdt"]}, "closed_by": ["I12"]},
-    {"id": "OW-04", "category": "ownership", "weight": 3, "grade": "D",
-     "claim": "Targeting consequence: Part of major Italian multinational packaging group (IMA), strategic decisions sit at group headquarters in Ozzano dell'Emilia.",
-     "sources": ["https://www.imagroup.com", "AIDA export held in the tool"],
-     "match": {"any": ["controlled subsidiary", "subsidiary of", "gruppo ima"]}, "closed_by": ["I12", "I42"]},
-
-    {"id": "EV-01", "category": "events", "weight": 2, "grade": "B",
-     "claim": "1965 founding by the Redaelli family in Milan developing specialized flow-wrapping systems for candies and bakeries.",
-     "sources": ["https://wemakepackaging.it", "https://www.eurosicma.it"],
-     "match": {"any": ["redaelli", "1965"]}, "closed_by": ["I10", "I13"]},
-    {"id": "EV-02", "category": "events", "weight": 3, "grade": "C",
-     "claim": "July 2017 deal closing: IMA buys 60% stake in Eurosicma expanding horizontal packaging market share.",
-     "sources": ["https://poggieassociati.it", "https://comunicaffe.com"],
-     "match": {"any": ["25 luglio 2017", "july 2017", "acquisizione.{0,40}eurosicma"]}, "closed_by": ["I10", "I13"]},
-    {"id": "EV-03", "category": "events", "weight": 2, "grade": "B",
-     "claim": "Integrated into IMA Confectionery and Horizontal Packaging solutions portfolio.",
-     "sources": ["https://www.imagroup.com"],
-     "match": {"any": ["ima confectionery", "ima packaging"]}, "closed_by": ["I13"]},
-
-    {"id": "FI-01", "category": "financials", "weight": 2, "grade": "A",
-     "claim": "Latest AIDA accounts: revenue EUR 16.1M (16,074k EUR), 94 employees.",
-     "sources": ["AIDA export held in the tool"],
-     "match": {"any": ["16,074k", "16\\.074\\.0", "94 employees"]}, "closed_by": []},
-    {"id": "FI-02", "category": "financials", "weight": 2, "grade": "C",
-     "claim": "At the 2017 transaction closing Eurosicma registered revenue ~EUR 27M, EBITDA EUR 4.5M, and positive net cash EUR 7M.",
-     "sources": ["https://poggieassociati.it", "https://www.soldionline.it"],
-     "match": {"any": ["27 million|27 milioni", "4[.,]5 million|4[.,]5 milioni"]}, "closed_by": ["I13", "I20"]},
-
-    {"id": "PE-01", "category": "people", "weight": 2, "grade": "C",
-     "claim": "Historical founding leadership: Gianpaolo Redaelli and the Redaelli family.",
-     "sources": ["https://poggieassociati.it"],
-     "match": {"any": ["gianpaolo redaelli", "famiglia redaelli", "redaelli"]}, "closed_by": ["I14"]},
-    {"id": "PE-02", "category": "people", "weight": 2, "grade": "C",
-     "claim": "Corporate board represented by IMA Group leadership (Alberto Vacchi executive governance).",
-     "sources": ["AIDA export held in the tool", "https://www.imagroup.com"],
-     "match": {"any": ["alberto vacchi", "consiglio di amministrazione"]}, "closed_by": ["I14"]},
-
-    {"id": "PR-01", "category": "products", "weight": 3, "grade": "B",
-     "claim": "Horizontal Form Fill Seal (HFFS) flow-pack machines for bakery, confectionery, noodles, and crackers.",
-     "sources": ["https://www.eurosicma.it/products", "https://www.imagroup.com"],
-     "match": {"any": ["flow-pack", "flow pack", "hffs"]}, "closed_by": ["I10"]},
-    {"id": "PR-02", "category": "products", "weight": 3, "grade": "B",
-     "claim": "Fold wrapping machines for candies, toffees, bouillon cubes, chewing gum (envelope fold, bunch, double twist).",
-     "sources": ["https://www.eurosicma.it"],
-     "match": {"any": ["fold wrapping", "piega", "double twist", "confezionatrici"]}, "closed_by": ["I10"]},
-    {"id": "PR-03", "category": "products", "weight": 2, "grade": "B",
-     "claim": "High-speed multi-lane automatic feeding, buffering, and product orientation lines.",
-     "sources": ["https://www.eurosicma.it"],
-     "match": {"any": ["feeding systems", "alimentazione automatica", "smart feeder"]}, "closed_by": ["I10"]},
-    {"id": "PR-04", "category": "products", "weight": 2, "grade": "B",
-     "claim": "Packaging systems for medical and personal care goods (plaster strips, cosmetic cotton pads, healthcare products).",
-     "sources": ["https://www.eurosicma.it"],
-     "match": {"any": ["plaster", "cerotti", "personal care", "medical"]}, "closed_by": ["I10"]},
-
-    {"id": "CE-01", "category": "certifications", "weight": 2, "grade": "B",
-     "claim": "Certified according to ISO 9001:2015 quality management standards.",
-     "sources": ["https://www.eurosicma.it"],
-     "match": {"any": ["iso 9001", "iso 9001:2015", "qualit"]}, "closed_by": ["I10", "I15"]},
-    {"id": "CE-02", "category": "certifications", "weight": 2, "grade": "B",
-     "claim": "Manufactured to European CE machinery directives and hygienic food-grade sanitary standards (GMP compliance).",
-     "sources": ["https://www.eurosicma.it"],
-     "match": {"any": ["gmp", "sanitary design", "direttiva macchine"]}, "closed_by": ["I10", "I15"]},
-
-    {"id": "LO-01", "category": "locations", "weight": 2, "grade": "B",
-     "claim": "Main production and engineering hub located at Via Michelangelo Buonarroti 4/6, 20090 Segrate (Milano).",
-     "sources": ["https://www.eurosicma.it"],
-     "match": {"any": ["via michelangelo buonarroti 4", "segrate"]}, "closed_by": ["I10"]},
-    {"id": "LO-02", "category": "locations", "weight": 2, "grade": "B",
-     "claim": "Registered office at Via Fratelli Gabba 6, 20121 Milano.",
-     "sources": ["https://ufficiocamerale.it/00730100153/eurosicma-costruzioni-macchine-automatiche-spa"],
-     "match": {"any": ["via fratelli gabba", "20121 milano"]}, "closed_by": ["I10", "I20"]},
-    {"id": "LO-03", "category": "locations", "weight": 1, "grade": "C",
-     "claim": "Supported by IMA Group global commercial and technical service network across over 80 countries.",
-     "sources": ["https://www.imagroup.com"],
-     "match": {"any": ["worldwide network", "filiali ima", "service network"]}, "closed_by": ["I10"]},
-
-    {"id": "NW-01", "category": "networks", "weight": 2, "grade": "B",
-     "claim": "Member of UCIMA (Unione Costruttori Italiani Macchine Automatiche per il Confezionamento e l'Imballaggio).",
-     "sources": ["https://www.ucima.it"],
-     "match": {"any": ["ucima"]}, "closed_by": ["I16"]},
-    {"id": "NW-02", "category": "networks", "weight": 2, "grade": "B",
-     "claim": "Regular exhibitor at Interpack (Düsseldorf), Ipack-Ima (Milano), and ProSweets (Cologne).",
-     "sources": ["https://www.eurosicma.it", "https://wemakepackaging.it"],
-     "match": {"any": ["interpack", "ipack-ima", "prosweets"]}, "closed_by": ["I16"]},
-
-    {"id": "DG-01", "category": "digital", "weight": 2, "grade": "B",
-     "claim": "Brand site eurosicma.it cross-linked and integrated into the global IMA Group portal (imagroup.com).",
-     "sources": ["https://www.eurosicma.it", "https://www.imagroup.com"],
-     "match": {"any": ["eurosicma\\.it", "imagroup\\.com"]}, "closed_by": ["I10", "I18"]},
-
-    {"id": "DC-01", "category": "documents", "weight": 1, "grade": "B",
-     "claim": "Publishes technical catalogs and brochures for flow-wrapping machines, candy wrapping systems, and automatic feeders.",
-     "sources": ["https://www.eurosicma.it"],
-     "match": {"any": ["brochure", "catalogo", "schede tecniche"]}, "closed_by": ["I11"]}
+    {
+      "id": "ID-01",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Legal name EUROSICMA - COSTRUZIONI MACCHINE AUTOMATICHE S.P.A. (short form Eurosicma S.p.A.), Partita IVA 00730100153; the IMA group page uses the name 'Eurosicma - Costruzioni Macchine Automatiche S.p.A.'.",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/",
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Eurosicma – Costruzioni Macchine Automatiche S.p.A. | IMA Group",
+        "\"external_ref_id\": \"IT00730100153\""
+      ],
+      "match": {
+        "any": [
+          "00730100153"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-02",
+      "category": "identity",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Plant and address today: Via Cassanese 102/104, 20052 Vignate (MI). The 2017 deal news still placed the company in Segrate (Milano): one company, two places over time, so a tool must not split them.",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/",
+        "https://www.firstonline.info/?p=137470"
+      ],
+      "quote": [
+        "Via Cassanese 102/104, 20052 Vignate (MI)",
+        "con sede a Segrate (Milano)"
+      ],
+      "match": {
+        "any": [
+          "via cassanese 102",
+          "vignate"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-03",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Incorporated 12 November 1962 as a company (AIDA); the group page and the 2017 news give 1965 as the year Eurosicma was founded: two dates a dossier must not blend.",
+      "sources": [
+        "AIDA export held in the tool",
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": [
+        "1962-11-12T00:00:00",
+        "Founded in 1965 and located in Vignate (MI) in Italy"
+      ],
+      "match": {
+        "any": [
+          "1962-11-12",
+          "founded in 1965"
+        ]
+      },
+      "closed_by": [
+        "I13",
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-04",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "ATECO 28.29.30, manufacture of automatic machines for dosing, packaging and wrapping (AIDA).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"nace_code\": \"282930\""
+      ],
+      "match": {
+        "any": [
+          "28\\.29\\.30",
+          "\\b282930\\b"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "CT-01",
+      "category": "contact",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Phone published for the factory on the IMA group page: +39 02 21 896 331 (Vignate).",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": "Via Cassanese 102/104, 20052 Vignate (MI) Italy Phone +39 02 21 896 331",
+      "match": {
+        "any": [
+          "02\\D{0,3}21\\D{0,3}896\\D{0,3}331"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I14"
+      ]
+    },
+    {
+      "id": "DG-01",
+      "category": "digital",
+      "weight": 3,
+      "grade": "D",
+      "claim": "The database website www.eurosicma.it is only a redirect (HTTP 301, checked 2026-10-27) to the parent group's page imagroup.com/brands/eurosicma/: the company has no separate site, every page a crawler reads is IMA group content, so entity matching must not mistake IMA's group-wide claims for Eurosicma's.",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": "wp-content/themes/qtheme-ima",
+      "match": {
+        "any": [
+          "eurosicma\\.it.{0,160}(redirect|301|imagroup\\.com)",
+          "imagroup\\.com/brands/eurosicma"
+        ]
+      },
+      "closed_by": [
+        "I05",
+        "I06",
+        "I10",
+        "I18"
+      ]
+    },
+    {
+      "id": "OW-01",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "A",
+      "claim": "100% of the share capital is held directly by I.M.A. Industria Macchine Automatiche S.p.A. (IMA S.p.A., Bologna) (AIDA).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "{'name': 'I.M.A. INDUSTRIA MACCHINE AUTOMATICHE S.P.A. IN SIGLA IMA S.P.A.', 'type': 'Società', 'country': 'IT', 'direct': 100.0, 'total': 100.0}",
+      "match": {
+        "any": [
+          "industria macchine automatiche"
+        ]
+      },
+      "closed_by": [
+        "I12"
+      ]
+    },
+    {
+      "id": "OW-02",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Control chain above IMA (AIDA): SO.FI.M.A. S.p.A. (level 2), Alps Holding S.p.A. (level 3), BDT Alps S.r.l. (level 4) and BDT Europe Fund SCSP (level 5): the ultimate controller is a fund-backed holding, not the founding family.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "{'name': 'BDT EUROPE FUND SCSP', 'type': 'Fondi Mutualistici & Pensionistici/Nominali/Fiduciari', 'level': '5'}",
+        "{'name': 'BDT ALPS S.R.L.', 'type': 'Società', 'level': '4'}",
+        "{'name': 'ALPS HOLDING S.P.A.', 'type': 'Società', 'level': '3'}"
+      ],
+      "match": {
+        "any": [
+          "bdt europe fund",
+          "alps holding"
+        ]
+      },
+      "closed_by": [
+        "I12"
+      ]
+    },
+    {
+      "id": "OW-03",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "C",
+      "claim": "IMA agreed on 28 June 2017 to buy 60% of Eurosicma from the Redaelli family for about EUR 26M paid at closing, with put and call options on the remaining 40% exercisable by April 2027 (AIDA now shows 100% held by IMA).",
+      "sources": [
+        "https://old.ucima.it/uc-en/press-area/news/ima-acquires-60-stake-in-eurosicma/",
+        "https://www.firstonline.info/?p=137470"
+      ],
+      "quote": [
+        "On 28 June Ima signed an agreement to acquire a 60% shareholding in Eurosicma",
+        "IMA will pay approximately €26 million at closing, scheduled for 30 September 2017, and will write Put & Call option contracts for the remaining 40% to be exercised by April 2027"
+      ],
+      "match": {
+        "any": [
+          "eurosicma.{0,120}60 ?%",
+          "60 ?%.{0,80}eurosicma",
+          "put (&|and|/) call.{0,120}2027"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I13"
+      ]
+    },
+    {
+      "id": "OW-04",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "D",
+      "claim": "Targeting consequence: Eurosicma is a controlled subsidiary of IMA, an Italian group that is itself controlled by an investment fund (BvD independence class D, no family share): decisions sit at IMA in Bologna. The tool must flag this; today it only lists shareholders.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"bvd_independence_class\": \"D\"",
+        "\"derived_family_ownership_share\": 0.0"
+      ],
+      "match": {
+        "any": [
+          "controlled[ _-]subsidiary",
+          "group[ _-]controlled",
+          "fund[ _-]controlled",
+          "subsidiary of[^.]{0,60}\\bima\\b"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I42"
+      ]
+    },
+    {
+      "id": "EV-01",
+      "category": "events",
+      "weight": 2,
+      "grade": "C",
+      "claim": "2017 trigger: at the time of the deal Eurosicma expected turnover of about EUR 27M and EBITDA of EUR 4.5M, with net cash of about EUR 7M (company figures quoted by the buyer).",
+      "sources": [
+        "https://old.ucima.it/uc-en/press-area/news/ima-acquires-60-stake-in-eurosicma/"
+      ],
+      "quote": "is expected to post a turnover of around €27 million and EBITDA of €4.5 million in 2017",
+      "match": {
+        "any": [
+          "27 million.{0,80}ebitda.{0,40}4[.,]5",
+          "turnover of around.{0,20}27"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-02",
+      "category": "events",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Strategic rationale stated in 2017: add Eurosicma's flowpack and fold wrapping range to IMA's product range (and use its capacity for the other IMA companies).",
+      "sources": [
+        "https://old.ucima.it/uc-en/press-area/news/ima-acquires-60-stake-in-eurosicma/"
+      ],
+      "quote": "This strategic transaction will strengthen our Group’s leadership in the flowpack and fold automatic machinery sector",
+      "match": {
+        "any": [
+          "leadership in the flowpack and fold"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "FI-01",
+      "category": "financials",
+      "weight": 2,
+      "grade": "A",
+      "claim": "Latest accounts (AIDA): revenue about EUR 16.1M and 94 employees. Compare 2017: expected turnover about EUR 27M.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"revenue_latest\": 16074.0",
+        "\"employees_latest\": 94"
+      ],
+      "match": {
+        "any": [
+          "16,?074k",
+          "16074\\.0",
+          "94 employees"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "FI-02",
+      "category": "financials",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Latest accounts show an operating LOSS: EBIT about EUR -3.18M, EBIT margin about -19.8% (AIDA). A decisive distress or restructuring signal for an approach.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"ebit_latest\": -3182.0",
+        "\"derived_ebit_margin\": -19.7959"
+      ],
+      "match": {
+        "any": [
+          "-3,?182",
+          "-19\\.79"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "PE-01",
+      "category": "people",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Registry board: Leonardus Wilhelmus Johannes Van De Wiel is chairman of the board and managing director (amministratore delegato).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Leonardus Wilhelmus Johannes Van De Wiel",
+        "AMMINISTRATORE DELEGATO"
+      ],
+      "match": {
+        "any": [
+          "van de wiel"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-02",
+      "category": "people",
+      "weight": 2,
+      "grade": "A",
+      "claim": "Delegated directors (consiglieri delegati): Luca Narducci and Alessandro Pierini; further directors Massimo Ferioli, Massimo Marchesini and Sergio Marzo.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Luca Narducci",
+        "CONSIGLIERE DELEGATO",
+        "Alessandro Pierini"
+      ],
+      "match": {
+        "any": [
+          "\\bnarducci\\b",
+          "\\bpierini\\b"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-03",
+      "category": "people",
+      "weight": 2,
+      "grade": "A",
+      "claim": "Special attorneys (procuratori speciali) include Sergio Redaelli and Simona Redaelli: the founding family name is still in the signing roster after the sale.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Sergio Redaelli",
+        "Simona Redaelli",
+        "PROCURATORE SPECIALE"
+      ],
+      "match": {
+        "any": [
+          "sergio redaelli",
+          "simona redaelli"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-04",
+      "category": "people",
+      "weight": 2,
+      "grade": "C",
+      "claim": "In 2017 Marco Redaelli was managing director (amministratore delegato) of Eurosicma and the family was to stay in operational management.",
+      "sources": [
+        "https://www.firstonline.info/?p=137470"
+      ],
+      "quote": "Marco Redaelli, amministratore delegato di Eurosicma",
+      "match": {
+        "any": [
+          "marco redaelli"
+        ]
+      },
+      "closed_by": [
+        "I13",
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-05",
+      "category": "people",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Statutory auditors' board chaired by Piero Aicardi; external auditor EY S.p.A. (Ernst & Young) (AIDA).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Piero Aicardi",
+        "PRESIDENTE DEL COLLEGIO SINDACALE",
+        "EY S.P.A., PER ESTESO ANCHE ERNST & YOUNG S.P.A."
+      ],
+      "match": {
+        "any": [
+          "\\baicardi\\b",
+          "ernst & young"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "PR-01",
+      "category": "products",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Designs and makes horizontal form-fill-seal (HFFS / flowpack) machines and fully automated packaging lines for confectionery and bakery products: candies and gums, chocolate bars and tablets, biscuits, cakes, noodles.",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": "IMA Eurosicma designs and manufactures HFFS machines and fully automated packaging lines for a wide range of confectionery and bakery products such as candies and gums, chocolate bars and tablets, biscuits, cakes, noodles",
+      "match": {
+        "any": [
+          "\\bhffs\\b.{0,160}(confectionery|bakery)",
+          "flow[- ]?pack.{0,80}(confectionery|bakery|biscuit)"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-02",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "X-Fold wrappers for biscuits on edge and highly customised handling, feeding and portioning systems complete the range.",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": "Highly customised handling, feeding and portioning systems and X-Fold wrappers for biscuits on edge complete the range",
+      "match": {
+        "any": [
+          "x-?fold"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-03",
+      "category": "products",
+      "weight": 2,
+      "grade": "C",
+      "claim": "In 2017 the company was described as a Milan-based maker of automatic machinery and horizontal flowpack and fold packaging plants for the food, cosmetics and pharmaceuticals industries (the plaster-strip and personal-care niche).",
+      "sources": [
+        "https://old.ucima.it/uc-en/press-area/news/ima-acquires-60-stake-in-eurosicma/"
+      ],
+      "quote": "the Milan-based manufacturer of automatic machinery and horizontal flowpack and fold packaging plants for the food, cosmetics and pharmaceuticals industries",
+      "match": {
+        "any": [
+          "flowpack and fold packaging plants.{0,60}(food|cosmetics|pharma)"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I13"
+      ]
+    },
+    {
+      "id": "LO-01",
+      "category": "locations",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Factory profile on the group page: about 100 employees, 10,000 sqm facility, installed base of more than 4,300 machines.",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": "Staff 100 Employees Facility size 10 ,000 Sqm Installed base + 4 ,300 Machines",
+      "match": {
+        "any": [
+          "installed base\\D{0,10}4\\W{0,3}300",
+          "facility size\\D{0,6}10\\W{0,3}000"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "DC-01",
+      "category": "documents",
+      "weight": 1,
+      "grade": "B",
+      "claim": "The 2017 deal is documented in a press release carried by the packaging-machinery association UCIMA (28 June 2017, with the buyer chairman's statement), a source for the deal timeline.",
+      "sources": [
+        "https://old.ucima.it/uc-en/press-area/news/ima-acquires-60-stake-in-eurosicma/"
+      ],
+      "quote": "Alberto Vacchi, Chairman and CEO of IMA, commented",
+      "match": {
+        "any": [
+          "alberto vacchi.{0,40}(chairman|president)"
+        ]
+      },
+      "closed_by": [
+        "I11",
+        "I13"
+      ]
+    },
+    {
+      "id": "OW-05",
+      "category": "ownership",
+      "weight": 2,
+      "grade": "C",
+      "claim": "Group level, July 2023: BDT & MSD Partners agreed to buy a minority stake in IMA from BC Partners; the Vacchi family remains the majority owner of IMA (consistent with the AIDA chain above).",
+      "sources": [
+        "https://www.bcpartners.com/?p=1379"
+      ],
+      "quote": [
+        "The Vacchi family remains the majority owner of IMA",
+        "BDT & MSD Partners will acquire its position from BC Partners"
+      ],
+      "match": {
+        "any": [
+          "vacchi family.{0,40}majority owner",
+          "bdt (&|and) msd partners.{0,200}minority"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I13"
+      ]
+    },
+    {
+      "id": "FI-03",
+      "category": "financials",
+      "weight": 1,
+      "grade": "A",
+      "claim": "AIDA: group of 120 companies, BvD independence class D, no subsidiary participations on record.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"group_size\": 120.0",
+        "\"derived_subsidiary_participations\": 0.0"
+      ],
+      "match": {
+        "any": [
+          "group[ _]size\\D{0,6}120\\b",
+          "120 compan"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "PR-04",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The Eurosicma page lists the technologies offered: feeding and manipulation (counting, alignment, portioning, robotics, tray loading), horizontal form-fill-seal flow wrappers, and wire-cut sandwiching machines for biscuits and crackers (group-level text shown on the brand page).",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": [
+        "IMA offers state-of-the-art wire cut sandwiching machines",
+        "counting, alignment, portioning, robotics, tray loading"
+      ],
+      "match": {
+        "any": [
+          "wire[- ]cut sandwiching",
+          "counting, alignment, portioning, robotics"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-05",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Flow wrappers are configurable for food, coffee, home and personal care, tissue and non-wovens and pharmaceutical and medical products: end markets beyond confectionery.",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": "packaging of food, coffee, home and personal care items, tissue and non-wovens, as well as pharmaceutical and medical products",
+      "match": {
+        "any": [
+          "flow wrappers.{0,300}(tissue|pharmaceutical)",
+          "packaging of food, coffee, home and personal care"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "CE-01",
+      "category": "certifications",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The group site (shown around the Eurosicma page) has a 'Certified Management Systems' section and a 'Patents' section at group level; whether Eurosicma holds its own certificates was not established (a lead for the certification register ticket).",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": "Mission, Vision and History Certified Management Systems Patents IMA Digital Sustainability OPENLab",
+      "match": {
+        "any": [
+          "certified management systems"
+        ]
+      },
+      "closed_by": [
+        "I11",
+        "I15"
+      ]
+    },
+    {
+      "id": "DC-02",
+      "category": "documents",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The group site offers financial documents including bondholder information and the documents of a public tender offer ('OPA - IMA Financial Documents'): the group's ownership events are documented there.",
+      "sources": [
+        "https://imagroup.com/brands/eurosicma/"
+      ],
+      "quote": "Financial Bondholders OPA – IMA Financial Documents",
+      "match": {
+        "any": [
+          "opa\\W{1,4}ima financial documents"
+        ]
+      },
+      "closed_by": [
+        "I11",
+        "I13"
+      ]
+    }
+  ],
+  "not_found": [
+    {
+      "looked_for": "Registered office, REA number and share capital",
+      "where": "IMA brand page, UCIMA and FIRSTonline news, AIDA text",
+      "result": "not found on an opened public page; the earlier draft's capital (EUR 1,000,000), Milano office and REA were cited to a registry URL that returns 404 and are not asserted"
+    },
+    {
+      "looked_for": "Certified e-mail (PEC) and general e-mail",
+      "where": "IMA brand page",
+      "result": "not found: the page gives a phone number and a contact form, no e-mail; the earlier draft's PEC eurosicma@pec.eurosicma.it could not be confirmed"
+    },
+    {
+      "looked_for": "The earlier draft's switchboard +39 02 2137241 and plant address in Segrate (Via Buonarroti 4/6)",
+      "where": "IMA brand page (current)",
+      "result": "contradicted: the current page shows Vignate and +39 02 21 896 331; the Segrate address appears only in 2017 news"
+    },
+    {
+      "looked_for": "Named current operating managers (sales, technical) other than the registry roster",
+      "where": "IMA brand page, 2017 news",
+      "result": "not found"
+    },
+    {
+      "looked_for": "Certifications (ISO 9001/14001/45001, CE) held by Eurosicma itself",
+      "where": "IMA brand page raw HTML",
+      "result": "not found for Eurosicma; group-level certificates were not opened"
+    },
+    {
+      "looked_for": "Trade association membership (UCIMA) of Eurosicma itself",
+      "where": "UCIMA news page",
+      "result": "not found: the page is a news item about the deal, not a member list"
+    },
+    {
+      "looked_for": "Named customers or references",
+      "where": "IMA brand page",
+      "result": "not found: none named"
+    },
+    {
+      "looked_for": "Exact closing date of the 2017 deal",
+      "where": "UCIMA and FIRSTonline",
+      "result": "sources disagree or are partial (closing 'scheduled for 30 September 2017' in the announcement; another summary says closing 25 July): the date is not asserted"
+    }
   ]
 }
