@@ -161,6 +161,10 @@ def test_a_vat_number_is_never_read_as_the_switchboard():
     assert extract_phones("Partita IVA: 00123456789") == []
     assert extract_phones("Codice Fiscale e P.IVA 00123456789") == []
     assert extract_phones("Registro Imprese 00123456789") == []                # the 00 prefix without a plus is not a phone
+    # regression found on a second company: "Tax code 04967750151" was stored as the switchboard
+    assert extract_phones("Via Roma 167 · Tax code 04967750151\nShare capital 10,000") == []
+    assert extract_phones("Codice fiscale 04967750151") == []
+    assert extract_phones("Sede legale\n04967750151\nCapitale sociale") == []         # a solid 11-digit run, no label
     both = "P.IVA 00123456789 - Tel. 0471 954050"                              # the real telephone on the same line stays
     assert [n for n, _ in extract_phones(both)] == ["+39 0471 954050"]
     assert [n for n, _ in extract_phones("Sede: Via Roma 1\n0471 954050")] == ["+39 0471 954050"]

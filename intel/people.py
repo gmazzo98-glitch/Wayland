@@ -427,8 +427,8 @@ PEC_DOMAINS = (
 # A number printed next to one of these is a tax or registry identifier, never a telephone number (an 11-digit Italian
 # VAT number looks exactly like a long landline).
 _NOT_A_PHONE_CONTEXT = re.compile(
-    r"(p\.?\s?iva|partita\s+iva|\bvat\b|\biva\b|c\.?\s?f\.?\b|codice\s+fiscale|\brea\b|r\.?e\.?a\.?\b|registro\s+imprese|"
-    r"reg\.?\s*imp|cap\.?\s*soc|capitale\s+sociale|\bsdi\b|\bcod\.?\s*dest)", re.I)
+    r"(p\.?\s?iva|partita\s+iva|\bvat\b|\biva\b|\btax\b|\bfiscal\b|\bcodice\b|\bpartita\b|c\.?\s?f\.?\b|\brea\b|"
+    r"r\.?e\.?a\.?\b|registro\s+imprese|reg\.?\s*imp|cap\.?\s*soc|capitale\s+sociale|\bsdi\b|\bcod\.?\s*dest)", re.I)
 
 
 def _is_phone_context(text: str, start: int, raw: str) -> bool:
@@ -475,6 +475,10 @@ def extract_phones(text: str) -> List[Tuple[str, str]]:
         for m in PHONE_PATTERN.finditer(text):
             raw = m.group(0).strip()
             digits = re.sub(r"\D", "", raw)
+            # an unlabelled solid run of 11 digits ("04967750151") is an Italian tax identifier, not a number people dial
+            # (telephone numbers are written with a space, a separator or +39)
+            if re.fullmatch(r"\d{11}", raw):
+                continue
             if 8 <= len(digits) <= 12 and _is_phone_context(text, m.start(), raw):
                 norm = _normalize_italian_phone(raw)
                 if norm not in seen and not is_suppressed(norm):
