@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T15:02:58Z",
+  "updated_at": "2026-10-27T15:03:02Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -1443,6 +1443,30 @@
       "history": [
         {
           "at": "2026-10-27T15:02:58Z",
+          "by": "vibe-a17f",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I98": {
+      "title": "CORDIS participation reader: JS-rendered search needs browser fallback or keyed API",
+      "wave": 3,
+      "priority": "P2",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "intel/collectors/networks.py"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "proposed_by": "vibe-a17f",
+      "why": "I16's CORDIS plugin can only probe; cordis.europa.eu search is JS-rendered so no quotable text is obtainable without a browser (I05 fallback) or the data API",
+      "history": [
+        {
+          "at": "2026-10-27T15:03:02Z",
           "by": "vibe-a17f",
           "event": "proposed"
         }
