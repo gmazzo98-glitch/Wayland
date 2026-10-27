@@ -1042,3 +1042,34 @@ def test_i93_holdout_split_precision_and_recall():
         print(f"  {r['outcome']:3s} {r['name']}: {r['decision']} | collision={r['collision']} | {r['reasons'][:1]}")
     assert precision >= 0.95, f"HOLDOUT precision {precision:.4f} below 0.95"
     assert recall >= 0.90, f"HOLDOUT recall {recall:.4f} below 0.90"
+
+
+# ------------------------------------------------------------------ I100: compound spans a line break
+
+def test_i100_compound_never_crosses_a_line_break():
+    """Regression (ticket I100): a headline ending in a capitalised word followed by a body line
+    starting with the brand was read as the foreign compound 'Orion\\nMeccanica' and the true fact
+    was rejected as a name collision. A compound entity never crosses a line break or sentence end."""
+    from intel.verify import verify
+    company = {"legal_name": "MECCANICA BRAMBILLA S.R.L.", "vat": "", "website_url": "", "country": "Italy"}
+    page = ("Meccanica Brambilla entra nel gruppo Orion\n"
+            "Meccanica Brambilla di Lecco ha annunciato un nuovo contratto.")
+    fact = Fact(key="products.lines", value="x", grade="B",
+                evidence=[Evidence(source_type="press", url="https://example.com/p",
+                                   quote="Meccanica Brambilla di Lecco ha annunciato un nuovo contratto.")])
+    verdict = verify(fact, page, company)
+    assert not verdict.collision_detected, f"false namesake from a line break: {verdict.collision_details}"
+    assert verdict.decision in ("verified", "unverified"), f"line break must not reject: {verdict.decision}"
+
+
+def test_i100_real_same_line_compound_still_detected():
+    from intel.verify import _compound_entity_hits
+    # a genuine foreign compound on one line is still a hit
+    assert _compound_entity_hits("Othercorp Meccanica announces a deal", "Meccanica") == ["Othercorp Meccanica"]
+    # the target's own multiword name is not a foreign compound when full_brand is given (the caller does)
+    assert _compound_entity_hits("Meccanica Brambilla di Lecco ha annunciato", "Meccanica",
+                                 full_brand="meccanica brambilla") == []
+    # a sentence boundary between the tokens is not a compound
+    assert _compound_entity_hits("Deal with Orion. Meccanica said.", "Meccanica", "meccanica brambilla") == []
+    # a line break between the tokens is not a compound (the I100 repro shape)
+    assert _compound_entity_hits("gruppo Orion\nMeccanica di Lecco", "Meccanica", "meccanica brambilla") == []
