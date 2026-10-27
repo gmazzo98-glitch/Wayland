@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T15:09:50Z",
+  "updated_at": "2026-10-27T15:12:06Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -704,10 +704,10 @@
       "needs": [
         "web"
       ],
-      "status": "CLAIMED",
-      "claimed_by": "vibe-a17f",
-      "claimed_at": "2026-10-27T15:09:41Z",
-      "heartbeat_at": "2026-10-27T15:09:50Z",
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
@@ -718,6 +718,12 @@
           "at": "2026-10-27T15:09:41Z",
           "by": "vibe-a17f",
           "event": "claim"
+        },
+        {
+          "at": "2026-10-27T15:12:06Z",
+          "by": "vibe-a17f",
+          "event": "release",
+          "note": "Probed live: EPO OPS needs credentials absent here (403 Fair Use without key), every Espacenet/register.epo.org endpoint 403s this sandbox IP, Google Patents XHR is a JS stub, WIPO PATENTSCOPE search only runs in browser JS. The acceptance (error rate <5% over 100 live OPS companies, hand-check vs Espacenet) is unverifiable without EPO_OPS_CONSUMER_KEY/SECRET and a non-blocked egress; no collector code was written. Findings and next-session instructions in docs/intel/results/I19.md"
         }
       ]
     },
