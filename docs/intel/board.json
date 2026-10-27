@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T08:39:16Z",
+  "updated_at": "2026-10-27T08:51:46Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -237,10 +237,10 @@
         "web",
         "llm"
       ],
-      "status": "CLAIMED",
+      "status": "DONE",
       "claimed_by": "antigravity-e2f4",
       "claimed_at": "2026-10-27T08:39:16Z",
-      "heartbeat_at": "2026-10-27T08:39:16Z",
+      "heartbeat_at": "2026-10-27T08:51:46Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
@@ -251,8 +251,16 @@
           "at": "2026-10-27T08:39:16Z",
           "by": "antigravity-e2f4",
           "event": "claim"
+        },
+        {
+          "at": "2026-10-27T08:51:46Z",
+          "by": "antigravity-e2f4",
+          "event": "done",
+          "note": "docs/intel/results/I06.md"
         }
-      ]
+      ],
+      "done_at": "2026-10-27T08:51:46Z",
+      "result": "docs/intel/results/I06.md"
     },
     "I10": {
       "title": "Deep site reader: whole-site and PDF digest into profile facts (new Node crawler + collector)",
