@@ -55,13 +55,30 @@ const ENV_ALLOWLIST = new Set([
   // kill timeout), and the optional second LLM provider used when the first is rate-limited.
   'SOFT_DEADLINE_SECONDS', 'LLM_FALLBACK_API_KEY', 'LLM_FALLBACK_BASE_URL', 'LLM_FALLBACK_MODEL',
   'LLM_REASONING_EFFORT',
+  // Third through fifth numbered fallbacks (config.py CRAWLER_LLM_EXTRA_FALLBACK_SUFFIXES)
+  'LLM_FALLBACK2_API_KEY', 'LLM_FALLBACK2_BASE_URL', 'LLM_FALLBACK2_MODEL',
+  'LLM_FALLBACK3_API_KEY', 'LLM_FALLBACK3_BASE_URL', 'LLM_FALLBACK3_MODEL',
+  'LLM_FALLBACK4_API_KEY', 'LLM_FALLBACK4_BASE_URL', 'LLM_FALLBACK4_MODEL',
+  'LLM_FALLBACK5_API_KEY', 'LLM_FALLBACK5_BASE_URL', 'LLM_FALLBACK5_MODEL',
   // digital-maturity-crawler's visual-assessment phase (2026-10-08) — a separate provider
   // namespace from LLM_* above, see config.py's CRAWLER_VISION_LLM_* docstring. Same
-  // primary + one-fallback coverage as the LLM_* entries; without these, that phase's calls
+  // primary + fallbacks coverage as the LLM_* entries; without these, that phase's calls
   // get silently stripped to nothing on a remote worker and visual_assessment reads not_found
   // for every company it runs there, with no error surfaced.
   'VISION_LLM_API_KEY', 'VISION_LLM_BASE_URL', 'VISION_LLM_MODEL',
   'VISION_LLM_FALLBACK_API_KEY', 'VISION_LLM_FALLBACK_BASE_URL', 'VISION_LLM_FALLBACK_MODEL',
+  'VISION_LLM_FALLBACK2_API_KEY', 'VISION_LLM_FALLBACK2_BASE_URL', 'VISION_LLM_FALLBACK2_MODEL',
+  'VISION_LLM_FALLBACK3_API_KEY', 'VISION_LLM_FALLBACK3_BASE_URL', 'VISION_LLM_FALLBACK3_MODEL',
+  'VISION_LLM_FALLBACK4_API_KEY', 'VISION_LLM_FALLBACK4_BASE_URL', 'VISION_LLM_FALLBACK4_MODEL',
+  'VISION_LLM_FALLBACK5_API_KEY', 'VISION_LLM_FALLBACK5_BASE_URL', 'VISION_LLM_FALLBACK5_MODEL',
+  // Subprocess limits forwarded by scrapers/*.py
+  'MAX_PAGES_PER_DOMAIN', 'LLM_CONCURRENCY', 'MAX_DETAIL_PAGES',
+  // Deep-intelligence multi-provider pool (ticket I04): INTEL_LLM_<1..10>_*
+  ...Array.from({ length: 10 }, (_, i) => i + 1).flatMap((n) => [
+    `INTEL_LLM_${n}_NAME`, `INTEL_LLM_${n}_API_KEY`, `INTEL_LLM_${n}_BASE_URL`,
+    `INTEL_LLM_${n}_MODEL`, `INTEL_LLM_${n}_TIER`, `INTEL_LLM_${n}_TASKS`,
+    `INTEL_LLM_${n}_TPM`, `INTEL_LLM_${n}_RPM`,
+  ]),
 ]);
 
 function readJson(file) {
