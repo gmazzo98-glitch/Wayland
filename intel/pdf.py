@@ -140,9 +140,11 @@ def classify_document(text: str, file_name: str = "", url: str = "") -> str:
     if not t.strip() or len(t.strip()) < 20:
         return "scanned" if name.endswith(".pdf") else "other"
     low = t.lower()
-    if re.search(r"certif", low) or any(p.search(low) for _, p in STANDARD_PATTERNS[:1]):
-        if re.search(r"certif", low) and len(t) < 20000:
-            return "certificate"
+    head = low[:4000]
+    if any(p.search(head) for _, p in STANDARD_PATTERNS):
+        return "certificate"
+    if re.search(r"\bcertificat(e|o|i)\b", head) and len(t) < 20000:
+        return "certificate"
     if "manuale d" in low and "manutenzione" in low or "operating and maintenance manual" in low \
             or "installation and operation" in low:
         return "manual"
