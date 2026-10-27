@@ -28,7 +28,6 @@ EXTRA_TOKENS = {"mott", "idex", "binasco", "red-fish", "redfish"}
 ALLOWED_UNTIL_FIXED: Dict[str, str] = {
     "intel/people.py": "I95",
     "intel/collectors/people.py": "I95",
-    "intel/collectors/site_headers.py": "I18",   # a docstring example only; reword it when you extend the file
 }
 
 
