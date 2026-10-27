@@ -1,8 +1,25 @@
 import json
+import multiprocessing
+import time
 import requests
+import pytest
 
 from intel.queryplan import build_query_pack, queries_for
 from intel.search import SearchClient, SearchResult, canonical_url
+
+
+class NoThrottle:
+    def reserve(self):
+        pass
+    def backoff(self):
+        pass
+
+
+def _reserve_in_process(path, start, queue):
+    from intel.search import SharedGdeltThrottle
+    start.wait()
+    SharedGdeltThrottle(path, interval=0.2).reserve()
+    queue.put(time.time())
 
 
 def test_provider_failures_are_reported_and_not_cached(tmp_path):
@@ -34,7 +51,7 @@ def test_http_throttle_is_distinct_from_no_results():
         def get(self, url, **kwargs):
             return Response()
 
-    response = SearchClient(session=Session(), providers=("gdelt",), delay=0).search("example")
+    response = SearchClient(session=Session(), providers=("gdelt",), delay=0, gdelt_throttle=NoThrottle()).search("example")
     assert response.provider_health == {"gdelt": "error: ProviderError (HTTP 429)"}
 
 
@@ -49,9 +66,98 @@ def test_empty_success_has_healthy_provider():
         def get(self, url, **kwargs):
             return Response()
 
-    response = SearchClient(session=Session(), providers=("gdelt",), delay=0).search("example")
+    response = SearchClient(session=Session(), providers=("gdelt",), delay=0, gdelt_throttle=NoThrottle()).search("example")
     assert response == []
     assert response.provider_health == {"gdelt": "ok"}
+
+
+def test_google_news_only_returns_resolved_publisher_links():
+    class Response:
+        status_code = 200
+        def __init__(self, content=b"", url=""):
+            self.content, self.url = content, url
+
+    class Session:
+        headers = {}
+        def get(self, url, **kwargs):
+            if "/rss/search?" in url:
+                return Response(b'<rss><channel><item><title>Story</title><link>https://news.google.com/rss/articles/token</link></item></channel></rss>')
+            return Response(url="https://publisher.example/story")
+
+    result = SearchClient(session=Session(), providers=("google-news",), delay=0).search("example")
+    assert [item.url for item in result] == ["https://publisher.example/story"]
+    assert result.provider_health == {"google-news": "ok"}
+
+
+def test_google_news_unresolved_links_report_failure():
+    class Response:
+        status_code = 200
+        content = b'<rss><channel><item><title>Story</title><link>https://news.google.com/rss/articles/token</link></item></channel></rss>'
+        url = "https://news.google.com/articles/token"
+
+    class Session:
+        headers = {}
+        def get(self, url, **kwargs):
+            return Response()
+
+    result = SearchClient(session=Session(), providers=("google-news",), delay=0).search("example")
+    assert result == []
+    assert "publisher links unresolved" in result.provider_health["google-news"]
+
+
+def test_gdelt_throttle_reservations_are_shared(tmp_path, monkeypatch):
+    from intel.search import SharedGdeltThrottle
+    sleeps = []
+    now = [100.0]
+    monkeypatch.setattr("intel.search.time.time", lambda: now[0])
+    def sleep(seconds):
+        sleeps.append(seconds)
+        now[0] += seconds
+    monkeypatch.setattr("intel.search.time.sleep", sleep)
+    path = str(tmp_path / "gdelt.sqlite3")
+    first = SharedGdeltThrottle(path, interval=5.1)
+    second = SharedGdeltThrottle(path, interval=5.1)
+    first.reserve()
+    second.reserve()
+    assert sleeps == [pytest.approx(5.1)]
+    first.backoff(20)
+    second.reserve()
+    assert sleeps[-1] == 20
+
+
+def test_gdelt_429_requests_backoff():
+    class Throttle(NoThrottle):
+        backed_off = False
+        def backoff(self):
+            self.backed_off = True
+
+    class Response:
+        status_code = 429
+
+    class Session:
+        headers = {}
+        def get(self, url, **kwargs):
+            return Response()
+
+    throttle = Throttle()
+    result = SearchClient(session=Session(), providers=("gdelt",), delay=0, gdelt_throttle=throttle).search("example")
+    assert throttle.backed_off
+    assert "HTTP 429" in result.provider_health["gdelt"]
+
+
+def test_gdelt_throttle_coordinates_separate_processes(tmp_path):
+    ctx = multiprocessing.get_context("spawn")
+    start, queue = ctx.Event(), ctx.Queue()
+    path = str(tmp_path / "shared.sqlite3")
+    workers = [ctx.Process(target=_reserve_in_process, args=(path, start, queue)) for _ in range(2)]
+    for worker in workers:
+        worker.start()
+    start.set()
+    stamps = [queue.get(timeout=15) for _ in workers]
+    for worker in workers:
+        worker.join(timeout=15)
+        assert worker.exitcode == 0
+    assert abs(stamps[1] - stamps[0]) >= 0.18
 
 
 def test_query_pack_is_multilingual_and_has_name_variants():
@@ -101,7 +207,7 @@ def test_search_politeness_spacing(monkeypatch):
             timestamps.append(time.monotonic())
             return MockResponse()
 
-    client = SearchClient(session=MockSession(), providers=("gdelt",), delay=0.05)
+    client = SearchClient(session=MockSession(), providers=("gdelt",), delay=0.05, gdelt_throttle=NoThrottle())
     client.search("test1", n=1)
     client.search("test2", n=1)
     assert len(timestamps) == 2

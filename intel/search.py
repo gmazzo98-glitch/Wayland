@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
+import sqlite3
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 import threading
@@ -19,6 +22,38 @@ from urllib.parse import quote_plus, urlparse
 import requests
 
 BLOCKED_DOMAINS = {"facebook.com", "instagram.com", "linkedin.com", "paginegialle.it", "kompass.com"}
+logger = logging.getLogger(__name__)
+
+
+class SharedGdeltThrottle:
+    """Coordinate request reservations among processes on the same host."""
+
+    def __init__(self, path=None, interval=5.1):
+        self.path = path or os.path.join(tempfile.gettempdir(), "vienna-gdelt-throttle.sqlite3")
+        self.interval = interval
+
+    def reserve(self):
+        while True:
+            with sqlite3.connect(self.path, timeout=30) as db:
+                db.execute("CREATE TABLE IF NOT EXISTS throttle (id INTEGER PRIMARY KEY, next_at REAL NOT NULL)")
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute("SELECT next_at FROM throttle WHERE id=1").fetchone()
+                now = time.time()
+                wait = max(0.0, (row[0] if row else 0) - now)
+                if not wait:
+                    db.execute("INSERT OR REPLACE INTO throttle (id, next_at) VALUES (1, ?)", (now + self.interval,))
+            if not wait:
+                return
+            # Re-check after sleeping: another process may have imposed a 429 backoff.
+            time.sleep(wait)
+
+    def backoff(self, seconds=10):
+        with sqlite3.connect(self.path, timeout=30) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS throttle (id INTEGER PRIMARY KEY, next_at REAL NOT NULL)")
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT next_at FROM throttle WHERE id=1").fetchone()
+            deadline = max(time.time() + seconds, row[0] if row else 0)
+            db.execute("INSERT OR REPLACE INTO throttle (id, next_at) VALUES (1, ?)", (deadline,))
 
 
 @dataclass
@@ -68,7 +103,7 @@ def _blocked(url: str) -> bool:
 class SearchClient:
     def __init__(self, fetcher=None, session: Optional[requests.Session] = None,
                  cache_dir: Optional[str] = None, timeout: int = 20, delay: float = 1.0,
-                 providers: Optional[Iterable[str]] = None) -> None:
+                 providers: Optional[Iterable[str]] = None, gdelt_throttle=None) -> None:
         self.fetcher = fetcher
         self.session = session or requests.Session()
         if hasattr(self.session, "headers"):
@@ -77,6 +112,7 @@ class SearchClient:
         self.providers = tuple(("duckduckgo", "google-news", "gdelt", "sec") if providers is None else providers)
         self._last: Dict[str, float] = {}
         self._lock = threading.Lock()
+        self._gdelt_throttle = gdelt_throttle or SharedGdeltThrottle()
 
     def search(self, query: str, kind: str = "web", lang: str = "it", n: int = 10) -> List[SearchResult]:
         if not query.strip() or n <= 0:
@@ -103,6 +139,7 @@ class SearchClient:
             except (requests.RequestException, ValueError, ET.ParseError, ProviderError) as exc:
                 # Do not include request URLs: keyed provider URLs can contain secrets.
                 health[provider] = f"error: {type(exc).__name__}" + (f" ({exc})" if isinstance(exc, ProviderError) else "")
+                logger.warning("Search provider %s failed: %s", provider, health[provider])
         unique = []
         seen = set()
         for item in results:
@@ -158,11 +195,39 @@ class SearchClient:
     def _google_news(self, query, lang, n):
         url = "https://news.google.com/rss/search?q=" + quote_plus(query) + "&hl=" + quote_plus(lang)
         root = ET.fromstring(self._get(url, "news.google.com").content)
-        return [SearchResult(i.findtext("link", ""), i.findtext("title", ""), i.findtext("description", ""),
-                             i.findtext("pubDate", ""), "google-news") for i in root.findall(".//item")[:n]]
+        out = []
+        unresolved = 0
+        for item in root.findall(".//item")[:n]:
+            link = item.findtext("link", "")
+            host = urlparse(link).hostname or ""
+            if host.lower() == "news.google.com":
+                try:
+                    response = self._get(link, "news.google.com")
+                    link = getattr(response, "url", "")
+                except (requests.RequestException, ProviderError):
+                    link = ""
+                if not link or (urlparse(link).hostname or "").lower() == "news.google.com":
+                    unresolved += 1
+                    continue
+            if link:
+                out.append(SearchResult(link, item.findtext("title", ""), item.findtext("description", ""),
+                                        item.findtext("pubDate", ""), "google-news"))
+        if unresolved:
+            # A partial provider response must not be mistaken for an exhaustive search.
+            raise ProviderError("publisher links unresolved")
+        return out
 
     def _gdelt(self, query, n):
-        root = self._get("https://api.gdeltproject.org/api/v2/doc/doc?query=" + quote_plus(query) + "&mode=artlist&format=json&maxrecords=" + str(n), "api.gdeltproject.org").json()
+        self._gdelt_throttle.reserve()
+        try:
+            response = self._get("https://api.gdeltproject.org/api/v2/doc/doc?query=" + quote_plus(query) + "&mode=artlist&format=json&maxrecords=" + str(n), "api.gdeltproject.org")
+            if "one request every" in (getattr(response, "text", "") or "").lower():
+                raise ProviderError("GDELT throttled")
+            root = response.json()
+        except ProviderError as exc:
+            if str(exc) in {"HTTP 429", "GDELT throttled"}:
+                self._gdelt_throttle.backoff()
+            raise
         return [SearchResult(x.get("url", ""), x.get("title", ""), x.get("snippet", ""), x.get("seendate", ""), "gdelt") for x in root.get("articles", [])]
 
     def _sec(self, query, n):

@@ -67,7 +67,7 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
   ```
   Expect differences by design (open points OP-003, OP-004): the live engine scores a company with no data as 0.0, the new one returns no score and 0% coverage.
 
-* Deep-intelligence I104 (2026-10-27, codex-a7f2): partial search reliability work adds provider health to list-compatible results and avoids caching searches with provider errors; eight focused tests pass. A bounded live ownership query reported DuckDuckGo and GDELT timeouts and returned SEC links. Full suite: 1167 passed, 12 skipped, 3 failed (login timeout, status point ordering, stale worker bundle). Not verified: returned-page ownership evidence, collector propagation of health, Google News publisher resolution, cross-process GDELT backoff and a reliable provider; I104 remains open.
+* Deep-intelligence I104 (2026-10-27, codex-a7f2): partial search reliability work adds provider health and failure logging, prevents caching failed searches, resolves normal Google News redirects or reports failure, and coordinates GDELT requests/backoff between processes on the same host; 13 focused tests pass. Full suite: 1172 passed, 12 skipped, 3 failed (login timeout, status point ordering, stale worker bundle). A bounded live ownership search reported DuckDuckGo and GDELT timeouts and returned SEC filings mentioning the target and Mott, without proving their direct relationship. Not verified: structured collector propagation of provider health, non-redirecting Google News links, multi-host throttle coordination, a reliable general search provider and full ticket acceptance; I104 remains open.
 
 ## C. Open points
 
