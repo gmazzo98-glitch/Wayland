@@ -576,7 +576,9 @@ def detect_languages(html_or_text: str, links: Sequence[str]) -> List[str]:
 # Cue phrases per language. A language is asserted only when at least two different cues occur on the page, and the
 # quote is a real line of the page containing a cue, so the evidence shows the page IS written in that language.
 LANGUAGE_CUES: Dict[str, Tuple[str, ...]] = {
-    "it": ("chi siamo", "contattaci", "i nostri prodotti", "sede legale", "partita iva", "p.iva", "telefono", "azienda"),
+    # words of the language itself; "P.IVA" or "sede legale" only show an Italian COMPANY, not an Italian-language page
+    "it": ("chi siamo", "contattaci", "i nostri prodotti", "scopri di più", "richiedi informazioni", "prodotti e servizi",
+           "telefono", "azienda"),
     "en": ("contact us", "about us", "our company", "our products", "registered office", "vat number", "phone"),
     "de": ("kontakt", "über uns", "unser unternehmen", "unsere produkte", "firmensitz", "umsatzsteuer", "telefon"),
     "fr": ("contactez-nous", "à propos", "nos produits", "siège social", "numéro de tva", "téléphone"),

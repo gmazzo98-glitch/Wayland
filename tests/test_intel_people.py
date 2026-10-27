@@ -204,6 +204,8 @@ def test_language_evidence_needs_two_cues_and_a_real_line():
     out = dict(language_evidence(it))
     assert "it" in out and quote_in_text(out["it"], it)
     assert language_evidence("Home\nFax 0341 1") == []                       # no cue at all
+    # regression: a VAT line shows an Italian company, not an Italian-language page, and is never the quote
+    assert language_evidence("Alfa Beta S.p.A.\n- P.IVA 01276740162\nSede legale: Via Roma 1\nTelefono 0341 123456") == []
     # regression: "Phone: +39..." plus one more weak word must not make an English site, and a quote is never the phone line
     assert language_evidence("Sales office\nPhone : +39-02-9700071\nOur phone numbers") == []
     en = dict(language_evidence("Phone : +39-02-9700071\nContact us for more information\nAbout us and our products"))
