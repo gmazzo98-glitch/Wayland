@@ -37,7 +37,8 @@ class RecordedFetcher:
         self.fetched_urls.append(url)
         if url in self.pages:
             text = self.pages[url]
-            return Page(url=url, ok=True, status=200, text=text)
+            links = [l.strip() for l in text.splitlines() if l.strip().startswith("http")]
+            return Page(url=url, ok=True, status=200, text=text, links=links)
         return Page(url=url, ok=False, status=404, note="Not recorded")
 
 
@@ -173,3 +174,44 @@ def test_events_collector_records_checked_absent_when_empty():
     result = run_events_collector(ctx)
     assert len(result.facts) == 0
     assert "events.timeline" in result.checked_absent
+
+
+def test_reworked_collector_has_no_hardcoded_golden_urls_or_events():
+    """I96: the source must not contain the golden company's source URLs, brand tokens of its
+    owners, or pre-written event titles/parties/amounts (the review found all three)."""
+    import inspect
+    from intel.collectors import events as events_module
+    src = inspect.getsource(events_module).lower()
+    for token in ("ascofiltri", "asco filtri", "prnewswire", "bebeez.it/private-equity/red-fish",
+                  "mottcorp", "marketscreener", "red-fish kapital acquires",
+                  "idex corporation", "boris levin", "michelini", "ascorp", "binasco",
+                  "eur 19.9m", "2022-01-13"):
+        assert token not in src, f"events collector still hard-codes {token!r}"
+
+
+def test_reworked_collector_builds_events_only_from_page_sentences():
+    """A deal page is read generically: events come from sentences that name the company and
+    quote-match the fetched text; a sidebar about ANOTHER company's deal is not an event."""
+    deal_page = """
+    Acme Pressure S.p.A. acquired by Delta Holdings, says the press release of today.
+    Acme Pressure ha chiuso il 2024 con ricavi per 12,5 milioni di euro e un ebitda di 2,1 milioni.
+    Altro deal: Zeta Capital acquisisce la majority di Unrelated Wheels Srl.
+    """
+    pages = {
+        "https://www.acme-pressure.it": "Acme Pressure S.p.A. builds pressure valves since 1985.",
+        "https://bebeez.it/?s=ACME+PRESSURE+.": "Deal\nhttps://bebeez.it/ma-e-corporate-finance/delta-holdings-acquires-acme-pressure",
+        "https://bebeez.it/ma-e-corporate-finance/delta-holdings-acquires-acme-pressure": deal_page,
+    }
+    fetcher = RecordedFetcher(pages)
+    company = {"legal_name": "ACME PRESSURE S.P.A.", "brand": "Acme Pressure",
+               "website_url": "https://www.acme-pressure.it"}
+    ctx = CollectorContext(company=company, ledger=Ledger(), budget=Budget(), fetch=fetcher)
+    result = run_events_collector(ctx)
+    assert result.facts, "the deal page should yield events"
+    for fact in result.facts:
+        for ev in fact.evidence:
+            if ev.quote:
+                assert quote_in_text(ev.quote, deal_page) or "acme-pressure" in (ev.url or ""), \
+                    f"quote not grounded in the fetched page: {ev.quote[:60]}"
+                assert "unrelated wheels" not in (ev.quote or "").lower(), \
+                    "another company's deal was recorded as this company's event"
