@@ -7,7 +7,11 @@
     "vat": "08890640157",
     "website": "https://www.corrada.it",
     "website_note": "redirects (301) to https://www.eglagroup.com/company/corrada-s-p-a, a page of the parent group's site",
-    "city": "Lainate (MI)"
+    "city": "Lainate (MI)",
+    "never_hardcode": [
+      "eglagroup.com",
+      "corpack"
+    ]
   },
   "researched_on": "2026-10-27",
   "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",

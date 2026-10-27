@@ -1,87 +1,66 @@
 # Golden Benchmark Set
 
-This directory contains the human-researched ground truth for Project Vienna's deep-intelligence layer. Each file represents what an expert researcher discovered in approximately 90 minutes using public web search, corporate filings, registries, and official portals, fact by fact with URLs, evidence grades, weights, and match regex patterns.
+Human-checked ground truth for Project Vienna's deep-intelligence layer: for each company, what a researcher can find with public sources, fact by fact, with the page it was read on, a grade, a weight, the regex that tells `scripts/intel_gap.py` whether the tool holds it, and a list of what was searched for and **not** found.
 
-The gap scorer (`scripts/intel_gap.py`) evaluates the tool's stored knowledge against these golden benchmarks.
+The set was first written by ticket I03 (2026-10-27) and **rebuilt by ticket I94** after an audit found unverifiable sources and patterns that matched any text (see `docs/intel/results/I94.md`). `asco_filtri.json` is the older I01 file and has not been through the I94 checks yet (ticket I101).
 
 ---
 
-## 1. Dataset Split
+## 1. Split
 
-To prevent agents from overfitting collectors to a single company, the dataset is split into **Development** and **Hold-out** sets:
-
-| File | Split | Archetype / Test Purpose | Facts | Categories |
+| File | Split | Archetype | Facts | Categories |
 |---|---|---|:---:|:---:|
-| `asco_filtri.json` | Development | Foundational reference benchmark: US listed corporate group subsidiary (IDEX/Mott) | 42 | 13 |
-| `isolcell.json` | Development | **(c) South Tyrol bilingual firm**: German/Italian naming, regional subsidies/networks | 33 | 11 |
-| `corrada.json` | Development | **(f) JavaScript-only site**: Modern Next.js client-side SPA, zero fields extracted by legacy crawler | 31 | 12 |
-| `bertazzon_3b.json` | **Hold-out** | **(a) Owner-managed family firm**: Thin traditional site, 100% individual family ownership | 32 | 12 |
-| `pomini_rubber_plastics.json` | **Hold-out** | **(b) Empty/missing website in DB**: Possehl/HF German foundation subsidiary, historical brand | 31 | 12 |
-| `eurosicma.json` | **Hold-out** | **(d) Italian group subsidiary**: Acquired by IMA S.p.A. (Vacchi family / BDT Capital) | 31 | 12 |
-| `emmegi_heat_exchangers.json` | **Hold-out** | **(e) Name collision (T20 problem)**: Conflated with Voilap Emmegi CNC and Argo Emmegi Srl | 31 | 12 |
+| `asco_filtri.json` | development | reference company: subsidiary of a US listed group (I01, not yet re-checked) | 42 | 13 |
+| `isolcell.json` | **development** | (c) South Tyrol company, six-language site, German Impressum; owner-controlled through a personal holding (a naive subsidiary flag is a false positive) | 32 | 12 |
+| `corrada.json` | **development** | subsidiary of a listed group whose only web presence is a page on the parent site (`corrada.it` redirects); the page footer carries the PARENT's VAT. Not JavaScript-only (see 4) | 31 | 11 |
+| `bertazzon_3b.json` | **hold-out** | (a) owner-managed family firm, thin custom PHP site, no named people, no certificates | 31 | 11 |
+| `pomini_rubber_plastics.json` | **hold-out** | (b) empty `website_url` in the database; the real site is a JavaScript-only single-page app (also (f)); German foundation group | 37 | 12 |
+| `eurosicma.json` | **hold-out** | (d) wholly owned subsidiary of an Italian group (IMA), operating loss, `eurosicma.it` only redirects to the IMA brand page | 30 | 11 |
+| `emmegi_heat_exchangers.json` | **hold-out** | (e) name collision: another Emmegi (Voilap group) and a second `EMMEGI S.R.L.` in the roster itself | 30 | 11 |
 
-> [!IMPORTANT]
-> **Hold-out rules**: Ticket agents building collectors (Wave 1 and Wave 2) must develop against `asco_filtri.json` and the development companies (`isolcell.json`, `corrada.json`). The four hold-out files are strictly reserved for Release Captains (`I90`, `I91`, `I92`) and Evaluation CI (`I43`) to assess generalization on unseen companies.
-
----
-
-## 2. Selection Rationale for the Six Benchmark Companies
-
-The 6 companies were picked from the 953 live roster to cover the core failure modes identified in `docs/INTEL_ROADMAP.md`:
-
-### (a) Owner-managed family firm with thin site: `bertazzon_3b.json`
-* **Subject**: BERTAZZON 3B S.R.L. (Sernaglia della Battaglia, TV; P.IVA `01906800264`)
-* **Why chosen**: 100% owned by individual family descendants of the three founding brothers (Luigi, Ferruccio, Marcello). No holding company, no corporate parent, independence class A. Operates in niche manufacturing (fairground rides, carousels, bumper cars) with a traditional product-gallery website (`bertazzon.com`).
-* **Test challenge**: Tests whether the tool can detect authentic family ownership without corporate parent chains, recognize specialized niche manufacturing, and capture international standards (EN 13814, ASTM) from traditional HTML.
-
-### (b) Empty or missing website URL in the database: `pomini_rubber_plastics.json`
-* **Subject**: POMINI RUBBER & PLASTICS S.R.L. (Rescaldina MI / Castellanza VA; P.IVA `05699990965`)
-* **Why chosen**: One of 16 companies in the roster with `website_url` set to `None` in the database. A historic Italian brand (Luigi Pomini, founded in Castellanza in 1886) that was acquired by Harburg-Freudenberger and Possehl Group (Lübeck, Germany). Actual websites are `www.hf-mixinggroup.com` and `www.pominirp.com`.
-* **Test challenge**: Tests web discovery (finding the real URL when the database field is blank), historical brand attribution (differentiating from Tenova Pomini), and tracing ultimate German foundation ownership.
-
-### (c) South Tyrol / German-named bilingual company: `isolcell.json`
-* **Subject**: ISOLCELL S.P.A. (Laives / Leifers BZ; P.IVA `00671570216`)
-* **Why chosen**: Located in Bolzano province (Südtirol). World leader in controlled atmosphere storage (DCA) and active oxygen-reduction fire prevention (N2ORS). Website and documents are published in Italian, German, and English.
-* **Test challenge**: Tests multilingual entity resolution (Laives vs. Leifers, Finanziaria Unterland, VdS certifications in German), regional network discovery (IDM Südtirol, Assoimprenditori Alto Adige), and patented technological terms.
-
-### (d) Subsidiary of an Italian industrial group: `eurosicma.json`
-* **Subject**: EUROSICMA - COSTRUZIONI MACCHINE AUTOMATICHE S.P.A. (Segrate MI; P.IVA `00730100153`)
-* **Why chosen**: Founded in 1965 by the Redaelli family, acquired in July 2017 (60% stake for EUR 25.8M) by packaging giant I.M.A. S.p.A. (Bologna, Vacchi family / BDT Capital).
-* **Test challenge**: Tests whether the tool identifies that a seemingly independent S.p.A. is actually a subsidiary of an Italian packaging group, detects the 2017 M&A event, and distinguishes local operating management from parent-group governance.
-
-### (e) Name-collision case (The T20 Problem): `emmegi_heat_exchangers.json`
-* **Subject**: EMMEGI S.P.A. (Cassano d'Adda MI; P.IVA `11057370154`)
-* **Why chosen**: Severe name collision. A web search for "Emmegi S.p.A." is overwhelmingly dominated by `EMMEGI S.P.A.` in Limidi di Soliera (MO) (Voilap Group, CNC machining centers for aluminium profiles, P.IVA `01978870364`). Furthermore, the Vienna roster itself contains another company named `EMMEGI S.R.L.` in Reggio Emilia (P.IVA `01681290357`, Argo Tractors).
-* **Test challenge**: The tool must use entity discriminators (VAT `11057370154`, city Cassano d'Adda, product "scambiatori di calore / heat exchangers") and reject articles, revenues, and addresses belonging to Voilap or Argo.
-
-### (f) JavaScript-only / Client-rendered site: `corrada.json`
-* **Subject**: CORRADA S.P.A. (Lainate MI; P.IVA `08890640157`)
-* **Why chosen**: Founded in 1933, precision tooling and progressive die manufacturer, subsidiary of Euronext-listed EuroGroup Laminations S.p.A. Its official site `www.corrada.it` is built entirely as a Next.js / React client-rendered Single Page Application.
-* **Test challenge**: The legacy crawler crawled 1 page and extracted 0 fields (`not_found` across all 12 fields). Tests headless rendering, Next.js JSON data extraction, and linking the company to parent EuroGroup Laminations filings.
+> **Hold-out rule.** Agents building collectors (waves 1 and 2) develop against the development files only. The four hold-out files are reserved for release captains (I90, I91, I92) and evaluation CI (I43). Each file carries its `split`.
 
 ---
 
-## 3. Fact Schema & Verification Standards
+## 2. Why these companies, and what the research found (corrected)
 
-Every golden fact adheres to the schema validated by `scripts/intel_gap.py`:
+* **(a) Bertazzon 3B** (Sernaglia della Battaglia, TV; VAT 00190680264). Whole board and 99.99 percent of the shares are one family (AIDA, independence A+). The site (about 11 pages) publishes address, phone, product models, fairs, public-funding notices, but no people and no certificate: the earlier draft's EN 13814 / ASTM claims had no source. Corrections: VAT digits were transposed, ATECO is 28.99.92 not 28.99.99.
+* **(b) Pomini Rubber & Plastics** (Rescaldina, MI; VAT 05699990965). The database has no website. `hf-mixinggroup.com` now redirects to `www.hf-group.com`, a client-rendered app that returns the same 10,808-byte shell for every path, so product facts were verified on archived copies (web.archive.org) of the old static site. The earlier draft's phone number was wrong (real: +39 0331 743-111) and its `pominirp.com` does not resolve.
+* **(c) Isolcell** (Laives, BZ; VAT 00671570216). Four divisions (storage, industry, fire prevention, cultural heritage) built on controlled-atmosphere and oxygen-reduction technology, certified ISO 9001/14001/45001, product standards listed, trade fairs in the news feed. Two traps: the site states two different share capitals (EUR 4,000,000 footer, EUR 2,000,000 Impressum) and the registry names Markus Telch as sole administrator while Marco Pruneri is general manager (the earlier draft called him CEO).
+* **(d) Eurosicma** (Vignate, MI today, Segrate in 2017 news; VAT 00730100153). IMA bought 60 percent in 2017 (about EUR 26M, put and call on the rest by April 2027); AIDA shows IMA at 100 percent and a control chain up to an investment fund. Latest accounts: revenue EUR 16.1M and an operating loss of EUR 3.2M.
+* **(e) Emmegi S.p.A.** (Cassano d'Adda, MI; VAT 11057370154). Hydraulic and engine heat exchangers, 100 percent one family, plants in Italy and Slovakia, branches in seven countries. Collision: the Voilap group brand Emmegi (aluminium and PVC machining) and `EMMEGI S.R.L.` of Reggio nell'Emilia (VAT IT01681290357, in the roster) are other companies.
+* **Corrada** (Lainate, MI; VAT 08890640157). Founded 1933, progressive lamination dies, 100 percent EuroGroup Laminations (listed since February 2023, controlled by EMS). Latest accounts show an operating loss of EUR 1.1M. The earlier draft called `corrada.it` a JavaScript-only site: it redirects to a server-rendered group page.
+
+---
+
+## 3. File format
 
 ```json
 {
-  "id": "PR-01",
-  "category": "products",
-  "weight": 3,
-  "grade": "B",
-  "claim": "Clear descriptive statement of the fact.",
-  "sources": ["https://..."],
-  "match": {
-    "any": ["pattern1", "pattern2"],
-    "all": ["required_term1", "required_term2"]
-  },
-  "closed_by": ["I10"]
+  "schema": 1, "split": "hold-out",
+  "subject": {"company_id": "...", "legal_name": "...", "vat": "...", "website": "https://... or null",
+              "website_note": "...", "city": "...", "never_hardcode": ["distinctive tokens, read by tests/test_intel_no_golden_leak.py"]},
+  "researched_on": "2026-10-27", "researcher": "...", "how_to_read": "...",
+  "facts": [{
+    "id": "PR-01", "category": "products", "weight": 3, "grade": "B",
+    "claim": "what the researcher found",
+    "sources": ["https://page the quote was read on", "AIDA export held in the tool", "Roster company table (live database)"],
+    "quote": "verbatim text from that page (or the AIDA / roster text), or a list of such quotes",
+    "match": {"any": ["regex"], "all": ["regex"]},
+    "closed_by": ["I10"]
+  }],
+  "not_found": [{"looked_for": "...", "where": "...", "result": "not found / unresolved / contradicted"}]
 }
 ```
 
-* **Categories**: `identity`, `contact`, `ownership`, `events`, `financials`, `people`, `products`, `certifications`, `locations`, `networks`, `digital`, `documents`.
-* **Grades**: `A` (official / filed data), `B` (company's own publication), `C` (verified third party), `D` (inference / consequence).
-* **Weights**: `3` (decisive for outreach), `2` (important), `1` (useful context).
-* **Pattern Tightness**: All regex patterns are tested against empty, random, and unrelated text to guarantee that no pattern is trivially true.
+* Categories: `identity, contact, ownership, events, financials, people, products, certifications, locations, networks, digital, documents`. Grades: `A` official or filed data, `B` the company's own publication, `C` verified third party, `D` inference or targeting consequence. Weights: `3` decisive for outreach, `2` important, `1` context.
+* `quote` and `not_found` are additions of I94 (`intel_gap.load_golden` ignores them). A fact whose evidence is the AIDA text uses the source `AIDA export held in the tool`; its quote is a fragment of the text `intel_gap.py --db` scores against.
+* `weight 3` facts of grade `D` are *targeting consequences* (for example "this is a controlled subsidiary"); they only match text that states the consequence, never the raw shareholder list.
+* `quote` is not a promise that the page still says the same: pages change. `web.archive.org` copies are used where the live site cannot be read without rendering.
+
+## 4. Known gaps
+
+* No development company is JavaScript-only (Corrada is not). The only JavaScript-only site is the HF Group site behind the Pomini hold-out file. Ticket I102.
+* `asco_filtri.json` has no quotes or not_found list and fails the I94 pattern checks. Ticket I101.
+* The I94 checker is attached to `docs/intel/results/I94.md` (`I94_tools/verify_golden.py`); it needs the network and the live-database read access, so it is not part of the offline test suite. Ticket I101 promotes it.
+* Baselines (see the results note): the database holds mostly AIDA and registry data; the web layer holds almost nothing of these six companies.

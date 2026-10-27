@@ -7,7 +7,13 @@
     "vat": "05699990965",
     "website": null,
     "website_note": "empty in the database; the real site is the group site https://www.hf-group.com (formerly hf-mixinggroup.com)",
-    "city": "Rescaldina (MI)"
+    "city": "Rescaldina (MI)",
+    "never_hardcode": [
+      "possehl",
+      "hf-group.com",
+      "hf-mixinggroup.com",
+      "bonvesin"
+    ]
   },
   "researched_on": "2026-10-27",
   "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",

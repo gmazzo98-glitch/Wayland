@@ -1391,7 +1391,7 @@
       "files": [
         "docs/intel/golden/*.json",
         "docs/intel/golden/README.md",
-        "docs/intel/results/I46.md"
+        "docs/intel/results/I94.md"
       ],
       "needs": [
         "web",

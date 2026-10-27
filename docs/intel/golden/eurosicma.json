@@ -7,7 +7,11 @@
     "vat": "00730100153",
     "website": "https://www.eurosicma.it",
     "website_note": "redirects (301) to https://imagroup.com/brands/eurosicma/, the parent group's brand page",
-    "city": "Vignate (MI)"
+    "city": "Vignate (MI)",
+    "never_hardcode": [
+      "imagroup.com",
+      "sofima"
+    ]
   },
   "researched_on": "2026-10-27",
   "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",

@@ -7,7 +7,12 @@
     "vat": "11057370154",
     "website": "https://emmegi-heat-exchangers.com",
     "website_note": "redirects (302) to https://emmegi.group/",
-    "city": "Cassano d'Adda (MI)"
+    "city": "Cassano d'Adda (MI)",
+    "never_hardcode": [
+      "emmegi.group",
+      "emmegi-heat-exchangers.com",
+      "lavezzari"
+    ]
   },
   "researched_on": "2026-10-27",
   "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",

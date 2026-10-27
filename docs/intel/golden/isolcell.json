@@ -6,7 +6,11 @@
     "legal_name": "ISOLCELL S.P.A.",
     "vat": "00671570216",
     "website": "https://www.isolcell.com",
-    "city": "Laives (BZ)"
+    "city": "Laives (BZ)",
+    "never_hardcode": [
+      "isolcell.com",
+      "pruneri"
+    ]
   },
   "researched_on": "2026-10-27",
   "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",
