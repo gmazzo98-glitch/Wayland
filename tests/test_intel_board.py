@@ -31,14 +31,17 @@ def test_shipped_board_is_well_formed():
         assert tid.startswith("I") and tid[1:].isdigit(), tid
         assert t["status"] in ("OPEN", "CLAIMED", "DONE", "BLOCKED"), tid
         assert t["priority"] in ("P0", "P1", "P2", "P3") and t["size"] in ("S", "M", "L", "XL"), tid
-        if "proposed_by" not in t or t["status"] == "DONE":
-            # seeded tickets, and any ticket once finished, must declare their own results note; a ticket an agent
-            # proposed with `add` is only structurally checked while it is in progress (the proposer is mid-work)
+        if "proposed_by" not in t:
             assert f"docs/intel/results/{tid}.md" in t["files"], f"{tid} must declare its results note"
+        else:
+            # an agent-proposed ticket is described by its own --why on the board
+            assert (t.get("why") or "").strip(), f"{tid} was proposed with no --why: nothing says what it is for"
         assert set(t["needs"]) <= NEEDS, (tid, set(t["needs"]) - NEEDS)
         for dep in t["depends_on"]:
             assert dep in tickets and dep != tid, (tid, dep)
         if t["status"] == "DONE":
+            # whatever it is called, a finished ticket leaves a results note under docs/intel/results/ (the trace)
+            assert t["result"].startswith("docs/intel/results/"), f"{tid}: result {t['result']!r} is outside docs/intel/results/"
             assert (ROOT / t["result"]).exists(), f"{tid} is DONE but {t['result']} is missing"
 
 
@@ -68,8 +71,8 @@ def test_every_golden_fact_is_owned_by_a_real_ticket_and_listed_on_it():
 
 def test_the_roadmap_describes_every_ticket_and_the_prompt_names_the_protocol():
     for tid, t in BOARD["tickets"].items():
-        if "proposed_by" in t and t["status"] != "DONE":
-            continue   # a proposed ticket must be described by the time it is DONE, not the moment it is added
+        if "proposed_by" in t:
+            continue   # a proposed ticket is described by its --why (checked above) and, when DONE, its results note
         assert f"### {tid} " in ROADMAP, f"docs/INTEL_ROADMAP.md has no '### {tid} ' section"
     for must in ("scripts/intel_board.py", "preflight", "docs/INTEL_ROADMAP.md", "INTEL_AGENT", "intel_gap.py"):
         assert must in PROMPT, must

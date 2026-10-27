@@ -22,6 +22,15 @@ from intel.collector import Collector, CollectorContext, CollectorResult
 from intel.fetch import Page, normalise_url
 from intel.ledger import Evidence, Fact, MIN_QUOTE_CHARS, quote_in_text
 
+# Generic corporate-history vocabulary (no company or place names: ticket I99) and the "year alone on a line" shape
+# of an HTML history timeline.
+_EVENT_WORDS = (
+    r"founded|fondat|opening|opened|apert|branch|filial|subsidiar|controllat|deal|acqui|incorporat|expan|inaugur|"
+    r"joint\s+venture|merge|fusion|new\s+plant|nuov[oa]\s+stabilimento|relocat|trasfer|launch|set\s+up|established|"
+    r"became|become|joined|part\s+of|moved|new\s+headquarters|nuov[oa]\s+sede"
+)
+_YEAR_LINE = re.compile(r"^(?:[12]\d{3})(?:\s*[–\-/]\s*(?:[12]\d{3}|\d{2}))?$")
+
 DOC_EXTENSIONS = ('.pdf', '.doc', '.docx', '.xls', '.xlsx')
 SKIP_EXTENSIONS = (
     '.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.ico',
@@ -129,11 +138,11 @@ def _extract_page_facts(page: Page, base_domain: str, results: List[Fact]) -> No
         return
 
     # 1. Identity: Registered Office / Sede Legale
+    # Generic Italian address shape (street, 5-digit postcode, capitalised locality, optional province), not a list of
+    # cities: an enumeration only ever finds the towns someone thought of (and names the benchmark companies' own).
     office_pattern = re.compile(
-        r"(?:(?:registered\s+office|headquarters|sede\s+legale|stabilimento|reach\s+us|sede)[:\s]+)?"
-        r"([A-Za-z0-9\s,.-]+(?:Binasco|Milano|Lainate|Cassano\s+d['’]Adda|Sernaglia|Laives|Leifers|Roma|Torino|Bologna|Bergamo|Brescia|Monza|Genova|Padova|Verona|Treviso)"
-        r"[^\n\r,]{0,60})",
-        re.I,
+        r"(?:(?i:registered\s+office|headquarters|sede\s+legale|stabilimento|reach\s+us|sede)[:\s]+)?"
+        r"((?:[^\n\r]{0,90}?)\b\d{5}\s+[A-ZÀ-Ý][A-Za-zÀ-ÿ'’\-]+(?:\s+[A-Za-zÀ-ÿ'’\-]+){0,3}(?:\s*\([A-Z]{2}\))?)"
     )
     for m in office_pattern.finditer(text):
         matched_str = m.group(0).strip()
@@ -377,25 +386,39 @@ def _extract_page_facts(page: Page, base_domain: str, results: List[Fact]) -> No
 
     # 9. Events: Corporate Timeline
     timeline_matches = []
-    for m in re.finditer(
-        r"([^\n\r.]*(?:abu\s+dhabi|pune|ascorp|dubai|shanghai|deutschland|germany|mott\s+deal|red-fish)[^\n\r.]*)|"
-        r"([^\n\r.]*[12][0-9]{3}[^\n\r.]*(?:founded|fondat|opening|apert|branch|filial|deal|acqui|incorporat|expand)[^\n\r.]*)",
-        text,
-        re.I,
-    ):
+    # (a) a dated sentence: "In 2015 we opened a subsidiary in Brazil"
+    for m in re.finditer(r"([^\n\r.]*[12][0-9]{3}[^\n\r.]*(?:" + _EVENT_WORDS + r")[^\n\r.]*)", text, re.I):
         s = m.group(0).strip()
         if len(s) >= MIN_QUOTE_CHARS and quote_in_text(s, text):
             timeline_matches.append((s, m.start(), m.end()))
+    # (b) the usual HTML history timeline: the year alone on a line, its entry on the next lines
+    line_offset = 0
+    page_lines = text.splitlines(keepends=True)
+    for idx, raw_line in enumerate(page_lines):
+        year_text = raw_line.strip()
+        if _YEAR_LINE.match(year_text):
+            body, entry_end = [], line_offset + len(raw_line)
+            for nxt in page_lines[idx + 1: idx + 4]:
+                if not nxt.strip() or _YEAR_LINE.match(nxt.strip()):
+                    break
+                body.append(nxt.strip())
+                entry_end += len(nxt)
+            entry = " ".join([year_text] + body)
+            if body and re.search(_EVENT_WORDS, entry, re.I) and quote_in_text(entry, text):
+                timeline_matches = [t for t in timeline_matches if t[0] not in entry]   # the block already holds it
+                timeline_matches.append((entry, line_offset, entry_end))
+        line_offset += len(raw_line)
+    timeline_matches.sort(key=lambda t: t[1])
 
     if timeline_matches:
         first_quote = timeline_matches[0][0]
         if len(first_quote) > 300:
             first_quote = _safe_quote(text, timeline_matches[0][1], timeline_matches[0][2], max_len=300)
 
-        milestone_snippets = [t[0][:80].strip() for t in timeline_matches[:6]]
+        milestone_snippets = [t[0][:230].strip() for t in timeline_matches[:12]]
         val = " | ".join(milestone_snippets)
-        if len(val) > 350:
-            val = val[:350].strip()
+        if len(val) > 1600:
+            val = val[:1600].strip()
 
         results.append(
             Fact(
