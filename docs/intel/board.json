@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T17:01:59Z",
+  "updated_at": "2026-10-27T17:07:18Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -886,10 +886,10 @@
       "needs": [
         "scraper_repo"
       ],
-      "status": "CLAIMED",
-      "claimed_by": "codex-a7f2",
-      "claimed_at": "2026-10-27T17:00:23Z",
-      "heartbeat_at": "2026-10-27T17:00:23Z",
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
@@ -900,6 +900,12 @@
           "at": "2026-10-27T17:00:23Z",
           "by": "codex-a7f2",
           "event": "claim"
+        },
+        {
+          "at": "2026-10-27T17:07:18Z",
+          "by": "codex-a7f2",
+          "event": "release",
+          "note": "Release held and evidence committed at 7925251. origin/master merged for assessment; 9 collectors register; no-golden-leak passes after I99. Full pre-merge suite: 1079 passed, 12 skipped, 3 failed. I95 remains claimed/open rework, so worker bundle rebuild, golden matrix, helper-PC verification and wave coverage report were intentionally not shipped."
         }
       ]
     },
