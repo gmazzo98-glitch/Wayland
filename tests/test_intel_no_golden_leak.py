@@ -26,7 +26,6 @@ ROOT = Path(__file__).resolve().parent.parent
 EXTRA_TOKENS = {"mott", "idex", "binasco", "red-fish", "redfish"}
 
 ALLOWED_UNTIL_FIXED: Dict[str, str] = {
-    "intel/verify.py": "I93",
     "intel/events.py": "I96",
     "intel/collectors/events.py": "I96",
     "intel/people.py": "I95",
