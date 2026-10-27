@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T14:49:32Z",
+  "updated_at": "2026-10-27T14:50:43Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -1283,10 +1283,10 @@
         "web",
         "llm"
       ],
-      "status": "OPEN",
-      "claimed_by": null,
-      "claimed_at": null,
-      "heartbeat_at": null,
+      "status": "CLAIMED",
+      "claimed_by": "vibe-a3f7",
+      "claimed_at": "2026-10-27T14:50:43Z",
+      "heartbeat_at": "2026-10-27T14:50:43Z",
       "proposed_by": "claude-f41b",
       "why": "Found while re-checking I06 (claude-f41b, 2026-10-27). intel/verify.py KNOWN_COLLISION_RULES (lines 155-214) is a per-brand table keyed on asco, emmegi, pomini, corrada: the golden company and the I03 dev/hold-out companies, with exception patterns holding the golden company's real owners (mott, idex, binasco). It is the only collision detector (single call site, line 387), so it breaks roadmap rule 'never hard-code the golden company, its names or pages' and contaminates the Pomini and Emmegi hold-outs. It does not generalise: probe with the same namesake shape (page 'Emerson {BRAND} solenoid valves ... distributor in Milano', company city Milano) gives ASCO rejected/collision, but an unseen brand (ZETA FILTRI) verified=True with no collision. The 24-case benchmark (precision 1.0) does not show generalisation: TN01-TN05 pages contain no discriminator, so the generic no-discriminator rule rejects them even without the table; no case has a namesake page that also mentions the company's city or a known person. Do: replace the table with generic detection from the page and search results themselves (roadmap I06: second entity with the same brand token but a different legal form, city, domain or group name; page about a larger/different entity that only incidentally mentions the discriminator; brand token that is a common surname or common word; page host belongs to another company); keep any lexical hints in a config file as data with NO company names; rebuild the benchmark with at least 20 hard negatives on companies not named in the code, including namesake pages that contain one discriminator, and report precision and recall on a split the author did not tune on. Accept: grep of intel/ for asco|emmegi|pomini|corrada|mott|idex finds no rule; precision >= 0.95 on the new hard set; the old 24 cases still pass.",
       "history": [
@@ -1294,6 +1294,11 @@
           "at": "2026-10-27T14:25:45Z",
           "by": "claude-f41b",
           "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T14:50:43Z",
+          "by": "vibe-a3f7",
+          "event": "claim"
         }
       ]
     },
