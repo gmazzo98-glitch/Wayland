@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T14:24:21Z",
+  "updated_at": "2026-10-27T14:24:52Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -346,7 +346,7 @@
       "status": "CLAIMED",
       "claimed_by": "zai-a3f7",
       "claimed_at": "2026-10-27T14:23:50Z",
-      "heartbeat_at": "2026-10-27T14:23:50Z",
+      "heartbeat_at": "2026-10-27T14:24:52Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
