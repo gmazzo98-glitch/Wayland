@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 from intel import queryplan
 from intel.collector import Collector, CollectorContext, CollectorResult
@@ -57,6 +59,14 @@ MAX_RESULTS_PER_QUERY = 8
 LOCALITY_CHARS = 250            # a third-party page must name the company this close to the person
 MAX_CANDIDATES_PER_PAGE = 12
 
+# Sources with an internal site search that a deal story about ANY Italian company can be found with (roadmap section 4
+# lists the outlet as a readable deal-story source). {q} is the company name. Read through the polite, robots-aware
+# fetcher; only result links whose path carries the company's slug are followed. Add a source here only after reading
+# docs/intel/SECURITY_AND_SOURCES.md.
+SOURCE_SEARCH_ENDPOINTS: Tuple[Tuple[str, str], ...] = (
+    ("bebeez", "https://bebeez.it/?s={q}"),
+)
+
 # Words in a URL path of the company's own site that lead to people, leadership or legal-notice pages. The collector
 # follows links the homepage offers; it does not invent paths.
 STRONG_TEAM_HINTS = ("team", "leadership", "management", "governance", "direzione", "persone", "people", "staff",
@@ -77,15 +87,24 @@ _ORG_TOKEN = r"[A-Z0-9][\w&.'’\-]*"
 _TAIL = rf"(?:[^\S\n]+(?i:of|at|di|presso|bei|von)[^\S\n]+{_ORG_TOKEN}(?:[^\S\n]+[A-Z0-9&][\w&.'’\-]*){{0,4}})?"
 _LEAD = r"(?<![\w'’\-])"
 
+# Text extracted from HTML puts inline links on their own lines ("Mario Rossi\n(amministratore delegato ...)",
+# "Mario Rossi\n, CEO of ..."), so ONE line break is allowed between a name and its separator; the name itself stays
+# on one line.
+_NL = r"[^\S\n]*\n?[^\S\n]*"
+
 _PATTERNS: List[Tuple[re.Pattern, Any]] = [
     # "Mario Rossi, Managing Director", "Mario Rossi - CEO of Some Corporation"
-    (re.compile(rf"{_LEAD}(?P<name>{NAME_RE})[^\S\n]*[,–—\-][^\S\n]*(?P<title>{_TITLE}{_TAIL})(?!\w)"),
+    (re.compile(rf"{_LEAD}(?P<name>{NAME_RE}){_NL}[,–—\-]{_NL}(?P<title>{_TITLE}{_TAIL})(?!\w)"),
      lambda m: (m.group("name"), m.group("title"))),
     # "Mario Rossi (amministratore delegato ...)"
-    (re.compile(rf"{_LEAD}(?P<name>{NAME_RE})[^\S\n]*\((?P<title>{_TITLE})[^)\n]{{0,80}}\)"),
+    (re.compile(rf"{_LEAD}(?P<name>{NAME_RE}){_NL}\((?P<title>{_TITLE})[^)]{{0,80}}\)"),
+     lambda m: (m.group("name"), m.group("title"))),
+    # "Mario Rossi (già manager di un altro gruppo), azionista e consigliere con delega": a background in brackets
+    (re.compile(rf"{_LEAD}(?P<name>{NAME_RE}){_NL}\([^)]{{0,160}}\){_NL},{_NL}"
+                rf"(?:(?i:azionista|socio|shareholder)[^\S\n]+(?i:e|and)[^\S\n]+)?(?P<title>{_TITLE})(?!\w)"),
      lambda m: (m.group("name"), m.group("title"))),
     # "Amministratore Delegato: Mario Rossi"
-    (re.compile(rf"{_LEAD}(?P<title>{_TITLE})[^\S\n]*[:\-–—][^\S\n]*(?P<name>{NAME_RE})(?![\w])"),
+    (re.compile(rf"{_LEAD}(?P<title>{_TITLE}){_NL}[:\-–—]{_NL}(?P<name>{NAME_RE})(?![\w])"),
      lambda m: (m.group("name"), m.group("title"))),
     # "General Manager Mario Rossi"
     (re.compile(rf"{_LEAD}(?P<title>{_TITLE})[^\S\n]+(?P<name>{NAME_RE})(?![\w])"),
@@ -314,6 +333,27 @@ def _load_registry_rows(ctx: CollectorContext, result: CollectorResult) -> List[
                 pass
 
 
+def _is_former(row: Dict[str, Any]) -> bool:
+    """A registry officer who has left. In the imported registry data `resignation_date` can hold the END OF THE
+    CURRENT TERM (a future date), so a date only counts when it is already past; otherwise the status column decides."""
+    status = str(row.get("current_or_former") or "").strip().lower()
+    if status.startswith(("former", "cessat", "ex ", "ex-")):
+        return True
+    if status.startswith(("current", "in carica", "attiv")):
+        return False
+    when = row.get("resignation_date")
+    if not when:
+        return False
+    try:
+        if isinstance(when, str):
+            when = datetime.fromisoformat(when[:19])
+        if getattr(when, "tzinfo", None) is not None:
+            when = when.replace(tzinfo=None)
+        return when < datetime.now(timezone.utc).replace(tzinfo=None)
+    except (ValueError, TypeError):
+        return False
+
+
 def _registry_candidates(rows: Sequence[Dict[str, Any]], result: CollectorResult) -> List[PersonCandidate]:
     out: List[PersonCandidate] = []
     seen: Set[Tuple[str, str]] = set()
@@ -322,8 +362,7 @@ def _registry_candidates(rows: Sequence[Dict[str, Any]], result: CollectorResult
         full_name = re.sub(r"^(?:Sig\.|Signora|Dott\.|Ing\.)\s+", "", str(row.get("full_name") or ""), flags=re.I).strip()
         if not full_name or is_suppressed(full_name):
             continue
-        status = str(row.get("current_or_former") or "").strip().lower()
-        if status.startswith(("former", "cessat", "ex ", "ex-")) or row.get("resignation_date"):
+        if _is_former(row):
             former += 1
             continue
         role_str = str(row.get("role") or row.get("role_group") or "Board Member")
@@ -395,11 +434,42 @@ def _search_queries(company: Dict[str, Any], budget: int) -> List[Tuple[str, str
     return out
 
 
+def _slug(name: str) -> str:
+    folded = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9]+", "-", folded).strip("-")
+
+
+def _site_search_urls(ctx: CollectorContext, names: Sequence[str], own_host: str, seen_urls: Set[str],
+                      result: CollectorResult) -> Tuple[List[str], bool]:
+    """Deal-story pages found with the internal search of the sources in SOURCE_SEARCH_ENDPOINTS: company name in,
+    only links whose PATH carries the company's slug out. Returns (urls, endpoint_was_readable)."""
+    urls: List[str] = []
+    readable = False
+    slugs = [s for s in (_slug(n) for n in names) if len(s) >= 4]
+    if not slugs:
+        return urls, readable
+    for endpoint, template in SOURCE_SEARCH_ENDPOINTS:
+        page = ctx.fetch(template.format(q=quote_plus(names[0])))
+        result.pages_fetched += 1
+        if not page.ok or not page.text:
+            result.errors.append(f"{endpoint} site search not readable ({page.note or page.status})")
+            continue
+        readable = True
+        result.queries.append(f"{endpoint}: {names[0]}")
+        for link in page.links:
+            norm = normalise_url(link)
+            if norm and norm not in seen_urls and not _same_site(norm, own_host) \
+                    and any(s in urlparse(norm).path.lower() for s in slugs) and norm not in urls:
+                urls.append(norm)
+    return urls, readable
+
+
 def _rank_results(ctx: CollectorContext, queries: Sequence[Tuple[str, str]], names: Sequence[str], own_host: str,
-                  result: CollectorResult, deadline: float) -> Tuple[List[Any], bool]:
-    """Search results that look like they are about the company, most frequently returned first."""
+                  result: CollectorResult, deadline: float) -> Tuple[List[Any], int]:
+    """Search results that look like they are about the company, most frequently returned first.
+    Returns (items, raw_result_count): zero raw results over every query means the provider returned nothing at all."""
     hits: Dict[str, Dict[str, Any]] = {}
-    searched = False
+    raw = 0
     for text, lang in queries:
         if time.monotonic() > deadline:
             result.errors.append("search stopped at the deadline")
@@ -410,8 +480,8 @@ def _rank_results(ctx: CollectorContext, queries: Sequence[Tuple[str, str]], nam
         except Exception as exc:
             result.errors.append(f"search failed ({type(exc).__name__}) for one query")
             continue
-        searched = True
         for item in res or []:
+            raw += 1
             url = normalise_url(getattr(item, "url", "") or "")
             if not url or _same_site(url, own_host):
                 continue
@@ -422,7 +492,7 @@ def _rank_results(ctx: CollectorContext, queries: Sequence[Tuple[str, str]], nam
             slot = hits.setdefault(url, {"item": item, "count": 0})
             slot["count"] += 1
     ranked = sorted(hits.values(), key=lambda s: -s["count"])
-    return [s["item"] for s in ranked], searched
+    return [s["item"] for s in ranked], raw
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -486,30 +556,41 @@ def run(ctx: CollectorContext) -> CollectorResult:
             result.errors.append("company has no website_url: own-site pages not read")
             seen_urls = set()
 
-        # 3. Press, deal stories and profile pages found by search
-        if ctx.search is None:
-            result.errors.append("no search client supplied: press and deal stories were not searched")
-        elif not names:
+        # 3. Press, deal stories and profile pages: the internal search of declared sources, then web search
+        press_urls: List[str] = []
+        if not names:
             result.errors.append("company has no usable name: press and deal stories were not searched")
         else:
-            queries = _search_queries(company, max(1, int(ctx.budget.max_search_queries)))
-            ranked, searched = _rank_results(ctx, queries, names, own_host, result, deadline)
-            for item in ranked:
-                if press_pages_read >= MAX_PRESS_PAGES or result.pages_fetched >= max_pages or time.monotonic() > deadline:
-                    break
-                url = normalise_url(item.url)
-                if url in seen_urls:
-                    continue
-                seen_urls.add(url)
-                page = ctx.fetch(url)
-                result.pages_fetched += 1
-                if not page.ok or not page.text:
-                    continue
-                press_pages_read += 1
-                if not name_in_text(names, page.text):
-                    continue
-                for cand, text in _extract_candidates(page.text, page.url, "press", names, False, owners):
-                    web_cands.append((cand, text, "C"))
+            site_urls, site_readable = _site_search_urls(ctx, names, own_host, seen_urls, result)
+            press_urls.extend(site_urls)
+            searched = searched or site_readable
+            if ctx.search is None:
+                result.errors.append("no search client supplied: the web was not searched for press and deal stories")
+            else:
+                queries = _search_queries(company, max(1, int(ctx.budget.max_search_queries)))
+                ranked, raw = _rank_results(ctx, queries, names, own_host, result, deadline)
+                if queries and raw == 0:
+                    result.errors.append(
+                        f"web search returned no result for any of {len(result.queries)} queries "
+                        "(provider blocked, rate limited or no coverage); this is not evidence of absence")
+                else:
+                    searched = True
+                press_urls.extend(normalise_url(item.url) for item in ranked)
+        for url in press_urls:
+            if press_pages_read >= MAX_PRESS_PAGES or result.pages_fetched >= max_pages or time.monotonic() > deadline:
+                break
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            page = ctx.fetch(url)
+            result.pages_fetched += 1
+            if not page.ok or not page.text:
+                continue
+            press_pages_read += 1
+            if not name_in_text(names, page.text):
+                continue
+            for cand, text in _extract_candidates(page.text, page.url, "press", names, False, owners):
+                web_cands.append((cand, text, "C"))
 
     # 4. Verify every web candidate with the I06 gate; keep what passes, say what was dropped and why
     kept: List[Tuple[PersonCandidate, Fact]] = []

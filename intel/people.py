@@ -568,7 +568,7 @@ def language_evidence(text: str) -> List[Tuple[str, str]]:
         if len(hit_cues) < 2:
             continue
         for i, ln in enumerate(lowered_lines):
-            if hit_cues[0] in ln and len(lines[i]) >= 12:
+            if len(lines[i]) >= 12 and any(c in ln for c in hit_cues):
                 out.append((lang, lines[i][:160]))
                 break
     return out
