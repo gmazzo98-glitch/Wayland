@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T16:28:56Z",
+  "updated_at": "2026-10-27T16:35:25Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -1600,6 +1600,38 @@
         {
           "at": "2026-10-27T16:17:01Z",
           "by": "claude-61ea",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I101": {
+      "title": "Golden-set gate: promote the I94 verifier into scripts/ plus a test, and rework the ASCO golden file against it",
+      "wave": 0,
+      "priority": "P1",
+      "size": "M",
+      "depends_on": [
+        "I94"
+      ],
+      "files": [
+        "scripts/golden_verify.py",
+        "tests/test_intel_golden_set.py",
+        "docs/intel/golden/asco_filtri.json",
+        "docs/intel/results/I101.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "proposed_by": "claude-e9be",
+      "why": "I94 repaired the six I03 files with a checker (quote grounded in the fetched page or the live-DB text, own pattern hits own evidence, no hit on a generic blurb or on other companies' quotes, pattern lint). It lives only as a script attached to docs/intel/results/I94.md. ASCO (I01) fails the same checks: no quote fields, no not_found list, 'subsidiary of' / '9001' / '2.5 m' style patterns, FI-01 captured by unrelated signal text.",
+      "history": [
+        {
+          "at": "2026-10-27T16:35:25Z",
+          "by": "claude-e9be",
           "event": "proposed"
         }
       ]
