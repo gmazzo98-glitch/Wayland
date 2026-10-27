@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T15:31:46Z",
+  "updated_at": "2026-10-27T15:36:14Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -752,10 +752,10 @@
         "web",
         "live_db_read"
       ],
-      "status": "CLAIMED",
+      "status": "DONE",
       "claimed_by": "vibe-a3f7",
       "claimed_at": "2026-10-27T15:16:32Z",
-      "heartbeat_at": "2026-10-27T15:31:46Z",
+      "heartbeat_at": "2026-10-27T15:36:14Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
@@ -766,6 +766,12 @@
           "at": "2026-10-27T15:16:32Z",
           "by": "vibe-a3f7",
           "event": "claim"
+        },
+        {
+          "at": "2026-10-27T15:36:14Z",
+          "by": "vibe-a3f7",
+          "event": "done",
+          "note": "docs/intel/results/I20.md"
         }
       ],
       "golden": [
@@ -774,7 +780,9 @@
         "ID-03",
         "CT-02",
         "FI-02"
-      ]
+      ],
+      "done_at": "2026-10-27T15:36:14Z",
+      "result": "docs/intel/results/I20.md"
     },
     "I21": {
       "title": "Customers, references and channel position (OEM, EPC, distributor, end user)",
