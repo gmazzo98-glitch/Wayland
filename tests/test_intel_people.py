@@ -154,6 +154,18 @@ def test_extract_phones_and_switchboard():
         assert quote in text
 
 
+def test_a_vat_number_is_never_read_as_the_switchboard():
+    # regression: an 11-digit Italian VAT number printed in a footer was stored as "+39 0067..." by the unlabelled fallback
+    footer = "Alfa Beta S.p.A. - Via Roma 1 - 39100 Bolzano\nP.IVA 00123456789 - C.F. 00123456789\nREA BZ-123456"
+    assert extract_phones(footer) == []
+    assert extract_phones("Partita IVA: 00123456789") == []
+    assert extract_phones("Codice Fiscale e P.IVA 00123456789") == []
+    assert extract_phones("Registro Imprese 00123456789") == []                # the 00 prefix without a plus is not a phone
+    both = "P.IVA 00123456789 - Tel. 0471 954050"                              # the real telephone on the same line stays
+    assert [n for n, _ in extract_phones(both)] == ["+39 0471 954050"]
+    assert [n for n, _ in extract_phones("Sede: Via Roma 1\n0471 954050")] == ["+39 0471 954050"]
+
+
 def test_extract_emails_and_pec_with_suppression():
     text = ("Commerciale: vendite@brambilla.example\nPosta certificata: brambilla@pec.it\nInfo: info@brambilla.example\n"
             "Privacy: privacy@brambilla.example\nDPO: dpo@brambilla.example\nAbuse: abuse@brambilla.example")
@@ -304,6 +316,23 @@ def test_people_collector_registry_roster_organisations_and_foreign_directors():
     assert "people.parent_executive" not in keys                         # nationality alone never confirms a parent
     assert all(f.value.get("name") != "Piero Gatti" for f in res.facts if isinstance(f.value, dict))   # former officer
     assert any("former officer" in e for e in res.errors)
+
+
+def test_registry_placeholders_and_unknown_roles_are_not_filed_as_firms_or_board_seats():
+    rows = [
+        {"full_name": "Auditors or advisors are available, yet none related to the selected filter", "role": "ADV"},
+        {"full_name": "Mario Verdi", "role": "RESPONSABILE TECNICO"},                  # a role the vocabulary does not know
+        {"full_name": "Paola Neri", "role": "CONSIGLIERE"},
+    ]
+    res, _f, _s = _run(company=_company(people=rows))
+    keys = _by_key(res)
+    assert "people.advisor_firm" not in keys
+    assert not any("selected filter" in str(f.value) for f in res.facts)
+    assert keys["people.other_officer"][0].value["name"] == "Mario Verdi"
+    assert "Mario Verdi" not in [f.value["name"] for f in keys.get("people.board_member", [])]
+    assert "Paola Neri" in [f.value["name"] for f in keys["people.board_member"]]
+    assert people._is_placeholder_name("Nessun dato disponibile per il filtro selezionato")
+    assert not people._is_placeholder_name("Studio Revisione Associati S.p.A.")
 
 
 def test_former_officer_rule_does_not_treat_a_future_term_end_as_a_resignation():

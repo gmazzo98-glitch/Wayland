@@ -424,6 +424,24 @@ PEC_DOMAINS = (
 )
 
 
+# A number printed next to one of these is a tax or registry identifier, never a telephone number (an 11-digit Italian
+# VAT number looks exactly like a long landline).
+_NOT_A_PHONE_CONTEXT = re.compile(
+    r"(p\.?\s?iva|partita\s+iva|\bvat\b|\biva\b|c\.?\s?f\.?\b|codice\s+fiscale|\brea\b|r\.?e\.?a\.?\b|registro\s+imprese|"
+    r"reg\.?\s*imp|cap\.?\s*soc|capitale\s+sociale|\bsdi\b|\bcod\.?\s*dest)", re.I)
+
+
+def _is_phone_context(text: str, start: int, raw: str) -> bool:
+    """False when the digits sit in a VAT / tax-code / registry line or start with the international prefix without a +."""
+    # only the label RIGHT BEFORE the digits counts: "P.IVA 0067... - Tel. 0471 ..." must still accept the telephone
+    if _NOT_A_PHONE_CONTEXT.search(text[max(0, start - 14): start]):
+        return False
+    digits = re.sub(r"\D", "", raw)
+    if not raw.strip().startswith("+") and digits.startswith("00"):
+        return False
+    return True
+
+
 def extract_phones(text: str) -> List[Tuple[str, str]]:
     """Extract candidate telephone numbers with exact quotes from the text."""
     if not text:
@@ -444,6 +462,8 @@ def extract_phones(text: str) -> List[Tuple[str, str]]:
             digits = re.sub(r"\D", "", raw)
             if len(digits) < 8 or len(digits) > 13:
                 continue
+            if not _is_phone_context(text, m.start(1), raw):
+                continue
             norm = _normalize_italian_phone(raw)
             quote = m.group(0).strip()
             if norm not in seen and not is_suppressed(norm):
@@ -455,7 +475,7 @@ def extract_phones(text: str) -> List[Tuple[str, str]]:
         for m in PHONE_PATTERN.finditer(text):
             raw = m.group(0).strip()
             digits = re.sub(r"\D", "", raw)
-            if 8 <= len(digits) <= 12:
+            if 8 <= len(digits) <= 12 and _is_phone_context(text, m.start(), raw):
                 norm = _normalize_italian_phone(raw)
                 if norm not in seen and not is_suppressed(norm):
                     seen.add(norm)

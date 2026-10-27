@@ -273,7 +273,10 @@ def _fact_key(c: PersonCandidate) -> str:
         return "people.parent_executive"
     if c.affiliation == "other_org":
         return "people.other_org_executive"
-    return _KEY_BY_ROLE.get(c.normalized_role, "people.board_member")
+    if c.normalized_role in _KEY_BY_ROLE:
+        return _KEY_BY_ROLE[c.normalized_role]
+    # a role the vocabulary does not know is not a board seat: keep it visible without claiming one
+    return "people.board_member" if c.role_group == "board_parent" else "people.other_officer"
 
 
 def _value(c: PersonCandidate) -> Dict[str, Any]:
@@ -333,6 +336,16 @@ def _load_registry_rows(ctx: CollectorContext, result: CollectorResult) -> List[
                 pass
 
 
+_PLACEHOLDER_WORDS = re.compile(
+    r"\b(available|none|n/a|no data|filter|selected|not available|nessun\w*|non disponibil\w*|nessuna)\b", re.I)
+
+
+def _is_placeholder_name(name: str) -> bool:
+    """The imported registry sometimes holds a sentence where a name should be ("... none related to the selected
+    filter"); a real name is short and has none of those words."""
+    return len(name.split()) > 7 or bool(_PLACEHOLDER_WORDS.search(name))
+
+
 def _is_former(row: Dict[str, Any]) -> bool:
     """A registry officer who has left. In the imported registry data `resignation_date` can hold the END OF THE
     CURRENT TERM (a future date), so a date only counts when it is already past; otherwise the status column decides."""
@@ -360,7 +373,7 @@ def _registry_candidates(rows: Sequence[Dict[str, Any]], result: CollectorResult
     former = 0
     for row in rows:
         full_name = re.sub(r"^(?:Sig\.|Signora|Dott\.|Ing\.)\s+", "", str(row.get("full_name") or ""), flags=re.I).strip()
-        if not full_name or is_suppressed(full_name):
+        if not full_name or is_suppressed(full_name) or _is_placeholder_name(full_name):
             continue
         if _is_former(row):
             former += 1
