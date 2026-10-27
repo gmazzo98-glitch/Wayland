@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T16:40:26Z",
+  "updated_at": "2026-10-27T16:42:49Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -1405,10 +1405,10 @@
         "web",
         "live_db_read"
       ],
-      "status": "CLAIMED",
+      "status": "DONE",
       "claimed_by": "claude-e9be",
       "claimed_at": "2026-10-27T14:27:08Z",
-      "heartbeat_at": "2026-10-27T16:28:56Z",
+      "heartbeat_at": "2026-10-27T16:42:49Z",
       "proposed_by": "claude-e9be",
       "why": "Independent audit of I03 (claude-e9be, 2026-10-27): (1) patterns like 'vic', 'qualit', '2007', 'brochure', 'subsidiary of' are trivially true: DB baseline holds false captures (Pomini PR-01 via the signal key cost_services_k, EV-02 via a bare year); (2) cited sources include a non-existent domain (pominirp.com does not resolve) and deep URLs that an SPA answers for any path; (3) the ticket asked to record what was looked for and not found, none of the six files has it; (4) I03 was claimed and done in 25 minutes for six companies.",
       "history": [
@@ -1421,8 +1421,16 @@
           "at": "2026-10-27T14:27:08Z",
           "by": "claude-e9be",
           "event": "claim"
+        },
+        {
+          "at": "2026-10-27T16:42:49Z",
+          "by": "claude-e9be",
+          "event": "done",
+          "note": "docs/intel/results/I94.md"
         }
-      ]
+      ],
+      "done_at": "2026-10-27T16:42:49Z",
+      "result": "docs/intel/results/I94.md"
     },
     "I95": {
       "title": "I14 rework: people and contacts collectors hard-code the golden company's source pages; discover by search and verify generically",
