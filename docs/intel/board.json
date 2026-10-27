@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T15:36:14Z",
+  "updated_at": "2026-10-27T15:36:24Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -1516,6 +1516,30 @@
         {
           "at": "2026-10-27T15:03:02Z",
           "by": "vibe-a17f",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I99": {
+      "title": "I10 deep-site collector hard-codes golden names (binasco, mott, red-fish) - fails the no-golden-leak test",
+      "wave": 3,
+      "priority": "P2",
+      "size": "M",
+      "depends_on": [],
+      "files": [
+        "intel/collectors/deep_site.py"
+      ],
+      "needs": [],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "proposed_by": "vibe-a3f7",
+      "why": "Merged with the I10 work: tests/test_intel_no_golden_leak.py::test_collection_code_does_not_hard_code_golden_companies fails on master (intel/collectors/deep_site.py: binasco x1 line 134, mott x1 line 381, red-fish x1 line 381). The I10 owner must remove the golden names and delete the allowlist entry if one was added.",
+      "history": [
+        {
+          "at": "2026-10-27T15:36:24Z",
+          "by": "vibe-a3f7",
           "event": "proposed"
         }
       ]
