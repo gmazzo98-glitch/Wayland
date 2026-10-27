@@ -125,6 +125,16 @@ def test_looks_like_organization_and_plausible_names():
     assert is_classified_title("Direttore Tecnico") and not is_classified_title("Poeta")
 
 
+def test_a_group_name_is_not_a_person_in_any_of_the_three_languages():
+    # regression found on a German-named company: "CEO Alfa Gruppe" was stored as a person called "Alfa Gruppe"
+    for org in ("Alfa Gruppe", "Alfa Unternehmensgruppe", "Alfa Gruppo", "Alfa Group", "Beta Stiftung", "Gamma Holding"):
+        assert not plausible_person_name(org), org
+        assert looks_like_organization(org) or not plausible_person_name(org)
+    text = "Lina Rossi (CEO Alfa Gruppe) und Marco Bianchi, Geschäftsführer, leiten Alfa.\nCEO Alfa Gruppe\n"
+    found = {c.full_name for c, _t in people._extract_candidates(text, "https://alfa.example/", "company_site", ["Alfa"], True, [])}
+    assert found == {"Lina Rossi", "Marco Bianchi"}
+
+
 def test_name_regex_stays_on_one_line_and_accepts_particles_and_apostrophes():
     import re
     assert re.fullmatch(NAME_RE, "Anna Maria D'Angelo")
@@ -194,6 +204,10 @@ def test_language_evidence_needs_two_cues_and_a_real_line():
     out = dict(language_evidence(it))
     assert "it" in out and quote_in_text(out["it"], it)
     assert language_evidence("Home\nFax 0341 1") == []                       # no cue at all
+    # regression: "Phone: +39..." plus one more weak word must not make an English site, and a quote is never the phone line
+    assert language_evidence("Sales office\nPhone : +39-02-9700071\nOur phone numbers") == []
+    en = dict(language_evidence("Phone : +39-02-9700071\nContact us for more information\nAbout us and our products"))
+    assert "en" in en and "phone" not in en["en"].lower()
     assert "en" not in dict(language_evidence("Prodotti e servizi\nPhone: 0341 123456\nChi siamo e telefono"))
 
 

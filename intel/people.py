@@ -301,7 +301,8 @@ def employer_is_company(employer: Optional[str], names: Sequence[str]) -> bool:
 
 _ORG_WORDS = re.compile(
     r"\b(s\.?p\.?a\.?|s\.?r\.?l\.?s?|s\.?a\.?s\.?|s\.?n\.?c\.?|gmbh|ag|ltd|llc|inc|corp|corporation|company|group|"
-    r"gruppo|holding|associati|associates|studio|revisione|audit|auditors|consulting|partners|foundation|fondazione)\b",
+    r"gruppo|holding|associati|associates|studio|revisione|audit|auditors|consulting|partners|foundation|fondazione|"
+    r"gruppe|unternehmensgruppe|kg|ohg|stiftung|verband|gesellschaft|plc|sarl|b\.v\.|n\.v\.)\b",
     re.I)
 
 
@@ -336,6 +337,8 @@ read more leggi scopri vai view all tutti download catalog catalogo brochure vid
 storia history prodotti products soluzioni solutions applicazioni applications settori markets mercati sede
 headquarters legal notice note legali credits sitemap login search cerca menu scrivici richiedi richiesta quote
 preventivo newsletter social follow seguici copyright rights reserved holding spa srl gmbh ltd inc llc
+gruppe unternehmensgruppe unternehmen geschäftsführung geschaeftsfuehrung standort standorte division divisionen
+über uns startseite impressum datenschutz
 """.split()}
 
 
@@ -580,6 +583,10 @@ LANGUAGE_CUES: Dict[str, Tuple[str, ...]] = {
 }
 
 
+# Words that appear in other languages' pages too ("Phone:" on an Italian site): they count, but never alone.
+WEAK_LANGUAGE_CUES = {"phone", "telefono", "telefon", "téléphone", "azienda"}
+
+
 def language_evidence(text: str) -> List[Tuple[str, str]]:
     """[(language_code, verbatim_line)] for every language with at least two distinct cues on the page."""
     out: List[Tuple[str, str]] = []
@@ -589,10 +596,11 @@ def language_evidence(text: str) -> List[Tuple[str, str]]:
     lowered_lines = [ln.lower() for ln in lines]
     for lang, cues in LANGUAGE_CUES.items():
         hit_cues = [c for c in cues if any(c in ln for ln in lowered_lines)]
-        if len(hit_cues) < 2:
+        strong = [c for c in hit_cues if c not in WEAK_LANGUAGE_CUES]
+        if len(hit_cues) < 2 or not strong:
             continue
-        for i, ln in enumerate(lowered_lines):
-            if len(lines[i]) >= 12 and any(c in ln for c in hit_cues):
+        for i, ln in enumerate(lowered_lines):          # quote a line that carries a STRONG cue, never a bare "Phone:"
+            if len(lines[i]) >= 12 and any(c in ln for c in strong):
                 out.append((lang, lines[i][:160]))
                 break
     return out
