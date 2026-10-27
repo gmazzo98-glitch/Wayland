@@ -4,27 +4,33 @@
   "subject": {
     "company_id": "b40953cd-1b1b-4aef-93f6-bcc824f07df6",
     "legal_name": "BERTAZZON 3B S.R.L.",
-    "vat": "01906800264",
+    "vat": "00190680264",
     "website": "https://www.bertazzon.com",
-    "city": "Sernaglia della Battaglia (TV)"
+    "city": "Sernaglia della Battaglia (TV)",
+    "never_hardcode": [
+      "bertazzon.com"
+    ]
   },
   "researched_on": "2026-10-27",
-  "researcher": "antigravity-e2f4 (manual web research: official company catalog, ANCASVI directory, IAAPA exhibitor records, EN 13814 standardization records; public sources only).",
-  "how_to_read": "Each fact is something an expert researcher found about BERTAZZON 3B S.R.L. (owner-managed family firm, amusement ride manufacturer). `match` is verified by scripts/intel_gap.py against stored tool text. `split` is hold-out.",
+  "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",
+  "how_to_read": "Each fact is something a researcher found about BERTAZZON 3B S.R.L. (owner-managed family firm with a thin site) and could re-check: every `quote` is verbatim text from a page that was fetched, or from the AIDA text held in the tool, and `match` is what scripts/intel_gap.py looks for in the tool's text. `not_found` lists what was searched for and not found (absent is not the same as unchecked). Hold-out: only release captains and I43 score against this file.",
   "facts": [
     {
       "id": "ID-01",
       "category": "identity",
       "weight": 1,
       "grade": "A",
-      "claim": "Legal name BERTAZZON 3B S.R.L., Partita IVA / Codice Fiscale 01906800264 (officially registered 00190680264), REA TV-178652.",
+      "claim": "Legal name BERTAZZON 3B S.R.L., VAT / tax code 00190680264 (an earlier draft of this file had the digits transposed as 01906800264).",
       "sources": [
-        "https://www.bertazzon.com",
-        "https://ufficiocamerale.it/01906800264/bertazzon-3b-srl"
+        "https://www.bertazzon.com/contact.php",
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "BERTAZZON 3B SRL Via Trevigiana, 178 31020 Sernaglia Della Battaglia (TV) ITALY VAT/Tax Code 00190680264",
+        "\"external_ref_id\": \"IT00190680264\""
       ],
       "match": {
         "any": [
-          "01906800264",
           "00190680264"
         ]
       },
@@ -37,15 +43,19 @@
       "category": "identity",
       "weight": 2,
       "grade": "B",
-      "claim": "Headquarters and factory: Via Trevigiana 178, 31020 Sernaglia della Battaglia (TV), Veneto, Italy.",
+      "claim": "Address: Via Trevigiana 178, 31020 Sernaglia della Battaglia (TV); the company page places it in the Treviso area just outside Sernaglia, about 60 km from Venice.",
       "sources": [
-        "https://www.bertazzon.com",
-        "https://ancasvi.it"
+        "https://www.bertazzon.com/contact.php",
+        "https://www.bertazzon.com/company.php"
+      ],
+      "quote": [
+        "Via Trevigiana, 178 31020 Sernaglia Della Battaglia (TV) ITALY",
+        "just outside the town of Sernaglia, approx. 60 km from Venice"
       ],
       "match": {
         "any": [
-          "sernaglia della battaglia",
-          "via trevigiana 178"
+          "via trevigiana,? 178",
+          "sernaglia della battaglia"
         ]
       },
       "closed_by": [
@@ -56,58 +66,45 @@
     {
       "id": "ID-03",
       "category": "identity",
-      "weight": 1,
-      "grade": "A",
-      "claim": "Share capital EUR 100,000.00 fully paid up.",
+      "weight": 2,
+      "grade": "B",
+      "claim": "History: the three brothers Luigi, Ferruccio and Marcello Bertazzon entered the amusement business in 1951; the company was formally established in 1963 and the brand BERTAZZON 3B names the three founders (AIDA lists incorporation on 30 November 1962: three dates a dossier must not blend).",
       "sources": [
-        "https://ufficiocamerale.it/01906800264/bertazzon-3b-srl"
+        "https://www.bertazzon.com/company.php",
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "The three brothers Luigi, Ferruccio and Marcello Bertazzon entered the amusement business on 1951",
+        "in 1963 the company was formally established and the brand BERTAZZON 3B was chosen to identify the 3 founder brothers Bertazzon",
+        "1962-11-30T00:00:00"
       ],
       "match": {
         "any": [
-          "100[.,]000",
-          "capitale sociale.{0,20}100"
+          "luigi, ferruccio and marcello",
+          "founder brothers bertazzon",
+          "1962-11-30"
         ]
       },
       "closed_by": [
         "I10",
+        "I13",
         "I20"
       ]
     },
     {
       "id": "ID-04",
       "category": "identity",
-      "weight": 2,
-      "grade": "B",
-      "claim": "Origins trace back to 1951 in Sernaglia della Battaglia; company brand established in 1963; incorporated November 1962.",
-      "sources": [
-        "https://www.bertazzon.com",
-        "https://coasterpedia.net/wiki/Bertazzon"
-      ],
-      "match": {
-        "any": [
-          "1951",
-          "1963",
-          "founded in 1951"
-        ]
-      },
-      "closed_by": [
-        "I10"
-      ]
-    },
-    {
-      "id": "ID-05",
-      "category": "identity",
       "weight": 1,
       "grade": "A",
-      "claim": "ATECO 28.99.99: Manufacture of amusement park rides, fairground attractions, and showground equipment.",
+      "claim": "ATECO 28.99.92, manufacture of roundabouts, swings and other amusement-park equipment (AIDA company row; an earlier draft said 28.99.99).",
       "sources": [
-        "https://reportaziende.it/bertazzon_3b_srl"
+        "AIDA export held in the tool"
       ],
+      "quote": "\"nace_code\": \"289992\"",
       "match": {
         "any": [
-          "28\\.99",
-          "giostre",
-          "spettacoli viaggianti"
+          "28\\.99\\.92",
+          "\\b289992\\b"
         ]
       },
       "closed_by": [
@@ -119,14 +116,15 @@
       "category": "contact",
       "weight": 3,
       "grade": "B",
-      "claim": "Telephone: +39 0438 966291, Fax: +39 0438 966165.",
+      "claim": "Switchboard +39 0438 966291, fax +39 0438 966165, e-mail bertazzon@bertazzon.com.",
       "sources": [
-        "https://www.bertazzon.com/contact"
+        "https://www.bertazzon.com/contact.php"
       ],
+      "quote": "Tel +39.0438.966291 Fax +39.0438.966165 Email bertazzon@bertazzon.com",
       "match": {
         "any": [
-          "0438 ?966291",
-          "\\+39 ?0438 ?966291"
+          "0438\\D{0,3}966291",
+          "bertazzon@bertazzon\\.com"
         ]
       },
       "closed_by": [
@@ -135,41 +133,23 @@
       ]
     },
     {
-      "id": "CT-02",
-      "category": "contact",
-      "weight": 3,
-      "grade": "B",
-      "claim": "Email channels: bertazzon@bertazzon.com and certified email (PEC) bertazzon@pec.bertazzon.com.",
-      "sources": [
-        "https://www.bertazzon.com",
-        "https://ufficiocamerale.it/01906800264/bertazzon-3b-srl"
-      ],
-      "match": {
-        "any": [
-          "bertazzon@bertazzon\\.com",
-          "bertazzon@pec\\.bertazzon\\.com"
-        ]
-      },
-      "closed_by": [
-        "I10",
-        "I14",
-        "I20"
-      ]
-    },
-    {
       "id": "OW-01",
       "category": "ownership",
       "weight": 3,
       "grade": "A",
-      "claim": "100% privately held by individual members of the Bertazzon family (successors of the founding brothers).",
+      "claim": "Owned 99.99% by individual members of one family (AIDA): among them Michele Bertazzon 18% and Fernanda Bertazzon 15.33%; BvD independence class A+, no group, no corporate holder.",
       "sources": [
-        "AIDA export held in the tool",
-        "https://ufficiocamerale.it"
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "{'name': 'MR MICHELE BERTAZZON', 'type': 'Persone fisiche o famiglie', 'country': 'IT', 'direct': 18.0",
+        "{'name': 'MRS FERNANDA BERTAZZON', 'type': 'Persone fisiche o famiglie', 'country': 'IT', 'direct': 15.33",
+        "\"bvd_independence_class\": \"A+\""
       ],
       "match": {
         "any": [
-          "bertazzon",
-          "persone fisiche"
+          "michele bertazzon.{0,200}direct\\D{0,6}18",
+          "fernanda bertazzon"
         ]
       },
       "closed_by": [
@@ -179,39 +159,17 @@
     {
       "id": "OW-02",
       "category": "ownership",
-      "weight": 3,
-      "grade": "A",
-      "claim": "BvD independence class A: completely independent family firm with no corporate parent or external holding company.",
-      "sources": [
-        "AIDA export held in the tool"
-      ],
-      "match": {
-        "any": [
-          "indipendente",
-          "family-owned",
-          "famiglia bertazzon"
-        ]
-      },
-      "closed_by": [
-        "I12",
-        "I42"
-      ]
-    },
-    {
-      "id": "OW-03",
-      "category": "ownership",
       "weight": 1,
       "grade": "B",
-      "claim": "The '3B' in the corporate name stands for the three founding Bertazzon brothers: Luigi, Ferruccio, and Marcello Bertazzon.",
+      "claim": "The '3B' in the brand stands for the three founding brothers (company page).",
       "sources": [
-        "https://www.bertazzon.com",
-        "https://coasterpedia.net/wiki/Bertazzon"
+        "https://www.bertazzon.com/company.php"
       ],
+      "quote": "the brand BERTAZZON 3B was chosen to identify the 3 founder brothers Bertazzon",
       "match": {
         "any": [
-          "tre fratelli",
-          "3b",
-          "luigi, ferruccio"
+          "3b.{0,60}(three|3) founder brothers",
+          "founder brothers bertazzon"
         ]
       },
       "closed_by": [
@@ -220,19 +178,23 @@
       ]
     },
     {
-      "id": "OW-04",
+      "id": "OW-03",
       "category": "ownership",
-      "weight": 2,
+      "weight": 3,
       "grade": "D",
-      "claim": "Target archetype: Independent Mittelstand family manufacturer where ownership and operations sit directly with the local family.",
+      "claim": "Targeting consequence: independent, family-owned and owner-managed (shareholders and all three executive directors share the family name): the approach is to the family, not to a parent group.",
       "sources": [
         "AIDA export held in the tool"
       ],
+      "quote": [
+        "\"derived_family_ownership_share\": 99.99",
+        "\"derived_foreign_ownership_share\": 0.0"
+      ],
       "match": {
         "any": [
-          "family firm",
-          "owner-managed",
-          "pmi"
+          "independent family[ -](owned|firm|company)",
+          "owner[- ]managed",
+          "family[- ]owned.{0,80}(owner|management|managed)"
         ]
       },
       "closed_by": [
@@ -244,57 +206,16 @@
       "id": "EV-01",
       "category": "events",
       "weight": 2,
-      "grade": "B",
-      "claim": "1951: Founders start building and repairing carnival attractions in post-war Veneto.",
-      "sources": [
-        "https://www.bertazzon.com"
-      ],
-      "match": {
-        "any": [
-          "1951",
-          "fondata nel 1951"
-        ]
-      },
-      "closed_by": [
-        "I10",
-        "I13"
-      ]
-    },
-    {
-      "id": "EV-02",
-      "category": "events",
-      "weight": 2,
-      "grade": "B",
-      "claim": "Pioneered the classic Italian Venetian Carousel and bumper car tracks for international theme parks.",
-      "sources": [
-        "https://www.bertazzon.com"
-      ],
-      "match": {
-        "any": [
-          "venetian carousel",
-          "giostra cavalli",
-          "autoscontro"
-        ]
-      },
-      "closed_by": [
-        "I10",
-        "I13"
-      ]
-    },
-    {
-      "id": "EV-03",
-      "category": "events",
-      "weight": 2,
       "grade": "C",
-      "claim": "Michele Bertazzon chaired the national standardization workgroup (UNI) during the creation of EN 13814 safety standard.",
+      "claim": "Public funding for a modernisation project: 'Innovazione Tecnologica Bertazzon 3B srl', financed under PSC Veneto, replaces traditional processes with three digitally controlled machines (laser cutting, turning, robotic welding), public support EUR 150,000.",
       "sources": [
-        "https://fabbrirides.com",
-        "https://ancasvi.it"
+        "https://www.bertazzon.com/loghi-regione.php"
       ],
+      "quote": "L’azienda si avvale di un sostegno pubblico pari a 150.000 €",
       "match": {
         "any": [
-          "michele bertazzon",
-          "en 13814"
+          "innovazione tecnologica bertazzon",
+          "sostegno pubblico pari a 150\\.000"
         ]
       },
       "closed_by": [
@@ -303,18 +224,66 @@
       ]
     },
     {
+      "id": "EV-02",
+      "category": "events",
+      "weight": 1,
+      "grade": "B",
+      "claim": "May 2020: launch of the new ride Space Flyer (high capacity on a single trailer).",
+      "sources": [
+        "https://www.bertazzon.com/news.php"
+      ],
+      "quote": "Space Flyer, the brand new spectacular ride from Bertazzon. High capacity on one single trailer.",
+      "match": {
+        "any": [
+          "space flyer"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-03",
+      "category": "events",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Disclosed public contributions under Law 124/2017 from GSE S.p.A.: EUR 62,063 for 2020 and EUR 57,775 for 2019 (energy-sector incentives).",
+      "sources": [
+        "https://www.bertazzon.com/news.php"
+      ],
+      "quote": [
+        "Contributi pubblici anno 2020, ai sensi dell’art. 1 della L. 124/2017 Soggetto erogante: GSE SPA Valore: € 62.063",
+        "Soggetto erogante: GSE SPA Valore: € 57.775"
+      ],
+      "match": {
+        "any": [
+          "gse spa.{0,40}62\\.063",
+          "gse spa.{0,40}57\\.775"
+        ]
+      },
+      "closed_by": [
+        "I13",
+        "I20"
+      ]
+    },
+    {
       "id": "FI-01",
       "category": "financials",
       "weight": 2,
       "grade": "A",
-      "claim": "Latest AIDA accounts: revenue EUR 10.4M (10,403k EUR), EBIT EUR 1.23M, 52 employees.",
+      "claim": "Latest accounts (AIDA): revenue about EUR 10.4M, EBIT about EUR 1.23M, 52 employees.",
       "sources": [
         "AIDA export held in the tool"
       ],
+      "quote": [
+        "\"revenue_latest\": 10403.521",
+        "\"ebit_latest\": 1227.021",
+        "\"employees_latest\": 52.0"
+      ],
       "match": {
         "any": [
-          "10,403k",
-          "10\\.403\\.521",
+          "10,?403k",
+          "10403\\.521",
           "52 employees"
         ]
       },
@@ -325,35 +294,36 @@
       "category": "financials",
       "weight": 1,
       "grade": "A",
-      "claim": "Consistently profitable operation with EBIT margin exceeding 11% and solid net worth.",
+      "claim": "EBIT margin about 11.8% (AIDA derived): healthy profitability.",
       "sources": [
         "AIDA export held in the tool"
       ],
+      "quote": "\"derived_ebit_margin\": 11.7943",
       "match": {
         "any": [
-          "1,227k",
-          "1\\.227\\.021"
+          "11\\.7943",
+          "ebit margin\\D{0,20}11[.,]8"
         ]
       },
-      "closed_by": [
-        "I20"
-      ]
+      "closed_by": []
     },
     {
       "id": "PE-01",
       "category": "people",
       "weight": 3,
-      "grade": "B",
-      "claim": "Key management executives: Michele Bertazzon, Alex Bertazzon, Patrizia Bertazzon.",
+      "grade": "A",
+      "claim": "Michele Bertazzon is chairman of the board and delegated director (consigliere delegato).",
       "sources": [
-        "https://www.bertazzon.com",
-        "https://ancasvi.it"
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Michele Bertazzon",
+        "CONSIGLIERE DELEGATO;PRESIDENTE CONSIGLIO AMMINISTRAZIONE"
       ],
       "match": {
         "any": [
-          "michele bertazzon",
-          "alex bertazzon",
-          "patrizia bertazzon"
+          "michele bertazzon.{0,160}(presidente|chairman)",
+          "(presidente|chairman).{0,160}michele bertazzon"
         ]
       },
       "closed_by": [
@@ -364,20 +334,42 @@
       "id": "PE-02",
       "category": "people",
       "weight": 2,
-      "grade": "C",
-      "claim": "Technical and artistic staff includes electrical engineers, mechanical fabricators, and master artisans for hand-painted carousel decor.",
+      "grade": "A",
+      "claim": "Alessio Bertazzon and Giuseppe Bertazzon are the other delegated directors: the whole board is the owner family.",
       "sources": [
-        "https://www.bertazzon.com"
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Alessio Bertazzon",
+        "Giuseppe Bertazzon",
+        "CONSIGLIERE DELEGATO"
       ],
       "match": {
         "any": [
-          "artigiani",
-          "hand-painted",
-          "decorat"
+          "alessio bertazzon",
+          "giuseppe bertazzon"
         ]
       },
       "closed_by": [
-        "I10",
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-03",
+      "category": "people",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Advisor / auditor of record in the registry roster: Gianni Da Rin De Lorenzo (individual professional, not an audit firm).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "Gianni Da Rin De Lorenzo",
+      "match": {
+        "any": [
+          "da rin de lorenzo"
+        ]
+      },
+      "closed_by": [
         "I14"
       ]
     },
@@ -386,15 +378,15 @@
       "category": "products",
       "weight": 3,
       "grade": "B",
-      "claim": "Venetian Carousels: Custom-built traditional merry-go-rounds, single and double-decker giostre a cavalli.",
+      "claim": "Venetian carousels are the signature product: a model range from GC 4,70/1P to GC 14,00/1P and 2P versions.",
       "sources": [
-        "https://www.bertazzon.com/products/carousels"
+        "https://www.bertazzon.com/venetian-carousels.php"
       ],
+      "quote": "GC 4,70/1P View GC 7,00/1P View GC 8,00/1P View GC 8,90/1P View GC 10,50/1P View GC 10,50/2P View GC 12,50/1P View GC 12,50/2P View GC 14,00/1P",
       "match": {
         "any": [
-          "venetian carousel",
-          "carousels",
-          "giostre a cavalli"
+          "venetian carousels?.{0,400}gc 4,70/1p",
+          "\\bgc 14,00/1p\\b"
         ]
       },
       "closed_by": [
@@ -406,15 +398,20 @@
       "category": "products",
       "weight": 3,
       "grade": "B",
-      "claim": "Bumper Cars & Mini-skooters: Electric bumper car vehicles, floor grid power systems, and covered pavilions.",
+      "claim": "Bumper cars (dodgems) in adult, midi, mini and pavilion/platform versions, plus custom-themed bumper cars.",
       "sources": [
-        "https://www.bertazzon.com/products/bumper-cars"
+        "https://www.bertazzon.com/bumper-cars.php"
+      ],
+      "quote": [
+        "ADULT : Tailored for adults",
+        "MIDI : A perfect choice for teenagers and young adults",
+        "MINI : Designed with little ones in mind",
+        "PAVILION/PLATFORM : Ideal for setting up in pavilions or platforms"
       ],
       "match": {
         "any": [
-          "bumper cars",
-          "autoscontro",
-          "miniskooter"
+          "adult\\W{0,4}midi\\W{0,4}mini\\W{0,4}pavilion",
+          "pavilion/platform"
         ]
       },
       "closed_by": [
@@ -426,15 +423,15 @@
       "category": "products",
       "weight": 2,
       "grade": "B",
-      "claim": "Swing Carousels (Wave Swinger / calcinculo) and high-speed rotary rides like Matterhorn and Musik Express.",
+      "claim": "Wider range: kiddie and adult bumper-car buildings, go-karts, Matterhorn, Musik-Express, flying-chair carousels, rail rides and dark rides, for fixed sites or travelling fairgrounds.",
       "sources": [
-        "https://www.bertazzon.com/products/rides"
+        "https://www.bertazzon.com/company.php"
       ],
+      "quote": "Adult and Kiddie Bumper-Car 8uildings, Go-Karts rides and Vehicles, Matterhorn, Musik-Express, Flying chairs Carousels, Rail Rides and Dark-rides",
       "match": {
         "any": [
-          "swing carousel",
-          "matterhorn",
-          "musik express"
+          "matterhorn.{0,60}musik-express",
+          "musik-express.{0,60}flying chairs"
         ]
       },
       "closed_by": [
@@ -446,81 +443,39 @@
       "category": "products",
       "weight": 2,
       "grade": "B",
-      "claim": "Dark Rides and Track Rides: Ghost trains, scenic tracked rides, and themed vehicle systems.",
+      "claim": "Custom projects: ride concepts adapted to theming for theme parks and fun-fairs, museums and educational sites, with an in-house Art Department.",
       "sources": [
-        "https://www.bertazzon.com"
+        "https://www.bertazzon.com/custom-projects.php"
       ],
+      "quote": "Special products have been developed for Theme parks and Fun-fairs, as well as for Museums and Educational Sites. Our Art Dept.",
       "match": {
         "any": [
-          "dark ride",
-          "track ride",
-          "ghost train"
+          "theme parks and fun-fairs.{0,80}museums",
+          "art dept"
         ]
       },
       "closed_by": [
-        "I10"
+        "I10",
+        "I21"
       ]
     },
     {
       "id": "PR-05",
       "category": "products",
-      "weight": 1,
+      "weight": 2,
       "grade": "B",
-      "claim": "Go-Karts: Electric and gasoline-powered commercial rental karts.",
+      "claim": "After-sales service and spare parts: a request form asks attraction type and serial number.",
       "sources": [
-        "https://www.bertazzon.com"
+        "https://www.bertazzon.com/after-sales.php"
       ],
+      "quote": "our dedicated after-sales service team is here to assist you with any technical issues or spare parts requirements",
       "match": {
         "any": [
-          "go-kart",
-          "karts"
+          "after-sales service team.{0,80}spare parts"
         ]
       },
       "closed_by": [
         "I10"
-      ]
-    },
-    {
-      "id": "CE-01",
-      "category": "certifications",
-      "weight": 3,
-      "grade": "A",
-      "claim": "Manufactured strictly according to EN 13814 (European fairground safety standard) and ASTM F24 standards.",
-      "sources": [
-        "https://www.bertazzon.com",
-        "https://ancasvi.it"
-      ],
-      "match": {
-        "any": [
-          "en 13814",
-          "astm f24",
-          "astm"
-        ]
-      },
-      "closed_by": [
-        "I10",
-        "I15"
-      ]
-    },
-    {
-      "id": "CE-02",
-      "category": "certifications",
-      "weight": 2,
-      "grade": "B",
-      "claim": "Third-party technical and structural calculation certifications audited by TÜV Süd and TÜV Rheinland.",
-      "sources": [
-        "https://www.bertazzon.com"
-      ],
-      "match": {
-        "any": [
-          "\\bt[uü]v\\b",
-          "t[uü]v s[uü]d",
-          "t[uü]v rheinland"
-        ]
-      },
-      "closed_by": [
-        "I11",
-        "I15"
       ]
     },
     {
@@ -528,34 +483,15 @@
       "category": "locations",
       "weight": 2,
       "grade": "B",
-      "claim": "Operational premises covering over 20,000 sqm at Via Trevigiana 178, Sernaglia della Battaglia (TV).",
+      "claim": "Production is entirely in-house on one site: 12,000 m2 covered area on 30,000 m2 total.",
       "sources": [
-        "https://www.bertazzon.com"
+        "https://www.bertazzon.com/company.php"
       ],
+      "quote": "The production is entirely made within its premises, which extend over a covered area of 12.000 m2 out of a total surface of 30.000 m2",
       "match": {
         "any": [
-          "via trevigiana 178",
-          "sernaglia"
-        ]
-      },
-      "closed_by": [
-        "I10"
-      ]
-    },
-    {
-      "id": "LO-02",
-      "category": "locations",
-      "weight": 1,
-      "grade": "C",
-      "claim": "Rides installed across leading amusement parks in Europe, the Americas, Asia, and the Middle East.",
-      "sources": [
-        "https://www.bertazzon.com/references"
-      ],
-      "match": {
-        "any": [
-          "worldwide",
-          "parchi divertimento",
-          "theme parks"
+          "covered area of 12\\.000 m2",
+          "12\\.000 m2.{0,40}30\\.000 m2"
         ]
       },
       "closed_by": [
@@ -567,13 +503,19 @@
       "category": "networks",
       "weight": 2,
       "grade": "B",
-      "claim": "Active member of ANCASVI (Associazione Nazionale Costruttori Attrazioni Spettacoli Viaggianti).",
+      "claim": "Trade fairs shown in the news list (2019): IAAPA Expo Europe, Paris (September), IAAPA Expo, Orlando (November) and Induferias + Hinchalia, Valencia (November).",
       "sources": [
-        "https://ancasvi.it/soci/bertazzon-3b-srl/"
+        "https://www.bertazzon.com/news.php"
+      ],
+      "quote": [
+        "17-09-2019 IAAPA EXPO EUROPE - FRANCE – PARIS",
+        "19-11-2019 IAAPA EXPO - USA – ORLANDO (FL)",
+        "26-11-2019 INDUFERIAS + HINCHALIA - SPAIN – VALENCIA"
       ],
       "match": {
         "any": [
-          "ancasvi"
+          "iaapa expo.{0,60}(orlando|paris)",
+          "induferias"
         ]
       },
       "closed_by": [
@@ -585,15 +527,22 @@
       "category": "networks",
       "weight": 2,
       "grade": "B",
-      "claim": "Regular exhibitor and member of IAAPA (International Association of Amusement Parks and Attractions).",
+      "claim": "Trade fairs shown in the news list (2020): Saudi Entertainment and Amusement (Riyadh), IISF Trade Show (Gibsonton, Florida), IAAPI Amusement Expo (Mumbai), RAAPA Expo (Moscow): export markets in Middle East, USA, India and Russia.",
       "sources": [
-        "https://iaapa.org",
-        "https://www.bertazzon.com"
+        "https://www.bertazzon.com/news.php"
+      ],
+      "quote": [
+        "03-02-2020 SAUDI ENTERTAINMENT AND AMUSEMENT – SAUDI ARABIA - RYAD",
+        "05-02-2020 IISF TRADE SHOW – USA – GIBSONTON (FL)",
+        "26-02-2020 IAAPI AMUSEMENT EXPO - INDIA – MUMBAI",
+        "12-03-2020 RAAPA EXPO - RUSSIA – MOSCOW"
       ],
       "match": {
         "any": [
-          "iaapa",
-          "iaapa expo"
+          "iisf trade show",
+          "iaapi amusement expo",
+          "raapa expo",
+          "saudi entertainment and amusement"
         ]
       },
       "closed_by": [
@@ -605,13 +554,14 @@
       "category": "digital",
       "weight": 2,
       "grade": "B",
-      "claim": "Product showcase website at bertazzon.com with product galleries, technical catalogs, and ride video demonstrations.",
+      "claim": "A thin, custom PHP site (.php pages, 17 internal links, English/Italian switch) made by an agency (pederivastudio.com): product galleries, news (6 pages), contact and after-sales forms; no named people and no certificates are published.",
       "sources": [
-        "https://www.bertazzon.com"
+        "https://www.bertazzon.com/contact.php"
       ],
+      "quote": "Powered by: pederivastudio.com",
       "match": {
         "any": [
-          "bertazzon\\.com"
+          "pederivastudio\\.com"
         ]
       },
       "closed_by": [
@@ -624,19 +574,18 @@
       "category": "digital",
       "weight": 1,
       "grade": "B",
-      "claim": "Web server stack running Apache with PHP-based content delivery.",
+      "claim": "The contact form captures company, address, country and interest (bumper cars, Venetian carousels, swing carousels, Musik Express, Matterhorn, Galleon, Race, Waltzer, dark rides, track rides, go-karts, used rides): a lead channel without a named contact person.",
       "sources": [
-        "https://www.bertazzon.com HTTP headers"
+        "https://www.bertazzon.com/contact.php"
       ],
+      "quote": "Interested in: Bumper Cars Venetian Carousels Swing Carousels Musik Express Matterhorn Galleon Race Waltzer Dark Rides Track Rides Go-Karts Used Rides Other",
       "match": {
         "any": [
-          "apache",
-          "php"
+          "interested in.{0,40}bumper cars.{0,200}used rides"
         ]
       },
       "closed_by": [
-        "I02",
-        "I18"
+        "I10"
       ]
     },
     {
@@ -644,20 +593,139 @@
       "category": "documents",
       "weight": 1,
       "grade": "B",
-      "claim": "Publishes technical specifications, footprint drawings, and power load requirements for ride installations.",
+      "claim": "A privacy policy page exists (data not transferred to non-EU countries) and a regional-funding notice page (PSC Veneto); no brochures or certificates are offered for download.",
       "sources": [
-        "https://www.bertazzon.com"
+        "https://www.bertazzon.com/privacy.php",
+        "https://www.bertazzon.com/loghi-regione.php"
+      ],
+      "quote": [
+        "may not be transferred to non-EU countries",
+        "Progetto finanziato con il PSC Veneto – Sezione Speciale"
       ],
       "match": {
         "any": [
-          "technical specifications",
-          "scheda tecnica",
-          "layout"
+          "progetto finanziato con il psc veneto"
         ]
       },
       "closed_by": [
         "I11"
       ]
+    },
+    {
+      "id": "PR-06",
+      "category": "products",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Swing carousels (flying chairs) in models GS 5,50/16, GS 7,60/30 and larger.",
+      "sources": [
+        "https://www.bertazzon.com/swing-carousels.php"
+      ],
+      "quote": "GS 5,50/16 View GS 7,60/30 View",
+      "match": {
+        "any": [
+          "\\bgs 5,50/16\\b",
+          "\\bgs 7,60/30\\b"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-07",
+      "category": "products",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Track rides, including a bumper-car track, for amusement parks and funfairs worldwide.",
+      "sources": [
+        "https://www.bertazzon.com/track-rides.php"
+      ],
+      "quote": "its extensive range of track rides for sale, meticulously designed for amusement parks and funfairs worldwide",
+      "match": {
+        "any": [
+          "track rides.{0,80}amusement parks and funfairs worldwide"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-08",
+      "category": "products",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Flat rides: Musik-Express ME-12 and ME-20, Matterhorn MH-16 and others.",
+      "sources": [
+        "https://www.bertazzon.com/flat-rides.php"
+      ],
+      "quote": "Musik-Express ME-12 View Musik-Express ME-20 View Matterhorn MH-16",
+      "match": {
+        "any": [
+          "musik-express me-12",
+          "matterhorn mh-16"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "LO-02",
+      "category": "locations",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Markets: the company says it is world-wide known for its Venetian carousels and bumper cars (export business; fairs in Europe, USA, Middle East, India, Russia).",
+      "sources": [
+        "https://www.bertazzon.com/company.php"
+      ],
+      "quote": "The company is world-wide known because of its inimitable Venetian Carousels and reliable Bumper-Cars",
+      "match": {
+        "any": [
+          "world-wide known.{0,80}venetian carousels"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I16"
+      ]
+    }
+  ],
+  "not_found": [
+    {
+      "looked_for": "Safety certifications or standards (EN 13814, ASTM, TUV, ISO 9001) claimed by the earlier draft",
+      "where": "all 11 pages of bertazzon.com opened (home, company, products, news, contact, after-sales, privacy, region notice)",
+      "result": "not found: the site names none; it only says 'highest standards'. The earlier draft's CE-01/CE-02 had no source and are not asserted"
+    },
+    {
+      "looked_for": "Named customers, parks or references",
+      "where": "company, products and custom-projects pages",
+      "result": "not found: none named"
+    },
+    {
+      "looked_for": "Named people on the site (management, sales, service contacts)",
+      "where": "all pages",
+      "result": "not found: only a generic mailbox and a contact form"
+    },
+    {
+      "looked_for": "Certified e-mail (PEC), share capital, REA number",
+      "where": "site footer, contact page",
+      "result": "not found on the site; not asserted"
+    },
+    {
+      "looked_for": "Trade association membership (e.g. ANCASVI, IAAPA member status)",
+      "where": "all pages",
+      "result": "not found: fairs attended are listed, memberships are not"
+    },
+    {
+      "looked_for": "Full shareholder list and percentages beyond the first two",
+      "where": "AIDA text (the list is long and was not fully printed)",
+      "result": "partly found: two shareholders quoted; the rest is in the database text"
+    },
+    {
+      "looked_for": "Independent press coverage, awards or recent (post-2021) news",
+      "where": "news pages 1 to 6 of the company site only; no external press search was run",
+      "result": "not checked externally; the company news list stops at 2021"
     }
   ]
 }

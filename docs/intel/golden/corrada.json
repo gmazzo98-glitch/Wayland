@@ -6,146 +6,746 @@
     "legal_name": "CORRADA S.P.A.",
     "vat": "08890640157",
     "website": "https://www.corrada.it",
-    "city": "Lainate (MI)"
+    "website_note": "redirects (301) to https://www.eglagroup.com/company/corrada-s-p-a, a page of the parent group's site",
+    "city": "Lainate (MI)",
+    "never_hardcode": [
+      "eglagroup.com",
+      "corpack"
+    ]
   },
   "researched_on": "2026-10-27",
-  "researcher": "antigravity-e2f4 (manual web research: Next.js CMS data extraction, Euronext filings, UCISAP member records, public registry; public sources only).",
-  "how_to_read": "Each fact is something an expert researcher found about CORRADA S.P.A. (JavaScript/React SPA site case, EuroGroup tooling subsidiary). `match` is verified by scripts/intel_gap.py against stored tool text. `split` is development.",
+  "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",
+  "how_to_read": "Each fact is something a researcher found about CORRADA S.P.A. (subsidiary of a listed group whose only web presence is a page on the parent's site) and could re-check: every `quote` is verbatim text from a page that was fetched (text or raw HTML), or from the AIDA text held in the tool, and `match` is what scripts/intel_gap.py looks for in the tool's text. `not_found` lists what was searched for and not found (absent is not the same as unchecked). Development: agents may look at this file. NOTE: it is not a JavaScript-only case; that archetype is covered by the Pomini file (HF Group site).",
   "facts": [
-    {"id": "ID-01", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "Legal name CORRADA S.P.A., Partita IVA / Codice Fiscale 08890640157, REA MI-1254394.",
-     "sources": ["https://www.corrada.it", "https://ufficiocamerale.it/08890640157/corrada-spa"],
-     "match": {"any": ["08890640157"]}, "closed_by": ["I20"]},
-    {"id": "ID-02", "category": "identity", "weight": 2, "grade": "B",
-     "claim": "Headquarters and manufacturing plant: Via Michelangelo Buonarroti 8, 20020 Lainate (MI), Italy.",
-     "sources": ["https://www.corrada.it", "https://eglagroup.com"],
-     "match": {"any": ["lainate", "buonarroti 8"]}, "closed_by": ["I10", "I20"]},
-    {"id": "ID-03", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "Share capital EUR 1,000,000.00 fully paid up.",
-     "sources": ["https://ufficiocamerale.it/08890640157/corrada-spa"],
-     "match": {"any": ["1[.,]000[.,]000", "1 ?m(ln)? euro"]}, "closed_by": ["I10", "I20"]},
-    {"id": "ID-04", "category": "identity", "weight": 2, "grade": "B",
-     "claim": "Founded in 1933 as a precision die-maker; incorporated as an S.p.A. on 6 July 1987.",
-     "sources": ["https://www.corrada.it", "https://ucisap.it/aziende/corrada-spa/"],
-     "match": {"any": ["founded in 1933", "fondata nel 1933", "1933.{0,30}corrada"]}, "closed_by": ["I10"]},
-    {"id": "ID-05", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "ATECO 28.99.99: Manufacture of other special-purpose machinery n.e.c., precision progressive dies and tooling.",
-     "sources": ["https://reportaziende.it/corrada_spa"],
-     "match": {"any": ["28\\.99\\.99", "impieghi speciali"]}, "closed_by": ["I20"]},
-
-    {"id": "CT-01", "category": "contact", "weight": 3, "grade": "B",
-     "claim": "Telephone contact: +39 02 35000800 (or switchboard +39 02 9317981).",
-     "sources": ["https://www.corrada.it", "https://eglagroup.com"],
-     "match": {"any": ["02 ?35000800", "02 ?9317981", "\\+39 ?02 ?35000800"]}, "closed_by": ["I10", "I14"]},
-    {"id": "CT-02", "category": "contact", "weight": 3, "grade": "B",
-     "claim": "Certified email (PEC) amm.corrada@p-e-c.it.",
-     "sources": ["https://ufficiocamerale.it/08890640157/corrada-spa"],
-     "match": {"any": ["amm\\.corrada@p-e-c\\.it", "corrada@p-e-c"]}, "closed_by": ["I10", "I14", "I20"]},
-
-    {"id": "OW-01", "category": "ownership", "weight": 3, "grade": "A",
-     "claim": "100% owned by EuroGroup Laminations S.p.A., forming the core tooling and die-making division of the group.",
-     "sources": ["https://www.corrada.it", "https://eglagroup.com", "AIDA export held in the tool"],
-     "match": {"any": ["eurogroup laminations", "eurogroup"]}, "closed_by": ["I12"]},
-    {"id": "OW-02", "category": "ownership", "weight": 3, "grade": "A",
-     "claim": "Ultimate parent EuroGroup Laminations S.p.A. is listed on Euronext Milan (ticker: EGLA).",
-     "sources": ["https://www.borsaitaliana.it/borsa/azioni/scheda/IT0005527616.html"],
-     "match": {"any": ["euronext", "egla", "borsa italiana"]}, "closed_by": ["I12"]},
-    {"id": "OW-03", "category": "ownership", "weight": 2, "grade": "A",
-     "claim": "Controlling group shareholder chain: E.M.S. Euro Management Services S.p.A. holds majority control.",
-     "sources": ["AIDA export held in the tool"],
-     "match": {"any": ["euro management services", "e\\.m\\.s\\."]}, "closed_by": ["I12"]},
-    {"id": "OW-04", "category": "ownership", "weight": 3, "grade": "D",
-     "claim": "Targeting consequence: Corrada is a controlled subsidiary of a listed multinational industrial group, not an owner-managed firm.",
-     "sources": ["https://eglagroup.com", "AIDA export held in the tool"],
-     "match": {"any": ["controlled subsidiary", "subsidiary of", "gruppo eurogroup"]}, "closed_by": ["I12", "I42"]},
-
-    {"id": "EV-01", "category": "events", "weight": 2, "grade": "B",
-     "claim": "1933 founding as a precision stamping toolmaker in Lombardy.",
-     "sources": ["https://www.corrada.it"],
-     "match": {"any": ["founded in 1933", "1933"]}, "closed_by": ["I10", "I13"]},
-    {"id": "EV-02", "category": "events", "weight": 2, "grade": "B",
-     "claim": "1987 acquisition by EuroGroup Laminations to internalize high-precision carbide die design and manufacturing.",
-     "sources": ["https://ucisap.it/aziende/corrada-spa/", "https://eglagroup.com"],
-     "match": {"any": ["1987", "eurogroup.{0,30}1987"]}, "closed_by": ["I10", "I13"]},
-    {"id": "EV-03", "category": "events", "weight": 2, "grade": "C",
-     "claim": "February 2023: Parent company EuroGroup Laminations completed its Initial Public Offering (IPO) on the Milan Stock Exchange.",
-     "sources": ["https://www.borsaitaliana.it", "https://eglagroup.com"],
-     "match": {"any": ["ipo", "quotazione in borsa", "2023"]}, "closed_by": ["I13"]},
-
-    {"id": "FI-01", "category": "financials", "weight": 2, "grade": "A",
-     "claim": "Latest AIDA accounts: revenue EUR 13.1M (13,113k EUR), 89 employees.",
-     "sources": ["AIDA export held in the tool"],
-     "match": {"any": ["13,113k", "13\\.113\\.282", "89 employees"]}, "closed_by": []},
-    {"id": "FI-02", "category": "financials", "weight": 2, "grade": "B",
-     "claim": "Commercial breakdown: 40% of dies delivered internally to EuroGroup production facilities, 60% delivered to external global customers.",
-     "sources": ["https://www.corrada.it"],
-     "match": {"any": ["40% of our dies", "60%.{0,20}externally", "40%.{0,20}eurogroup"]}, "closed_by": ["I10"]},
-
-    {"id": "PE-01", "category": "people", "weight": 2, "grade": "B",
-     "claim": "Corporate leadership tied to EuroGroup executive governance (Marco Arduini, CEO EuroGroup).",
-     "sources": ["https://eglagroup.com", "AIDA export held in the tool"],
-     "match": {"any": ["arduini", "sergio iori"]}, "closed_by": ["I14"]},
-    {"id": "PE-02", "category": "people", "weight": 2, "grade": "C",
-     "claim": "Local operating team of 80+ toolmakers, CAD/CAM design engineers, and EDM machining specialists.",
-     "sources": ["https://www.corrada.it", "https://ucisap.it"],
-     "match": {"any": ["qualified staff", "tooling", "stampi"]}, "closed_by": ["I14"]},
-
-    {"id": "PR-01", "category": "products", "weight": 3, "grade": "B",
-     "claim": "Design and manufacture of carbide and steel progressive lamination dies for electrical machines.",
-     "sources": ["https://www.corrada.it"],
-     "match": {"any": ["progressive lamination dies", "stampi progressivi", "carbide and steel"]}, "closed_by": ["I10"]},
-    {"id": "PR-02", "category": "products", "weight": 3, "grade": "B",
-     "claim": "CORPACK®: Patented trademark technology for interlocked lamination stacks for EV stators and rotors.",
-     "sources": ["https://www.corrada.it"],
-     "match": {"any": ["corpack", "interlocked lamination"]}, "closed_by": ["I10"]},
-    {"id": "PR-03", "category": "products", "weight": 2, "grade": "B",
-     "claim": "Stamping tools for loose laminations, segmented stators, and high-speed electrical motor cores.",
-     "sources": ["https://www.corrada.it", "https://eglagroup.com"],
-     "match": {"any": ["stators", "rotors", "lamierini magnetici"]}, "closed_by": ["I10"]},
-
-    {"id": "CE-01", "category": "certifications", "weight": 2, "grade": "B",
-     "claim": "Operates under ISO 9001 certified quality standards for precision stamping tools and tooling design.",
-     "sources": ["https://eglagroup.com", "https://ucisap.it"],
-     "match": {"any": ["iso 9001", "qualit"]}, "closed_by": ["I10", "I15"]},
-    {"id": "CE-02", "category": "certifications", "weight": 2, "grade": "C",
-     "claim": "Compliance with automotive supply standards (IATF 16949 requirements across EuroGroup manufacturing sites).",
-     "sources": ["https://eglagroup.com"],
-     "match": {"any": ["iatf", "automotive"]}, "closed_by": ["I11", "I15"]},
-
-    {"id": "LO-01", "category": "locations", "weight": 2, "grade": "B",
-     "claim": "Single operational and registered headquarters at Via Michelangelo Buonarroti 8, 20020 Lainate (Milano).",
-     "sources": ["https://www.corrada.it"],
-     "match": {"any": ["via m\\. buonarroti", "via michelangelo buonarroti 8"]}, "closed_by": ["I10"]},
-    {"id": "LO-02", "category": "locations", "weight": 2, "grade": "B",
-     "claim": "Coordinates: 45.577142, 9.0170557 (Lainate industrial district north-west of Milan).",
-     "sources": ["https://www.corrada.it CMS metadata"],
-     "match": {"any": ["45\\.577", "9\\.017"]}, "closed_by": ["I10"]},
-
-    {"id": "NW-01", "category": "networks", "weight": 2, "grade": "C",
-     "claim": "Member of UCISAP (Italian Association of Precision Molds and Tooling Manufacturers).",
-     "sources": ["https://ucisap.it/aziende/corrada-spa/"],
-     "match": {"any": ["ucisap"]}, "closed_by": ["I16"]},
-    {"id": "NW-02", "category": "networks", "weight": 2, "grade": "C",
-     "claim": "Supplier network to major electrical and automotive OEMs (Bosch, Siemens, ABB, Nidec).",
-     "sources": ["https://siderweb.com", "https://eglagroup.com"],
-     "match": {"any": ["bosch", "siemens", "abb", "nidec"]}, "closed_by": ["I16", "I21"]},
-
-    {"id": "DG-01", "category": "digital", "weight": 3, "grade": "B",
-     "claim": "Website frontend is built with Next.js / React (Single Page Application architecture with client-side rendering).",
-     "sources": ["https://www.corrada.it HTML source"],
-     "match": {"any": ["next\\.js", "__next_data__", "react"]}, "closed_by": ["I02", "I18"]},
-    {"id": "DG-02", "category": "digital", "weight": 1, "grade": "B",
-     "claim": "Cloud media assets hosted on Discovery Reply Media (discoveryreplymedia.com CDN).",
-     "sources": ["https://www.corrada.it CMS media links"],
-     "match": {"any": ["discoveryreplymedia", "reply"]}, "closed_by": ["I02", "I18"]},
-
-    {"id": "DC-01", "category": "documents", "weight": 2, "grade": "B",
-     "claim": "Publishes EuroGroup corporate financial reports and financial calendars on its web document repository.",
-     "sources": ["https://www.corrada.it"],
-     "match": {"any": ["financial report", "relazione finanziaria", "calendario societario"]}, "closed_by": ["I10", "I11"]},
-    {"id": "DC-02", "category": "documents", "weight": 1, "grade": "B",
-     "claim": "Technical brochures and documentation detailing carbide progressive dies and CORPACK® technology.",
-     "sources": ["https://www.corrada.it"],
-     "match": {"any": ["corpack", "brochure", "catalogo"]}, "closed_by": ["I11"]}
+    {
+      "id": "ID-01",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Legal name CORRADA S.p.A., Partita IVA 08890640157 (AIDA). The VAT in the footer of its web page is NOT Corrada's: see ID-05.",
+      "sources": [
+        "AIDA export held in the tool",
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": [
+        "\"external_ref_id\": \"IT08890640157\"",
+        "Corrada S.p.A. Our Group Who we are"
+      ],
+      "match": {
+        "any": [
+          "08890640157"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-02",
+      "category": "identity",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Address: 20020 Lainate (Milano), Via M. Buonarroti 8.",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": "Corrada S.p.A. 20020 Lainate (Milano) Italia – Via M. Buonarroti, 8",
+      "match": {
+        "any": [
+          "via m\\. buonarroti,? 8"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I20"
+      ]
+    },
+    {
+      "id": "CT-01",
+      "category": "contact",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Telephone +39 02 35000800 (the page's e-mail address is hidden, see DG-02).",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": "PHONE +39 02 35000800",
+      "match": {
+        "any": [
+          "02\\D{0,3}35000800"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I14"
+      ]
+    },
+    {
+      "id": "ID-03",
+      "category": "identity",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Company history: 'founded in 1933' (company text); AIDA lists the S.p.A. as incorporated on 6 July 1987, the year of the group merger: two dates a dossier must not blend.",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a",
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "CORRADA , founded in 1933, has emerged as a global leader",
+        "1987-07-06T00:00:00"
+      ],
+      "match": {
+        "any": [
+          "corrada.{0,40}founded in 1933",
+          "1987-07-06"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I13",
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-04",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "CORRADA: ATECO 28.99.99, manufacture of other special-purpose machinery n.e.c. (AIDA company row).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "\"nace_code\": \"289999\"",
+      "match": {
+        "any": [
+          "corrada.{0,300}28\\.99\\.99",
+          "corrada.{0,300}\\b289999\\b"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-05",
+      "category": "identity",
+      "weight": 3,
+      "grade": "C",
+      "claim": "TRAP: the VAT 05235740965, REA MI 1805877, share capital EUR 6,111,940 and registered office Via Stella Rosa 48, Baranzate in the footer of Corrada's page belong to the parent EuroGroup Laminations S.p.A., not to Corrada. A crawler reading the footer must not store them as Corrada's identity.",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": [
+        "EuroGroup Laminations S.p.A.© 2024 P. IVA e C.F. 05235740965 REA MI 1805877",
+        "Sede Legale: Via Stella Rosa, 48 20021 Baranzate (MI) – Italia CAP. SOC. € 6.111.940,00 INT. VERS."
+      ],
+      "match": {
+        "any": [
+          "eurogroup laminations s\\.p\\.a.{0,60}05235740965",
+          "05235740965.{0,80}(parent|eurogroup laminations|not corrada)"
+        ]
+      },
+      "closed_by": [
+        "I06",
+        "I10"
+      ]
+    },
+    {
+      "id": "OW-01",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "A",
+      "claim": "100% of the share capital is held by EuroGroup Laminations S.p.A. (AIDA).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "{'name': 'EUROGROUP LAMINATIONS S.P.A.', 'type': 'Società', 'country': 'IT', 'direct': 100.0, 'total': 100.0}",
+      "match": {
+        "any": [
+          "eurogroup laminations"
+        ]
+      },
+      "closed_by": [
+        "I12"
+      ]
+    },
+    {
+      "id": "OW-02",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Control chain (AIDA): E.M.S. Euro Management Services S.p.A. controls EuroGroup Laminations (level 2).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "{'name': 'E.M.S. EURO MANAGEMENT SERVICES S.P.A. -IN BREVE E.M.S. S.P.A.', 'type': 'Società', 'level': '2'}",
+      "match": {
+        "any": [
+          "e\\.m\\.s\\. euro management services"
+        ]
+      },
+      "closed_by": [
+        "I12"
+      ]
+    },
+    {
+      "id": "OW-03",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "C",
+      "claim": "Parent shareholders on the group site (26 March 2026): EMS 45.7% of shares and 71.1% of voting rights, Tikehau Capital 7.9% (4.2% of votes), market 43.4% (including management shares), treasury 3.0%.",
+      "sources": [
+        "https://www.eglagroup.com/share-information"
+      ],
+      "quote": [
+        "3.0 % Treasury Shares 7.9 % Tikehau Capital 43.4 % Market Includes shares attributed to Management 45.7 % EMS as of 26 March 2026",
+        "71.1 % EMS 4.2 % Tikehau Capital 24.7 % Market"
+      ],
+      "match": {
+        "any": [
+          "45\\.7 ?% ems",
+          "71\\.1 ?% ems"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I13"
+      ]
+    },
+    {
+      "id": "OW-04",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "D",
+      "claim": "Targeting consequence: Corrada is a controlled subsidiary of a listed industrial group (BvD independence class D, no family share): decisions sit at EuroGroup Laminations; the contact route is the group, not an owner-manager. The tool must flag this.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"bvd_independence_class\": \"D\"",
+        "\"derived_foreign_ownership_share\": 0.0"
+      ],
+      "match": {
+        "any": [
+          "controlled[ _-]subsidiary",
+          "listed[ -]group",
+          "subsidiary of[^.]{0,60}eurogroup"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I42"
+      ]
+    },
+    {
+      "id": "EV-01",
+      "category": "events",
+      "weight": 2,
+      "grade": "B",
+      "claim": "1987: Eurotranciatura, Alcast and Corrada merged into the new EuroGroup Laminations (group history). The group began in 1967 as Eurotranciatura S.p.A. in Baranzate (Milan).",
+      "sources": [
+        "https://www.eglagroup.com/who-we-are"
+      ],
+      "quote": [
+        "1987 The expansion into Europe The fusion of Eurotranciatura, Alcast and Corrada gave birth to the new EuroGroup Laminations",
+        "1967 The birth in Italy The Group was born with the name of Eurotranciatura S.p.A. in Baranzate (Milan)"
+      ],
+      "match": {
+        "any": [
+          "fusion of eurotranciatura, alcast and corrada",
+          "eurotranciatura.{0,20}alcast.{0,20}corrada"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-02",
+      "category": "events",
+      "weight": 2,
+      "grade": "B",
+      "claim": "July 2020: EuroGroup Laminations signed an agreement with Tikehau Capital (Energy Transition Fund, its first Italian transaction).",
+      "sources": [
+        "https://www.eglagroup.com/who-we-are"
+      ],
+      "quote": "In July 2020, EuroGroup Laminations signed an agreement with Tikehau Capital",
+      "match": {
+        "any": [
+          "tikehau capital.{0,200}energy transition fund",
+          "july 2020.{0,80}tikehau"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-03",
+      "category": "events",
+      "weight": 3,
+      "grade": "B",
+      "claim": "February 2023: the parent entered the stock exchange (IPO).",
+      "sources": [
+        "https://www.eglagroup.com/who-we-are"
+      ],
+      "quote": "February 2023: a new milestone, by entering the stock exchange",
+      "match": {
+        "any": [
+          "february 2023.{0,60}stock exchange",
+          "eurogroup laminations.{0,120}(ipo|listing|listed)"
+        ]
+      },
+      "closed_by": [
+        "I13",
+        "I42"
+      ]
+    },
+    {
+      "id": "EV-04",
+      "category": "events",
+      "weight": 2,
+      "grade": "B",
+      "claim": "2023: the parent announced the acquisition of 100% of DS4 (industrial automation software and hardware design), a group event showing M&A appetite.",
+      "sources": [
+        "https://www.eglagroup.com/who-we-are"
+      ],
+      "quote": "EuroGroup Laminations announces the acquisition of 100% of DS4, strengthening its position in the industrial automation sector",
+      "match": {
+        "any": [
+          "acquisition of 100% of ds4",
+          "\\bds4\\b.{0,80}industrial automation"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "FI-01",
+      "category": "financials",
+      "weight": 2,
+      "grade": "A",
+      "claim": "Latest accounts (AIDA): revenue about EUR 13.1M and 89 employees.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"revenue_latest\": 13113.282",
+        "\"employees_latest\": 89.0"
+      ],
+      "match": {
+        "any": [
+          "13,?113k",
+          "13113\\.282",
+          "89 employees"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "FI-02",
+      "category": "financials",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Operating LOSS: EBIT about EUR -1.09M, EBIT margin about -8.3% (AIDA): a distress or restructuring signal for an approach.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"ebit_latest\": -1089.983",
+        "\"derived_ebit_margin\": -8.3121"
+      ],
+      "match": {
+        "any": [
+          "-1,?089",
+          "-8\\.3121"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "FI-03",
+      "category": "financials",
+      "weight": 1,
+      "grade": "A",
+      "claim": "AIDA: group of 31 companies, BvD independence class D, 1 subsidiary participation.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"group_size\": 31.0",
+        "\"derived_subsidiary_participations\": 1.0"
+      ],
+      "match": {
+        "any": [
+          "group[ _]size\\D{0,6}31\\b",
+          "31 compan"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "FI-04",
+      "category": "financials",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Sales mix: 40% of Corrada's dies go to EuroGroup companies (captive) and 60% to external customers.",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": "40% of our dies are delivered to EuroGroup Companies, while the remaining 60% are delivered externally",
+      "match": {
+        "any": [
+          "40 ?% of (our|its|the) dies.{0,80}eurogroup",
+          "60 ?% .{0,30}delivered externally"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I21"
+      ]
+    },
+    {
+      "id": "PE-01",
+      "category": "people",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Corrada's board is chaired by Massimiliano Cadini (consigliere, president of the board of directors).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Massimiliano Cadini",
+        "CONSIGLIERE;PRESIDENTE CONSIGLIO AMMINISTRAZIONE"
+      ],
+      "match": {
+        "any": [
+          "massimiliano cadini"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-02",
+      "category": "people",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Corrada directors include Marco Stefano Arduini and Isidoro Guardala (the parent's CEO and executive deputy chairman), Bruno Corrada (the founding family name is still on the board), Marzio Andrea Iori, Ambrogio Pizzocri and Pietro Pizzocri.",
+      "sources": [
+        "AIDA export held in the tool",
+        "https://www.eglagroup.com/governance"
+      ],
+      "quote": [
+        "Marco Stefano Arduini",
+        "Bruno Corrada",
+        "Isidoro Guardalà",
+        "Isidoro Guardalà EXECUTIVE DEPUTY CHAIRMAN Marco Arduini CEO"
+      ],
+      "match": {
+        "any": [
+          "bruno corrada",
+          "marco (stefano )?arduini",
+          "isidoro guardal"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-03",
+      "category": "people",
+      "weight": 2,
+      "grade": "C",
+      "claim": "Parent board (group site): Sergio Iori non-executive chairman, Isidoro Guardala executive deputy chairman, Marco Arduini CEO, Matteo Perna CFO; the registry lists Sergio Iori also as a Corrada attorney (procuratore).",
+      "sources": [
+        "https://www.eglagroup.com/governance",
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Sergio Iori NON-EXECUTIVE CHAIRMAN Isidoro Guardalà EXECUTIVE DEPUTY CHAIRMAN Marco Arduini CEO Matteo Perna CFO",
+        "Sergio Iori",
+        "PROCURATORE"
+      ],
+      "match": {
+        "any": [
+          "matteo perna",
+          "sergio iori.{0,60}(chairman|procuratore)"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-04",
+      "category": "people",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Statutory auditors' board chaired by Francesco Alabiso; standing auditors Pierangelo Lazzaroni and Andrea Paolo Valentino; attorneys Gianluca Umberto Maria Bertocchi and Sergio Iori.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Francesco Alabiso",
+        "PRESIDENTE DEL COLLEGIO SINDACALE",
+        "Pierangelo Lazzaroni",
+        "Gianluca Umberto Maria Bertocchi"
+      ],
+      "match": {
+        "any": [
+          "\\balabiso\\b",
+          "\\blazzaroni\\b",
+          "\\bbertocchi\\b"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "PR-01",
+      "category": "products",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Designs and makes carbide and steel progressive lamination dies, interlocked and loose, for electrical machines (motor and generator laminations).",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": "carbide and steel progressive lamination dies, in interlocked and loose form, for electrical machines",
+      "match": {
+        "any": [
+          "progressive lamination dies"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-02",
+      "category": "products",
+      "weight": 3,
+      "grade": "B",
+      "claim": "CORPACK is a patented trademark of Corrada for interlocked lamination stacks; the company says it holds many worldwide patents and that its dies run on every continent.",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": [
+        "The CORPACK® interlocked lamination stack is a patented trademark of CORRADA",
+        "CORRADA holds many worldwide patents"
+      ],
+      "match": {
+        "any": [
+          "\\bcorpack\\b"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I19"
+      ]
+    },
+    {
+      "id": "PR-03",
+      "category": "products",
+      "weight": 1,
+      "grade": "B",
+      "claim": "In the group company directory Corrada is classified as a 'Tooling' company (the group has Production, Tooling and Technology segments).",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a",
+        "https://www.eglagroup.com/who-we-are"
+      ],
+      "quote": [
+        "\"companyType\":{\"906\":\"Tooling\"}",
+        "Production Tooling Technology"
+      ],
+      "match": {
+        "any": [
+          "corrada.{0,120}\\btooling\\b",
+          "\\btooling\\b.{0,120}corrada"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I12"
+      ]
+    },
+    {
+      "id": "CE-01",
+      "category": "certifications",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The group download centre lists 36 certification documents, 2 quality policies, 2 HSE policies and 1 information-security document for all group companies (no Corrada-specific certificate was identified).",
+      "sources": [
+        "https://www.eglagroup.com/download"
+      ],
+      "quote": "Quality Policy 2 Certifications 36 Privacy 10 HSE Policy 2 Information Security 1",
+      "match": {
+        "any": [
+          "certifications 36"
+        ]
+      },
+      "closed_by": [
+        "I11",
+        "I15"
+      ]
+    },
+    {
+      "id": "LO-02",
+      "category": "locations",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Parent registered office: Via Stella Rosa 48, 20021 Baranzate (MI), where the group began in 1967 as Eurotranciatura S.p.A.",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": "Sede Legale: Via Stella Rosa, 48 20021 Baranzate (MI) – Italia",
+      "match": {
+        "any": [
+          "via stella rosa,? 48"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I12"
+      ]
+    },
+    {
+      "id": "LO-01",
+      "category": "locations",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Sister companies listed on Corrada's page: Eurotranciatura S.p.A., Alcast, SAF, Euroslot, Eurotranciatura Tunisie, Eurotranciatura Mexico, Euro Misi Laminations Jiaxing (China), Eurotranciatura USA, Euroslot Tools, Euro Automation.",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": [
+        "company/eurotranciatura-tunisie-s-a-r-l",
+        "company/euro-misi-laminations-jiaxing-co-ltd",
+        "company/eurotranciatura-usa-llc"
+      ],
+      "match": {
+        "any": [
+          "eurotranciatura tunisie",
+          "euro misi laminations jiaxing"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I12",
+        "I16"
+      ]
+    },
+    {
+      "id": "DG-01",
+      "category": "digital",
+      "weight": 3,
+      "grade": "D",
+      "claim": "Website discovery: the database domain www.corrada.it redirects (HTTP 301, checked 2026-10-27) to https://www.eglagroup.com/company/corrada-s-p-a, a page of the parent group's site. The company has no site of its own. The earlier draft called corrada.it a JavaScript-only SPA: wrong, the page is server-rendered (its text is in the HTML and in __NEXT_DATA__).",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": [
+        "__NEXT_DATA__",
+        "CORRADA</strong>, founded in 1933"
+      ],
+      "match": {
+        "any": [
+          "corrada\\.it.{0,160}(redirect|301|eglagroup)",
+          "eglagroup\\.com/company/corrada"
+        ]
+      },
+      "closed_by": [
+        "I05",
+        "I10",
+        "I18"
+      ]
+    },
+    {
+      "id": "DG-02",
+      "category": "digital",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The e-mail address on the page is hidden by Cloudflare email protection: the text shows '[email protected]' and the link points to /cdn-cgi/l/email-protection; a crawler must decode the data-cfemail value (or fall back to the phone) rather than store the placeholder.",
+      "sources": [
+        "https://www.eglagroup.com/company/corrada-s-p-a"
+      ],
+      "quote": [
+        "EMAIL [email protected] PHONE +39 02 35000800",
+        "cdn-cgi/l/email-protection"
+      ],
+      "match": {
+        "any": [
+          "\\[email protected\\].{0,80}(cloudflare|obfuscat|cfemail|placeholder)",
+          "(cloudflare|obfuscat|cfemail).{0,80}\\[email protected\\]"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I14",
+        "I18"
+      ]
+    },
+    {
+      "id": "DC-01",
+      "category": "documents",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The group publishes an integrated annual report (2025 edition on 10 April 2026, ESEF format too), half-year reports, a code of ethics, a management and control model and whistleblowing documents on the governance page: public financial documents of the parent that cover the Corrada segment.",
+      "sources": [
+        "https://www.eglagroup.com/governance"
+      ],
+      "quote": [
+        "10.04.2026 Integrated Annual Report 2025 Download",
+        "Code of Ethics 2 Management and Control Model 3 Whistleblowing 10"
+      ],
+      "match": {
+        "any": [
+          "integrated annual report 2025",
+          "management and control model"
+        ]
+      },
+      "closed_by": [
+        "I11"
+      ]
+    }
+  ],
+  "not_found": [
+    {
+      "looked_for": "Customers named by the earlier draft (Bosch, Siemens, automotive OEMs)",
+      "where": "Corrada company page on eglagroup.com, group history, download centre",
+      "result": "not found: no customer is named on the opened pages"
+    },
+    {
+      "looked_for": "A Corrada website of its own",
+      "where": "HTTP check of corrada.it and the group site pages opened",
+      "result": "not found: corrada.it redirects to the parent's company page"
+    },
+    {
+      "looked_for": "Corrada-specific certificates (ISO, IATF) and which of the 36 group certificates cover it",
+      "where": "group download page (counts only; the list is rendered from data and its files were not opened)",
+      "result": "not found: only counts were verified"
+    },
+    {
+      "looked_for": "Corrada's own revenue, headcount or plant details on the web",
+      "where": "company page, who-we-are",
+      "result": "not found: the page gives no figures; AIDA has them"
+    },
+    {
+      "looked_for": "Certified e-mail (PEC) and the readable general e-mail",
+      "where": "company page (obfuscated by Cloudflare)",
+      "result": "not found as text; the address is protected and was not decoded"
+    },
+    {
+      "looked_for": "Whether the Corrada loss (EBIT about -1.09M) is reported or explained publicly",
+      "where": "group governance and financial pages (titles only)",
+      "result": "not found: the parent's reports were not opened"
+    },
+    {
+      "looked_for": "Any other group company named Corrada or a name collision",
+      "where": "group company links and roster",
+      "result": "not found: none"
+    }
   ]
 }
