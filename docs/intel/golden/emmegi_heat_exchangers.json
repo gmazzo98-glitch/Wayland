@@ -85,15 +85,15 @@
       "category": "identity",
       "weight": 1,
       "grade": "A",
-      "claim": "ATECO 28.25.00, manufacture of non-domestic refrigeration and ventilation equipment (AIDA company row).",
+      "claim": "EMMEGI: ATECO 28.25.00, manufacture of non-domestic refrigeration and ventilation equipment (AIDA company row).",
       "sources": [
         "AIDA export held in the tool"
       ],
       "quote": "\"nace_code\": \"282500\"",
       "match": {
         "any": [
-          "28\\.25\\.00",
-          "\\b282500\\b"
+          "emmegi.{0,300}28\\.25\\.00",
+          "emmegi.{0,300}\\b282500\\b"
         ]
       },
       "closed_by": [

@@ -6,153 +6,779 @@
     "legal_name": "ISOLCELL S.P.A.",
     "vat": "00671570216",
     "website": "https://www.isolcell.com",
-    "city": "Laives (BZ) / Leifers"
+    "city": "Laives (BZ)"
   },
   "researched_on": "2026-10-27",
-  "researcher": "antigravity-e2f4 (manual web research: official company pages, registry filings, VdS directories, IDM Südtirol, patent abstracts; public sources only).",
-  "how_to_read": "Each fact is something an expert researcher found about ISOLCELL S.P.A. (South Tyrol bilingual machinery manufacturer). `match` is verified by scripts/intel_gap.py against stored tool text. `split` is development.",
+  "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",
+  "how_to_read": "Each fact is something a researcher found about ISOLCELL S.P.A. (South Tyrol, multilingual company) and could re-check: every `quote` is verbatim text from a page that was fetched, or from the AIDA text held in the tool, and `match` is what scripts/intel_gap.py looks for in the tool's text. `not_found` lists what was searched for and not found (absent is not the same as unchecked). Development: agents may look at this file.",
   "facts": [
-    {"id": "ID-01", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "Legal name ISOLCELL S.P.A., Partita IVA / Codice Fiscale 00671570216, REA BZ-99898.",
-     "sources": ["https://www.isolcell.com", "https://ufficiocamerale.it/00671570216/isolcell-spa"],
-     "match": {"any": ["00671570216"]}, "closed_by": ["I20"]},
-    {"id": "ID-02", "category": "identity", "weight": 2, "grade": "B",
-     "claim": "Headquarters and production facility at Via Antonio Meucci 7, 39055 Laives / Leifers (BZ), Trentino-Alto Adige / Südtirol, Italy.",
-     "sources": ["https://www.isolcell.com", "https://www.isolcell.com/it/contatti/"],
-     "match": {"any": ["laives", "leifers"]}, "closed_by": ["I10", "I20"]},
-    {"id": "ID-03", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "Share capital EUR 4,000,000.00 fully paid up.",
-     "sources": ["https://ufficiocamerale.it/00671570216/isolcell-spa"],
-     "match": {"any": ["4[.,]000[.,]000", "4 ?m euro"]}, "closed_by": ["I10", "I20"]},
-    {"id": "ID-04", "category": "identity", "weight": 2, "grade": "B",
-     "claim": "Founded in 1958 in South Tyrol to develop controlled atmosphere storage for apple and pear harvests; S.p.A. incorporated in May 1983.",
-     "sources": ["https://www.isolcell.com/it/chi-siamo/", "https://storage-isolcell.com"],
-     "match": {"any": ["founded in 1958", "fondata nel 1958", "1958.{0,30}laives"]}, "closed_by": ["I10"]},
-    {"id": "ID-05", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "ATECO 28.25.00: Manufacture of non-domestic ventilation and cooling equipment, controlled atmosphere machinery, and gas separation systems.",
-     "sources": ["https://reportaziende.it/isolcell_spa"],
-     "match": {"any": ["28\\.25", "ventilazione e condizionamento"]}, "closed_by": ["I20"]},
-
-    {"id": "CT-01", "category": "contact", "weight": 3, "grade": "B",
-     "claim": "Switchboard telephone +39 0471 954050, Fax +39 0471 953575.",
-     "sources": ["https://www.isolcell.com/it/contatti/"],
-     "match": {"any": ["0471 ?954050", "\\+39 ?0471 ?954050"]}, "closed_by": ["I10", "I14"]},
-    {"id": "CT-02", "category": "contact", "weight": 3, "grade": "B",
-     "claim": "Published email channels: isolcell@isolcell.com and certified email (PEC) isolcell@pec.isolcell.it.",
-     "sources": ["https://www.isolcell.com", "https://ufficiocamerale.it/00671570216/isolcell-spa"],
-     "match": {"any": ["isolcell@isolcell\\.com", "isolcell@pec\\.isolcell\\.it"]}, "closed_by": ["I10", "I14", "I20"]},
-
-    {"id": "OW-01", "category": "ownership", "weight": 3, "grade": "A",
-     "claim": "Direct shareholder is Isolcell Holding S.r.l. (holding company of the Pruneri family holding 100% of share capital).",
-     "sources": ["AIDA export held in the tool", "https://ufficiocamerale.it/00671570216/isolcell-spa"],
-     "match": {"any": ["isolcell holding"]}, "closed_by": ["I12"]},
-    {"id": "OW-02", "category": "ownership", "weight": 2, "grade": "B",
-     "claim": "Belongs to the regional industrial group Finanziaria Unterland S.p.A.",
-     "sources": ["https://www.isolcell.com/it/chi-siamo/", "https://n2generators.com"],
-     "match": {"any": ["finanziaria unterland", "unterland s\\.p\\.a"]}, "closed_by": ["I12", "I13"]},
-    {"id": "OW-03", "category": "ownership", "weight": 3, "grade": "A",
-     "claim": "Ultimate beneficial owner / controlling shareholder is Marco Pruneri (Pruneri family).",
-     "sources": ["AIDA export held in the tool", "https://www.altoadige.it"],
-     "match": {"any": ["marco pruneri", "pruneri marco"]}, "closed_by": ["I12"]},
-    {"id": "OW-04", "category": "ownership", "weight": 2, "grade": "D",
-     "claim": "Independent Italian family-owned company (BvD independence class B/A), not an overseas corporate subsidiary.",
-     "sources": ["AIDA export held in the tool", "https://www.isolcell.com/it/chi-siamo/"],
-     "match": {"any": ["family-owned", "famiglia pruneri", "indipendente"]}, "closed_by": ["I12", "I42"]},
-
-    {"id": "EV-01", "category": "events", "weight": 2, "grade": "B",
-     "claim": "1958 founding in Bolzano/Laives developing controlled atmosphere cold storage for regional fruit cooperatives.",
-     "sources": ["https://www.isolcell.com/it/chi-siamo/"],
-     "match": {"all": ["1958", "atmosfera controllata|controlled atmosphere"]}, "closed_by": ["I10", "I13"]},
-    {"id": "EV-02", "category": "events", "weight": 2, "grade": "B",
-     "claim": "2003: Introduced and patented internationally DCA (Dynamic Controlled Atmosphere) technology with chlorophyll fluorescence sensors (HarvestWatch).",
-     "sources": ["https://storage-isolcell.com", "https://www.isolcell.com/it/prodotti/dca/"],
-     "match": {"any": ["harvestwatch", "dynamic controlled atmosphere", "dca-cf"]}, "closed_by": ["I10", "I13"]},
-    {"id": "EV-03", "category": "events", "weight": 2, "grade": "B",
-     "claim": "Developed active oxygen-reduction fire prevention system N2ORS (N2 Oxygen Reduction System), securing VdS certification for automated high-bay warehouses.",
-     "sources": ["https://www.isolcell.com", "https://n2ors.com"],
-     "match": {"any": ["n2ors", "oxygen reduction system", "riduzione di ossigeno"]}, "closed_by": ["I10", "I13"]},
-
-    {"id": "FI-01", "category": "financials", "weight": 2, "grade": "A",
-     "claim": "Latest AIDA accounts: revenue approx EUR 20.3M (20,269k EUR), EBIT EUR 292k, 71 employees.",
-     "sources": ["AIDA export held in the tool"],
-     "match": {"any": ["20,269k", "20\\.269\\.702", "71 employees"]}, "closed_by": []},
-    {"id": "FI-02", "category": "financials", "weight": 1, "grade": "C",
-     "claim": "Export revenue represents over 60% of total sales, serving installations in more than 80 countries worldwide.",
-     "sources": ["https://www.isolcell.com/it/chi-siamo/"],
-     "match": {"any": ["80 paesi", "80 countries", "export.{0,30}60%"]}, "closed_by": ["I10", "I20"]},
-
-    {"id": "PE-01", "category": "people", "weight": 3, "grade": "B",
-     "claim": "Managing Director / CEO / Geschäftsführer: Marco Pruneri.",
-     "sources": ["https://www.isolcell.com", "https://www.altoadige.it", "https://kompass.com"],
-     "match": {"any": ["marco pruneri", "pruneri marco"]}, "closed_by": ["I10", "I14"]},
-    {"id": "PE-02", "category": "people", "weight": 2, "grade": "C",
-     "claim": "Executive leadership includes division directors for Agricultural Cold Storage (Post-Harvest) and Industrial Nitrogen Generation / Fire Prevention.",
-     "sources": ["https://www.isolcell.com/it/contatti/"],
-     "match": {"any": ["direzione commerciale", "sales director", "technical director"]}, "closed_by": ["I14"]},
-
-    {"id": "PR-01", "category": "products", "weight": 3, "grade": "B",
-     "claim": "DCA (Dynamic Controlled Atmosphere) and ISOSTORE systems for fresh produce and fruit storage.",
-     "sources": ["https://storage-isolcell.com", "https://www.isolcell.com/it/prodotti/dca/"],
-     "match": {"any": ["dynamic controlled atmosphere", "isostore", "harvestwatch"]}, "closed_by": ["I10"]},
-    {"id": "PR-02", "category": "products", "weight": 3, "grade": "B",
-     "claim": "N2ORS (N2 Oxygen Reduction System) for continuous fire prevention in warehouses, archives, and automated storage.",
-     "sources": ["https://n2ors.com", "https://www.isolcell.com"],
-     "match": {"any": ["n2ors", "oxygen reduction system"]}, "closed_by": ["I10"]},
-    {"id": "PR-03", "category": "products", "weight": 2, "grade": "B",
-     "claim": "Industrial PSA (Pressure Swing Adsorption) and membrane Nitrogen Generators (GENOX, NITROGEN) for laser cutting, electronics, and pharmaceuticals.",
-     "sources": ["https://n2generators.com", "https://www.isolcell.com/it/prodotti/generatori-azoto/"],
-     "match": {"any": ["generatori di azoto", "nitrogen generator", "psa nitrogen", "genox"]}, "closed_by": ["I10"]},
-    {"id": "PR-04", "category": "products", "weight": 2, "grade": "B",
-     "claim": "CO2 scrubbers (decarbonicatori), O2 scrubbers, and catalytic ethylene converters (ISOCAT) for storage rooms.",
-     "sources": ["https://storage-isolcell.com/scrubbers", "https://www.isolcell.com"],
-     "match": {"any": ["isocat", "decarbonicatori", "scrubber"]}, "closed_by": ["I10"]},
-
-    {"id": "CE-01", "category": "certifications", "weight": 3, "grade": "B",
-     "claim": "Quality management system certified according to ISO 9001:2015.",
-     "sources": ["https://www.isolcell.com/it/qualita/", "https://vds.de"],
-     "match": {"any": ["iso 9001", "iso 9001:2015", "uni en iso 9001"]}, "closed_by": ["I10", "I15"]},
-    {"id": "CE-02", "category": "certifications", "weight": 2, "grade": "B",
-     "claim": "Environmental management system certified according to ISO 14001:2015.",
-     "sources": ["https://www.isolcell.com/it/qualita/"],
-     "match": {"any": ["iso 14001", "iso 14001:2015"]}, "closed_by": ["I10", "I15"]},
-    {"id": "CE-03", "category": "certifications", "weight": 2, "grade": "B",
-     "claim": "Occupational health and safety management certified according to ISO 45001:2018.",
-     "sources": ["https://www.isolcell.com/it/qualita/"],
-     "match": {"any": ["iso 45001", "iso 45001:2018"]}, "closed_by": ["I10", "I15"]},
-    {"id": "CE-04", "category": "certifications", "weight": 3, "grade": "A",
-     "claim": "VdS Schadenverhütung certification (VdS 2344, VdS 3404, EN 16750) for oxygen-reduction fire prevention systems.",
-     "sources": ["https://vds.de", "https://n2ors.com"],
-     "match": {"any": ["vds 2344", "vds 3404", "vds schadenverh"]}, "closed_by": ["I11", "I15"]},
-    {"id": "CE-05", "category": "certifications", "weight": 2, "grade": "B",
-     "claim": "Tested and audited by international inspection bodies including Bureau Veritas, TÜV, Istituto Giordano, and EPDItaly.",
-     "sources": ["https://www.isolcell.com/it/qualita/"],
-     "match": {"any": ["bureau veritas", "istituto giordano", "epditaly"]}, "closed_by": ["I11", "I15"]},
-
-    {"id": "LO-01", "category": "locations", "weight": 2, "grade": "B",
-     "claim": "Main production plant and operational headquarters in Laives / Leifers (Via Meucci 7, Bolzano province).",
-     "sources": ["https://www.isolcell.com"],
-     "match": {"any": ["via antonio meucci", "via meucci 7"]}, "closed_by": ["I10"]},
-    {"id": "LO-02", "category": "locations", "weight": 1, "grade": "C",
-     "claim": "International sales offices and distribution partners across Europe (Germany, Austria, France, UK), North America, and Australia.",
-     "sources": ["https://www.isolcell.com/it/contatti/"],
-     "match": {"any": ["distributor", "filiali", "partners"]}, "closed_by": ["I10"]},
-
-    {"id": "NW-01", "category": "networks", "weight": 2, "grade": "C",
-     "claim": "Member of IDM Südtirol / Assoimprenditori Alto Adige (Unternehmerverband Südtirol).",
-     "sources": ["https://idm-suedtirol.com", "https://www.assoimprenditori.bz.it"],
-     "match": {"any": ["idm s[uü]dtirol", "assoimprenditori alto adige", "unternehmerverband s[uü]dtirol"]}, "closed_by": ["I16"]},
-    {"id": "NW-02", "category": "networks", "weight": 2, "grade": "B",
-     "claim": "Regular exhibitor at international trade fairs Fruit Logistica (Berlin), Interpoma (Bolzano), and ACHEMA (Frankfurt).",
-     "sources": ["https://www.isolcell.com/it/news/", "https://storage-isolcell.com"],
-     "match": {"any": ["fruit logistica", "interpoma", "achema"]}, "closed_by": ["I16"]},
-
-    {"id": "DG-01", "category": "digital", "weight": 2, "grade": "B",
-     "claim": "Trilingual bilingual corporate web presence in Italian, German and English reflecting its South Tyrol / international market orientation.",
-     "sources": ["https://www.isolcell.com", "https://www.isolcell.com/de/", "https://www.isolcell.com/en/"],
-     "match": {"any": ["isolcell\\.com", "storage-isolcell\\.com", "n2ors\\.com"]}, "closed_by": ["I10", "I18"]},
-    {"id": "DG-02", "category": "digital", "weight": 1, "grade": "B",
-     "claim": "Web server stack running Apache and WordPress CMS with multilingual plugin architecture.",
-     "sources": ["https://www.isolcell.com HTTP headers"],
-     "match": {"any": ["wordpress", "apache"]}, "closed_by": ["I02", "I18"]}
+    {
+      "id": "ID-01",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Legal name ISOLCELL S.p.A., Partita IVA 00671570216, Bolzano company register number BZ 9003/1996.",
+      "sources": [
+        "https://www.isolcell.com/nel-mondo/",
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "P.I. 00671570216 Cap. Soc. con indicazione della parte versata: € 4.000.000,00 i.v. registro imprese ove la società è iscritta e numero: BZ 9003/1996"
+      ],
+      "match": {
+        "any": [
+          "00671570216"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-02",
+      "category": "identity",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Registered office and only production unit: Via A. Meucci 7, 39055 Laives (BZ), South Tyrol, Italy.",
+      "sources": [
+        "https://www.isolcell.com/nel-mondo/",
+        "https://www.isolcell.com/contact-us-2/"
+      ],
+      "quote": [
+        "Isolcell S.p.A. Via A. Meucci, 7 39055 Laives (BZ) – Italy T. +39 0471 95 40 50",
+        "L’unità produttiva è ubicata in Italia, nella sede storica di Laives (BZ)"
+      ],
+      "match": {
+        "any": [
+          "via a\\. meucci,? 7",
+          "laives"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-03",
+      "category": "identity",
+      "weight": 2,
+      "grade": "B",
+      "claim": "History: Isolcell was founded in 1958 in Bolzano, building the first controlled-atmosphere cells for apples and pears in Trentino-Alto Adige (site title 'Controlled Atmosphere since 1958'); AIDA lists incorporation of the S.p.A. on 6 May 1983: two dates a dossier must not blend.",
+      "sources": [
+        "https://www.isolcell.com/company/",
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "1958 Nasce la Isolcell; la prima sede è a Bolzano. Iniziamo a realizzare in Trentino Alto Adige le prime celle in atmosfera controllata per la conservazione delle mele e delle pere",
+        "1983-05-06T00:00:00"
+      ],
+      "match": {
+        "any": [
+          "1958.{0,80}isolcell.{0,80}bolzano",
+          "controlled atmosphere since 1958",
+          "1983-05-06"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I13",
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-04",
+      "category": "identity",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The site contradicts itself on the share capital: the footer on every page says EUR 4,000,000 fully paid; the Impressum page says EUR 2,000,000 fully paid. A dossier must show both and the registry figure, not pick one.",
+      "sources": [
+        "https://www.isolcell.com/nel-mondo/",
+        "https://www.isolcell.com/impressum/"
+      ],
+      "quote": [
+        "Cap. Soc. con indicazione della parte versata: € 4.000.000,00 i.v.",
+        "Share Capital € 2.000.000,00 fully paid up"
+      ],
+      "match": {
+        "any": [
+          "4\\.000\\.000[,.]00.{0,300}2\\.000\\.000[,.]00",
+          "2\\.000\\.000[,.]00.{0,300}4\\.000\\.000[,.]00",
+          "share capital.{0,60}(conflict|contradict|differ)"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-05",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "ISOLCELL: ATECO 28.25.00, manufacture of non-domestic refrigeration and ventilation equipment (AIDA company row).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "\"nace_code\": \"282500\"",
+      "match": {
+        "any": [
+          "isolcell.{0,300}28\\.25\\.00",
+          "isolcell.{0,300}\\b282500\\b"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "CT-01",
+      "category": "contact",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Switchboard +39 0471 95 40 50; sales info isolcell@isolcell.com; technical info service@isolcell.com.",
+      "sources": [
+        "https://www.isolcell.com/impressum/"
+      ],
+      "quote": "T. +39 0471 95 40 50 Sales info: isolcell@isolcell.com Technical info: service@isolcell.com",
+      "match": {
+        "any": [
+          "0471\\D{0,3}95\\D{0,3}40\\D{0,3}50",
+          "service@isolcell\\.com"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I14"
+      ]
+    },
+    {
+      "id": "CT-02",
+      "category": "contact",
+      "weight": 1,
+      "grade": "B",
+      "claim": "The contact form routes to departments: commercial office, technical department, shipping, purchasing, administration (no named person).",
+      "sources": [
+        "https://www.isolcell.com/contact-us-2/"
+      ],
+      "quote": "Destinatario Ufficio commerciale informazioni Reparto tecnico Ufficio spedizioni Ufficio acquisti Ufficio amministrazione",
+      "match": {
+        "any": [
+          "ufficio commerciale.{0,80}reparto tecnico.{0,80}ufficio spedizioni"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I14"
+      ]
+    },
+    {
+      "id": "OW-01",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "A",
+      "claim": "100% of the share capital is held by Isolcell Holding S.r.l. (AIDA).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "{'name': 'ISOLCELL HOLDING S.R.L.', 'type': 'Società', 'country': 'IT', 'direct': 100.0, 'total': 100.0}",
+      "match": {
+        "any": [
+          "isolcell holding"
+        ]
+      },
+      "closed_by": [
+        "I12"
+      ]
+    },
+    {
+      "id": "OW-02",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "A",
+      "claim": "The person controlling the holding (level 2) is Marco Pruneri (AIDA).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "{'name': 'MR MARCO PRUNERI', 'type': 'Persone fisiche o famiglie', 'level': '2'}",
+      "match": {
+        "any": [
+          "marco pruneri.{0,120}(level|livello)\\D{0,6}2",
+          "controlled by marco pruneri"
+        ]
+      },
+      "closed_by": [
+        "I12"
+      ]
+    },
+    {
+      "id": "OW-03",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "D",
+      "claim": "Targeting nuance: BvD independence class D and a 100% corporate holder look like a controlled subsidiary, but the holder is the owner-manager's personal holding company (Isolcell Holding S.r.l., Marco Pruneri). A naive subsidiary flag would be a false positive: the tool must separate a personal holding layer from a third-party parent.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"bvd_independence_class\": \"D\"",
+        "\"derived_family_ownership_share\": 0.0"
+      ],
+      "match": {
+        "any": [
+          "personal holding",
+          "holding[ -]layer",
+          "owner[- ]controlled through"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I42"
+      ]
+    },
+    {
+      "id": "OW-04",
+      "category": "ownership",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Isolcell founded the Chinese company Isolcell Cina in Yantai in a joint venture with a local partner; AIDA shows 3 subsidiary participations and a group of 11 companies.",
+      "sources": [
+        "https://www.isolcell.com/nel-mondo/",
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Isolcell in joint venture con il partner locale fonda Isolcell Cina a Yantai",
+        "\"group_size\": 11.0"
+      ],
+      "match": {
+        "any": [
+          "isolcell cina.{0,40}yantai",
+          "joint venture.{0,80}yantai"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I13",
+        "I16"
+      ]
+    },
+    {
+      "id": "EV-01",
+      "category": "events",
+      "weight": 2,
+      "grade": "B",
+      "claim": "September 2024: Isolcell says it is the first to design, supply and install an Oxygen Reduction System (ORS) fire-prevention plant in Bangladesh.",
+      "sources": [
+        "https://www.isolcell.com/eventi-e-news/"
+      ],
+      "quote": "Isolcell S.p.A. is the first to design, supply and install an Oxygen Reduction System (ORS) in Bangladesh",
+      "match": {
+        "any": [
+          "first to design, supply and install an oxygen reduction system.{0,20}in bangladesh",
+          "ors.{0,40}bangladesh"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-02",
+      "category": "events",
+      "weight": 2,
+      "grade": "B",
+      "claim": "November 2024: installation of an Oxygen Reduction System in Medina, Kingdom of Saudi Arabia; January 2025: a next-generation N2 ORS plant in an automated deep-freeze warehouse at -26 C with over 32,000 pallet positions.",
+      "sources": [
+        "https://www.isolcell.com/eventi-e-news/"
+      ],
+      "quote": [
+        "successful design, supply, and installation of a state-of-the-art Oxygen Reduction System in Medina, Kingdom of Saudi Arabia",
+        "automated deep-freeze warehouse operating at -26°C with a capacity of over 32,000 pallet positions"
+      ],
+      "match": {
+        "any": [
+          "oxygen reduction system.{0,60}medina",
+          "32,000 pallet positions"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-03",
+      "category": "events",
+      "weight": 1,
+      "grade": "B",
+      "claim": "January 2025: the company started a training project 'Crescita dell'organizzazione e delle persone' financed by the European Social Fund Plus (a public-funding signal).",
+      "sources": [
+        "https://www.isolcell.com/eventi-e-news/"
+      ],
+      "quote": "ha avviato il progetto formativo intitolato “Crescita dell’organizzazione e delle persone”, finanziato dal Fondo Sociale Europeo Plus",
+      "match": {
+        "any": [
+          "fondo sociale europeo plus",
+          "progetto formativo fse"
+        ]
+      },
+      "closed_by": [
+        "I13",
+        "I16"
+      ]
+    },
+    {
+      "id": "FI-01",
+      "category": "financials",
+      "weight": 2,
+      "grade": "A",
+      "claim": "Latest accounts (AIDA): revenue about EUR 20.3M and 71 employees.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"revenue_latest\": 20269.702",
+        "\"employees_latest\": 71.0"
+      ],
+      "match": {
+        "any": [
+          "20,?269k",
+          "20269\\.702",
+          "71 employees"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "FI-02",
+      "category": "financials",
+      "weight": 2,
+      "grade": "A",
+      "claim": "Thin profitability: EBIT about EUR 292k, EBIT margin about 1.4% (AIDA).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "\"ebit_latest\": 292.061",
+        "\"derived_ebit_margin\": 1.4409"
+      ],
+      "match": {
+        "any": [
+          "292\\.061",
+          "1\\.4409",
+          "ebit margin\\D{0,20}1[.,]4"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "PE-01",
+      "category": "people",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Registry: Markus Telch is sole administrator (amministratore unico). An earlier draft named Marco Pruneri as managing director/CEO: the registry gives Pruneri the operational roles below, not the board seat.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Markus Telch",
+        "AMMINISTRATORE UNICO"
+      ],
+      "match": {
+        "any": [
+          "markus telch"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-02",
+      "category": "people",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Marco Pruneri is general manager (direttore generale), technical manager (responsabile tecnico) and special attorney; Giorgio Pruneri and Alessandro Zanellati are further special attorneys (procuratori speciali).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Marco Pruneri",
+        "DIRETTORE GENERALE",
+        "RESPONSABILE TECNICO",
+        "Giorgio Pruneri",
+        "Alessandro Zanellati"
+      ],
+      "match": {
+        "any": [
+          "marco pruneri.{0,100}direttore generale",
+          "\\bzanellati\\b",
+          "giorgio pruneri"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PE-03",
+      "category": "people",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Statutory auditors' board chaired by Giuseppe Paulato; standing auditors Luca Palatiello and Sergio Tonetti.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Giuseppe Paulato",
+        "PRESIDENTE DEL COLLEGIO SINDACALE",
+        "Luca Palatiello",
+        "Sergio Tonetti"
+      ],
+      "match": {
+        "any": [
+          "\\bpaulato\\b",
+          "\\bpalatiello\\b",
+          "\\btonetti\\b"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "PE-04",
+      "category": "people",
+      "weight": 2,
+      "grade": "C",
+      "claim": "Tito Spaldi is the company's Sales Manager (company post, January 2025, about an article on the future of agriculture in FreshPlaza).",
+      "sources": [
+        "https://www.isolcell.com/eventi-e-news/"
+      ],
+      "quote": [
+        "Proud to See Tito Spaldi Featured on FreshPlaza!",
+        "Our Sales Manager shares valuable insights on the future of agriculture"
+      ],
+      "match": {
+        "any": [
+          "tito spaldi"
+        ]
+      },
+      "closed_by": [
+        "I14"
+      ]
+    },
+    {
+      "id": "PR-01",
+      "category": "products",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Storage Division: designs and builds controlled-atmosphere solutions for fruit and vegetable storage, including turnkey storage warehouses.",
+      "sources": [
+        "https://www.isolcell.com/"
+      ],
+      "quote": [
+        "Studia, progetta e realizza soluzioni per il mercato della conservazione dei prodotti ortofrutticoli",
+        "progetta e costruisce magazzini di conservazione chiavi in mano"
+      ],
+      "match": {
+        "any": [
+          "atmosfera controllata.{0,200}ortofrutticoli",
+          "magazzini di conservazione chiavi in mano"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-02",
+      "category": "products",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Industry Division (born in the early 2000s): nitrogen generators for industrial self-production of nitrogen.",
+      "sources": [
+        "https://www.isolcell.com/"
+      ],
+      "quote": "La Divisione Industria è nata all’inizio degli anni 2000 per soddisfare le esigenze specifiche di autoproduzione d’azoto",
+      "match": {
+        "any": [
+          "divisione industria.{0,120}azoto",
+          "generatori d.azoto"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-03",
+      "category": "products",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Fire Prevention Division: N2 Oxygen Reduction System, fire prevention in a protected environment by changing the proportions of atmospheric gases.",
+      "sources": [
+        "https://www.isolcell.com/"
+      ],
+      "quote": "N2 OXYGEN REDUCTION SYSTE M® è l’unico sistema di prevenzione incendi in ambiente protetto",
+      "match": {
+        "any": [
+          "n2 oxygen reduction syste",
+          "oxygen reduction system.{0,120}fire"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-04",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Cultural Heritage division: low-oxygen nitrogen treatment for art conservation and pest disinfestation (Cimabue's Crucifix in Arezzo; the Porta del Paradiso of Florence Cathedral).",
+      "sources": [
+        "https://www.isolcell.com/cultural-heritage/"
+      ],
+      "quote": "Disinfestazione del Crocefisso di Cimabue (Arezzo) Conservazione in Atmosfera Modificata della Porta del Paradiso (Duomo di Firenze)",
+      "match": {
+        "any": [
+          "crocefisso di cimabue",
+          "porta del paradiso"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I21"
+      ]
+    },
+    {
+      "id": "PR-05",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "R&D output: more than 33 international patents; collaboration with universities and research centres; accredited research laboratory (Ministry of University and Research) since 2000.",
+      "sources": [
+        "https://www.isolcell.com/company/"
+      ],
+      "quote": [
+        "più di 33 brevetti internazionali",
+        "Dal 2000, inoltre, abbiamo la certificazione come Laboratorio di Ricerca accreditato dal Ministero per l’Università e la Ricerca Scientifica e Tecnologica"
+      ],
+      "match": {
+        "any": [
+          "33 brevetti internazionali",
+          "laboratorio di ricerca accreditato"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I19"
+      ]
+    },
+    {
+      "id": "CE-01",
+      "category": "certifications",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Integrated management system certified ISO 9001:2015 (quality); aligned with ISO 45001 (safety) and ISO 14001 (environment).",
+      "sources": [
+        "https://www.isolcell.com/company/"
+      ],
+      "quote": [
+        "Qualità : è certificato in conformità alla norma ISO 9001:2015",
+        "è pienamente conforme alle normative nazionali e ai requisiti della normativa ISO 45001",
+        "totalmente allineato ai requisiti della normativa ISO 14001"
+      ],
+      "match": {
+        "any": [
+          "iso 9001:2015.{0,300}iso 45001.{0,300}iso 14001",
+          "sistema di gestione integrato.{0,200}iso 9001"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I15"
+      ]
+    },
+    {
+      "id": "CE-02",
+      "category": "certifications",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Product conformity listed: Machinery Directive 2006/42/EC, PED 2014/68/EU, EN 16750:2017 and ISO 20338:2019 (oxygen reduction systems), EN IEC 61508, EAC and VdS 2344 (oxygen sensors).",
+      "sources": [
+        "https://www.isolcell.com/company/"
+      ],
+      "quote": [
+        "EN 16750:2017 - Installazioni fisse antincendio - Sistemi a riduzione di ossigeno",
+        "ISO 20338:2019 - Sistemi a Riduzione di Ossigeno (ORS)",
+        "VdS 2344 - VdS Schadenverhütung-approved manufacturing of oxygen sensors"
+      ],
+      "match": {
+        "any": [
+          "en 16750",
+          "iso 20338",
+          "vds 2344"
+        ]
+      },
+      "closed_by": [
+        "I11",
+        "I15"
+      ]
+    },
+    {
+      "id": "LO-01",
+      "category": "locations",
+      "weight": 2,
+      "grade": "B",
+      "claim": "One production unit (Laives) and a network of selected dealers and distributors worldwide; for China a joint venture, Isolcell Cina, in Yantai.",
+      "sources": [
+        "https://www.isolcell.com/nel-mondo/"
+      ],
+      "quote": "una rete di selezionati rivenditori e distributori ci permette una presenza capillare a livello mondiale",
+      "match": {
+        "any": [
+          "rete di selezionati rivenditori e distributori"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I16"
+      ]
+    },
+    {
+      "id": "NW-01",
+      "category": "networks",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Trade fairs in the news feed: Fruit Logistica 2025 (Hall 3.1, stand C-44), SIMEI 2024 (Hall 1, Stand 12), Interpoma Bolzano 2024, LogiMAT Southeast Asia 2025.",
+      "sources": [
+        "https://www.isolcell.com/eventi-e-news/"
+      ],
+      "quote": [
+        "Isolcell @ Fruit Logistica 2025",
+        "Hall 3.1 | C – 44",
+        "Final Day at SIMEI 2024! 15/11/2024 We’ve had a fantastic time at Hall 1, Stand 12",
+        "What an unforgettable after-show party at Interpoma, Bolzano"
+      ],
+      "match": {
+        "any": [
+          "fruit logistica 2025",
+          "simei 2024",
+          "interpoma"
+        ]
+      },
+      "closed_by": [
+        "I16"
+      ]
+    },
+    {
+      "id": "DG-01",
+      "category": "digital",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The site is in six languages (Italian, English, German, French, Russian, Spanish) with a German 'Impressum' page: a South Tyrol, bilingual-region company whose web presence is multilingual.",
+      "sources": [
+        "https://www.isolcell.com/impressum/"
+      ],
+      "quote": [
+        "Italiano English Deutsch Français RU Español",
+        "Impressum Isolcell Inc."
+      ],
+      "match": {
+        "any": [
+          "italiano english deutsch fran[cç]ais ru espa[nñ]ol",
+          "\\bimpressum\\b.{0,40}isolcell"
+        ]
+      },
+      "closed_by": [
+        "I05",
+        "I10",
+        "I18"
+      ]
+    },
+    {
+      "id": "DG-02",
+      "category": "digital",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Web design credit to lars.it (Bolzano) on the Impressum page; footer copyright credit 'Itour'; a consent manager with functional, preferences, statistics and marketing categories.",
+      "sources": [
+        "https://www.isolcell.com/impressum/"
+      ],
+      "quote": [
+        "Graphic & Web Design Via Maso della Pieve, 60/A (Trading Center) 39100 Bolzano Alto Adige • Italia www.lars.it",
+        "Copyright © 2026, Itour. All rights reserved."
+      ],
+      "match": {
+        "any": [
+          "www\\.lars\\.it",
+          "copyright.{0,20}itour"
+        ]
+      },
+      "closed_by": [
+        "I18"
+      ]
+    },
+    {
+      "id": "DC-01",
+      "category": "documents",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Company documents on the site: integrated company policy (POLITICA AZIENDALE INTEGRATA), code of ethics (CODICE ETICO AZIENDALE) and a whistleblowing channel.",
+      "sources": [
+        "https://www.isolcell.com/company/",
+        "https://www.isolcell.com/nel-mondo/"
+      ],
+      "quote": [
+        "POLITICA AZIENDALE INTEGRATA CODICE ETICO AZIENDALE",
+        "Whistleblowing – Privacy Policy"
+      ],
+      "match": {
+        "any": [
+          "politica aziendale integrata",
+          "codice etico aziendale"
+        ]
+      },
+      "closed_by": [
+        "I11"
+      ]
+    }
+  ],
+  "not_found": [
+    {
+      "looked_for": "Opening of the 'Leifers' (German) name of the town or German-language company name variants",
+      "where": "all site pages and the Impressum",
+      "result": "not found: the site writes 'Laives'; the German name was not asserted (the earlier draft claimed it without a source)"
+    },
+    {
+      "looked_for": "Memberships (IDM Suedtirol, Assoimprenditori Alto Adige, VdS as member) claimed by the earlier draft",
+      "where": "company, nel-mondo, news pages",
+      "result": "not found: VdS appears only as a product approval, IDM and Assoimprenditori not at all"
+    },
+    {
+      "looked_for": "Named CEO / managing director on the site",
+      "where": "all pages",
+      "result": "not found on the site; the registry gives Markus Telch as sole administrator and Marco Pruneri as general manager"
+    },
+    {
+      "looked_for": "Named customers or references",
+      "where": "news and division pages",
+      "result": "not found: installations are described by country or by an anonymous warehouse; one Swiss customer (Tobi Seeobst AG) is named in a news title that was only seen in the listing"
+    },
+    {
+      "looked_for": "Certified e-mail (PEC)",
+      "where": "footer, Impressum, contact page",
+      "result": "not found; not asserted"
+    },
+    {
+      "looked_for": "Which share capital figure is right (EUR 2,000,000 or 4,000,000)",
+      "where": "site only (footer and Impressum)",
+      "result": "unresolved: the registry was not opened; both are recorded as the site's contradiction"
+    },
+    {
+      "looked_for": "Web technology stack (CMS, analytics)",
+      "where": "visible text only",
+      "result": "not checked at header or script level here; left for the digital-footprint ticket"
+    }
   ]
 }
