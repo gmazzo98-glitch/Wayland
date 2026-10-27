@@ -8,9 +8,8 @@ Checks performed:
   1. Quote grounding: the verbatim quote in Evidence must actually occur in page_text.
   2. Entity match: legal name or brand MUST occur, along with at least ONE discriminator
      (VAT, city/province, registered domain, or known person).
-  3. Name-collision detection: detects when search results conflate distinct entities
-     sharing common names (e.g. Emerson ASCO valves vs ASCO Filtri; MP Filtri patents;
-     Voilap Emmegi CNC vs Emmegi Cassano; non-corporate surname homonyms).
+  3. Name-collision detection (generic, I93): the brand embedded in another entity's compound
+     name, a same-brand different legal entity, or a person/news homonym — no per-company table.
   4. Date sanity: checks that event years are not in the future and not impossibly ancient.
   5. Numeric sanity: checks employee count (factor of 3) and revenue (factor of 2) against AIDA.
   6. Contradiction handling: detects conflicts against existing verified single-valued ledger facts
@@ -29,6 +28,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
+from pathlib import Path
 from urllib.parse import urlparse
 
 from intel.ledger import Fact, Ledger, SINGLE_VALUED_KEYS, quote_in_text
@@ -148,85 +148,233 @@ def extract_domain(url: Optional[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Specific Known Collision Signatures (The T20 Problem)
+# Generic Name-Collision Detection (the T20 problem), ticket I93
+#
+# The I06 per-brand table (KNOWN_COLLISION_RULES) was removed: it hard-coded the golden companies and their
+# owners, and did not generalise to a namesake page of any brand it had not seen. Detection is now generic,
+# from the page itself and the company profile only:
+#   C1 embedded-brand: the brand token is part of a LARGER compound entity name on the page ("Emerson {brand}",
+#      "{brand} Numatics", "{brand} Group"), when the company's own full name/legal form is not also present;
+#   C2 other-entity: the page names a DIFFERENT legal entity (different legal-form suffix) around the brand
+#      token while the target's own full name or legal form is absent;
+#   C3 person/news homonym: the brand token is used as a PERSON name in a person-context (sports, arts,
+#      politics, family), with no corporate context for the target.
+# Each signal is overridden by STRONG evidence the page is really about the target: the full brand name,
+# the company's own legal form adjacent to the brand, VAT, registered domain host, or a known person.
+# Lexical hints (legal-form suffixes, person-context markers, stopwords) live in intel/verify_lexicon.json
+# as data and contain NO company names.
 # ---------------------------------------------------------------------------
 
-# Patterns indicating another famous entity that is NOT the company
-KNOWN_COLLISION_RULES = [
-    {
-        "target_brand": "asco",
-        "forbidden_patterns": [
-            r"\bemerson\b",
-            r"\basco\s+valve\b",
-            r"\basco\s+numatics\b",
-            r"\bsolenoid\s+valve\b",
-            r"\belettrovalvol\w*",
-            r"\bflorianopolis\b",
-        ],
-        "exception_patterns": [r"\bmott\b", r"\bidex\b", r"\bbinasco\b", r"\bfiltri\b"],
-        "reason": "Conflated with Emerson ASCO / ASCO Numatics fluid automation valve company",
-    },
-    {
-        "target_brand": "asco",
-        "forbidden_patterns": [
-            r"\bmp\s+filtri\b",
-        ],
-        "exception_patterns": [r"\bmott\b", r"\bidex\b", r"\bbinasco\b"],
-        "reason": "Conflated with competitor MP Filtri S.p.A.",
-    },
-    {
-        "target_brand": "emmegi",
-        "forbidden_patterns": [
-            r"\bvoilap\b",
-            r"\blimidi\b",
-            r"\bsoliera\b",
-            r"\bserramenti\b",
-            r"\bprofili\s+in\s+alluminio\b",
-            r"\bcentri\s+di\s+lavoro\b",
-            r"\bargo\s+tractors\b",
-            r"\blandini\b",
-        ],
-        "exception_patterns": [r"\bcassano\b", r"\bheat\s+exchanger\b", r"\bscambiat\w*"],
-        "reason": "Conflated with Voilap Emmegi CNC machines or Argo Tractors Emmegi Srl",
-    },
-    {
-        "target_brand": "pomini",
-        "forbidden_patterns": [
-            r"\btenova\b",
-            r"\broll\s+grind\w*",
-            r"\brettificatrici\b",
-            r"\bacciaierie\b",
-        ],
-        "exception_patterns": [r"\bhf\s+mixing\b", r"\brubber\b", r"\bgomma\b", r"\brescaldina\b", r"\bvic\b"],
-        "reason": "Conflated with Tenova Pomini (heavy roll grinding machinery division)",
-    },
-    {
-        "target_brand": "corrada",
-        "forbidden_patterns": [
-            r"\bcalciatore\b",
-            r"\bserie\s+[ab]\b",
-            r"\bgol\b",
-            r"\ballenatore\b",
-        ],
-        "exception_patterns": [r"\blainate\b", r"\beurogroup\b", r"\bstampi\b", r"\blaminat\w*"],
-        "reason": "Conflated with athlete/sports namesake (surname collision)",
-    },
-]
+_LEXICON_PATH = Path(__file__).resolve().parent / "verify_lexicon.json"
 
 
-def check_known_collisions(brand: str, page_text: str) -> Optional[str]:
-    """Check if the text contains unmistakable signatures of an unrelated namesake entity."""
-    lower_text = page_text.lower()
-    for rule in KNOWN_COLLISION_RULES:
-        if rule["target_brand"] in brand.lower():
-            # If any exception is met, this text really talks about target company
-            has_exception = any(re.search(pat, lower_text) for pat in rule.get("exception_patterns", []))
-            if has_exception:
-                continue
-            for f_pat in rule["forbidden_patterns"]:
-                if re.search(f_pat, lower_text):
-                    return rule["reason"]
+def _load_lexicon() -> Dict[str, List[str]]:
+    try:
+        data = json.loads(Path(_LEXICON_PATH).read_text(encoding="utf-8"))
+        return {k: list(v) for k, v in data.items() if isinstance(v, list)}
+    except (OSError, ValueError):
+        return {"legal_form_suffixes": [], "person_context_markers": [], "cap_stopwords": []}
+
+
+_LEXICON = _load_lexicon()
+_LEGAL_FORMS = _LEXICON.get("legal_form_suffixes", [])
+_PERSON_MARKERS = _LEXICON.get("person_context_markers", [])
+_CAP_STOPWORDS = set(w.strip().lower() for w in _LEXICON.get("cap_stopwords", []) if w.strip())
+
+
+def _full_brand_variants(legal_name: str) -> Set[str]:
+    """The company's full name without the legal suffix, lowercase (e.g. 'brand word product word')."""
+    clean = _LEGAL_SUFFIXES.sub(" ", legal_name or "").strip()
+    clean = re.sub(r"[,.()\-\u2013\u2014\"'\*\#]", " ", clean)
+    clean = re.sub(r"\s+", " ", clean).strip().lower()
+    return {clean} if len(clean) >= 3 else set()
+
+
+def _norm_form(token: str) -> str:
+    return re.sub(r"[^a-z]", "", (token or "").lower())
+
+
+def _is_legal_form(token: str) -> bool:
+    t = _norm_form(token)
+    return bool(t) and any(_norm_form(f) == t for f in _LEGAL_FORMS)
+
+
+def _own_legal_forms(legal_name: str) -> Set[str]:
+    """The legal-form suffixes the target itself uses ('s.r.l.' for an S.R.L.)."""
+    return {m.group(0).strip().lower() for m in _LEGAL_SUFFIXES.finditer(legal_name or "")}
+
+
+def _legal_form_after(page_lower: str, name: str) -> Optional[str]:
+    """The legal-form token immediately following `name` on the page, if any ('{name} s.r.l.'),
+    longest legal-form match first so dotted suffixes are not cut short."""
+    if not name:
+        return None
+    for form in sorted(_LEGAL_FORMS, key=len, reverse=True):
+        if re.search(re.escape(name) + r"[\s,]{0,3}" + re.escape(form) + r"\b", page_lower):
+            return form
     return None
+
+
+def _own_legal_form_on_page(page_lower: str, brand: str, full_brand: str, own_forms: Set[str] = None) -> bool:
+    """True when the target's FULL distinct name carries the target's OWN legal-form suffix
+    ('{full name} s.r.l.' for an S.R.L.) — the page names the target as a company.
+    A different legal form after the full name ('{full name} spa' for an S.R.L.) means a
+    DIFFERENT entity with the same name, not the target (the same-brand-different-form signal)."""
+    if not full_brand:
+        return False
+    after = _legal_form_after(page_lower, full_brand)
+    if after is None:
+        return False
+    if not own_forms:
+        return True    # target's own form unknown: any legal form still means 'named as a company'
+    own_norm = {_norm_form(f) for f in own_forms}
+    return _norm_form(after) in own_norm
+
+
+def _compound_entity_hits(page_text: str, brand: str, full_brand: str = "",
+                          known_people: Optional[List[str]] = None) -> List[str]:
+    """Occurrences of the brand inside a LARGER compound proper name (another entity embedding it).
+    A compound is '{Capitalized} {brand}' or '{brand} {Capitalized}' where the neighbouring token is
+    capitalised in the original text (a proper-name token, not an ordinary sentence word:
+    'BRAND manufactures' is not an entity, 'Othercorp BRAND' is)."""
+    hits: List[str] = []
+    word = r"([A-Za-z][a-zA-Z0-9&\-]+)"
+    for m in re.finditer(r"(?<![A-Za-z0-9])(" + word + r"\s+" + re.escape(brand) + r")(?![a-z0-9])", page_text, re.I):
+        prefix = m.group(2)
+        if prefix.lower() in _CAP_STOPWORDS or len(prefix) <= 1:
+            continue
+        if not (prefix[:1].isupper() and not prefix.isupper()):
+            continue    # a compound entity word is Capitalized, not ALLCAPS fragments or lowercase
+        if full_brand and m.group(1).lower().endswith(full_brand):
+            continue    # the target's own full name is not a foreign compound
+        if any(m.group(1).lower().endswith(p) for p in (known_people or [])):
+            continue    # a compound ending with a known person's name is the person, not an entity
+        hits.append(m.group(1))
+    for m in re.finditer(r"(?<![A-Za-z0-9])(" + re.escape(brand) + r"\s+" + word + r")(?![a-z0-9])", page_text, re.I):
+        suffix = m.group(2)
+        if suffix.lower() in _CAP_STOPWORDS or len(suffix) <= 1:
+            continue
+        if not (suffix[:1].isupper() and not suffix.isupper()):
+            continue
+        if full_brand and m.group(1).lower().startswith(full_brand):
+            continue    # the target's own full name is not a foreign compound
+        if any(m.group(1).lower().startswith(p) for p in (known_people or [])):
+            continue    # a compound starting with a known person's name is the person, not an entity
+        hits.append(m.group(1))
+    return hits
+
+
+def _person_context_hits(page_lower: str, brand: str) -> List[str]:
+    """The brand is used as a person's name inside a person/news context."""
+    if not _PERSON_MARKERS:
+        return []
+    markers_rx = "|".join(re.escape(m) for m in _PERSON_MARKERS)
+    hits: List[str] = []
+    for m in re.finditer(markers_rx, page_lower):
+        start = max(0, m.start() - 100)
+        window = page_lower[start:m.end() + 100]
+        if re.search(r"(?<![a-z0-9])" + re.escape(brand) + r"(?![a-z0-9])", window):
+            hits.append(m.group(0))
+    return hits
+
+
+def check_known_collisions(
+    brand: str,
+    page_text: str,
+    company: Optional[Dict[str, Any]] = None,
+    strong_discriminators: Optional[Set[str]] = None,
+    known_people: Optional[List[str]] = None,
+) -> Optional[str]:
+    """Generic namesake detection. Returns a human-readable collision reason or None.
+
+    `brand` is the primary brand token; `company` (optional) provides the full legal name for the
+    strong-evidence override; `strong_discriminators` (optional) are already-found discriminators
+    (vat / domain / person) that override every collision signal; `known_people` (optional) are
+    the company's known people — a compound formed with a known person's name is the person,
+    not a foreign entity.
+    Signature kept backward-compatible with the I06 call shape (ticket I93 acceptance).
+    """
+    if known_people is None:
+        known_people = list((company or {}).get("people") or [])
+    known_people = [str(p).lower() for p in known_people if len(str(p)) >= 3]
+    if not brand:
+        return None
+    brand = brand.strip().lower()
+    page_clean = (page_text or "").strip()
+    page_lower = page_clean.lower()
+    if brand not in page_lower:
+        return None
+    strong = set(strong_discriminators or ())
+    if {"vat", "domain"} & strong:
+        return None    # the target's own VAT or registered domain: the page is about the target
+    person_strong = any(d.startswith("person:") for d in strong)
+    full_brand_set = _full_brand_variants((company or {}).get("legal_name") or brand)
+    full_brand = next(iter(full_brand_set), brand)
+    own_forms = _own_legal_forms((company or {}).get("legal_name") or "")
+    full_name_present = full_brand != brand and full_brand in page_lower
+    if company and full_name_present:
+        # The target's full distinct name IS on the page: named as a company with its own legal form?
+        if _own_legal_form_on_page(page_lower, brand, full_brand, own_forms):
+            return None
+        # same full name with a DIFFERENT legal form = another entity with the same name
+        other_form = _legal_form_after(page_lower, full_brand)
+        own_norm = {_norm_form(f) for f in own_forms}
+        if other_form and _norm_form(other_form) not in own_norm:
+            return ("Name-collision: a different legal entity with the same name ("
+                    f"{full_brand} {other_form}) while the target's own legal form "
+                    f"({', '.join(sorted(own_forms)) or 'unknown'}) never appears")
+        # full name standalone: only an INCORPORATED namesake (a compound that carries or is
+        # followed by a legal form on the page) still rejects; an explicit disambiguation
+        # ("non confondere con", "not to be confused with") names the namesake on purpose and
+        # never rejects the page; a bare passing mention does not reject either
+        if not re.search(r"non confund|non confondere|not to be confused|da non confondere", page_lower):
+            compounds = _compound_entity_hits(page_clean, brand, full_brand, known_people)
+            incorporated = [c for c in compounds if _incorporated_on_page(page_lower, c.lower())]
+            if incorporated:
+                return _compound_reason(incorporated)
+        return None
+    if company and _own_legal_form_on_page(page_lower, brand, full_brand, own_forms):
+        return None
+    compounds = _compound_entity_hits(page_clean, brand, full_brand, known_people)
+    if compounds:
+        # a known person named on the page does not excuse the brand being embedded in ANOTHER
+        # entity's name: the person may simply appear in a story about the namesake (the hard T20 shape)
+        return _compound_reason(compounds)
+    if person_strong:
+        return None
+    person_hits = _person_context_hits(page_lower, brand)
+    if person_hits and not _LEGAL_SUFFIXES.search(page_lower):
+        return _person_reason(brand, person_hits[:3])
+    return None
+
+
+def _incorporated_on_page(page_lower: str, compound_lower: str) -> bool:
+    """True when the compound names an incorporated entity: a legal form attached
+    ('{compound} SpA') or within two tokens inside ('{brand} Spa {word}', the Italian mid-name
+    form), or a group/parent marker adjacent to it ('group {compound}', 'gruppo {compound}')."""
+    if _legal_form_after(page_lower, compound_lower) is not None:
+        return True
+    first = compound_lower.split()[0]
+    for m in re.finditer(r"(?<![a-z0-9])" + re.escape(first) + r"\b(.{0,24}?)(?:\b(spa|s\.p\.a|srl|s\.r\.l)\b|\b(s\.p\.a\.|s\.r\.l\.|s\.n\.c\.|s\.a\.s\.|gmbh|inc|ltd|ag)\b)",
+                         page_lower):
+        if _is_legal_form(m.group(2) or m.group(3)):
+            return True
+    if re.search(r"\b(group|gruppo)\s+(?:[a-z]+\s+){0,2}" + re.escape(compound_lower.split()[0]), page_lower):
+        return True
+    if re.search(re.escape(compound_lower.split()[0]) + r"\s+(?:[a-z]+\s+){0,2}(group|gruppo)\b", page_lower):
+        return True
+    return False
+
+
+def _compound_reason(compounds: List[str]) -> str:
+    return ("Name-collision: the brand appears embedded in a different entity's name (" +
+            ", ".join(sorted(set(c.strip() for c in compounds))[:4]) +
+            ") while the target company's own full name or legal form is absent")
+
+
+def _person_reason(brand: str, markers: List[str]) -> str:
+    return (f"Name-collision: '{brand}' is used as a person's name in a non-corporate context "
+            f"({', '.join(markers)}) with no legal-form context")
 
 
 # ---------------------------------------------------------------------------
@@ -381,10 +529,17 @@ def _verify_internal(
             )
 
     # -----------------------------------------------------------------------
-    # Step 3: Name-Collision Detection
+    # Step 3: Name-Collision Detection (generic, I93)
     # -----------------------------------------------------------------------
     primary_brand = brand_tokens[0] if brand_tokens else (company.get("legal_name") or "")
-    collision_reason = check_known_collisions(primary_brand, page_text_clean)
+    # the SHORTEST brand token is the one that can be embedded in a namesake compound
+    # (the full name cannot be; the bare brand word can be 'Othercorp BRANDWORD')
+    short_brand = min(brand_tokens, key=len) if brand_tokens else primary_brand
+    strong = set(d if not d.startswith("person:") else "person:x" for d in discriminators_found)
+    known_people = [str(p).lower() for p in (company.get("people") or []) if len(str(p)) >= 3]
+    collision_reason = check_known_collisions(
+        short_brand, page_text_clean, company=company, strong_discriminators=strong,
+        known_people=known_people)
     collision_detected = collision_reason is not None
     if collision_detected:
         reasons.append(f"Collision detected: {collision_reason}")
