@@ -47,7 +47,7 @@ COLLECTOR_TAG = "I15:certifications@1"
 
 # Pages of the company site most likely to carry certification content. Link discovery from the
 # homepage comes first; these hints only widen what counts as a quality page (the I33 lesson:
-# never guess paths only — ASCO keeps everything under /Home/Download).
+# never guess paths only — some sites keep everything under an unconventional path).
 CERT_PATH_HINTS = (
     "qualit", "quality", "certificaz", "certificat", "download", "contatti", "norme", "standard",
     "compliance", "approvazioni", "accredit", "dokument", "zulassung",
@@ -202,7 +202,7 @@ def run(ctx: CollectorContext) -> CollectorResult:
         # the homepage is the hub: follow its links (the I33 lesson — never guess paths only);
         # below the homepage, only quality-hinted pages are deepened, to stay inside the page budget.
         hub = page.url.rstrip("/") == website.rstrip("/")
-        # A site that redirects to its group's domain (corrada.it -> eglagroup.com) is still the
+        # A site that redirects to its group's domain (a company site -> the group's site) is still the
         # company's own presentation: allow the homepage's FINAL host as well, once discovered.
         final_host = urlparse(page.url).netloc.lower().lstrip("www.")
         if final_host and final_host not in hosts:
