@@ -674,7 +674,7 @@
       "match": {
         "any": [
           "\\[email protected\\].{0,80}(cloudflare|obfuscat|cfemail|placeholder)",
-          "cdn-cgi/l/email-protection"
+          "(cloudflare|obfuscat|cfemail).{0,80}\\[email protected\\]"
         ]
       },
       "closed_by": [
