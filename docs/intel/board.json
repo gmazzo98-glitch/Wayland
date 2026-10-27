@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T14:28:59Z",
+  "updated_at": "2026-10-27T14:29:10Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -1346,10 +1346,10 @@
         "web",
         "live_db_read"
       ],
-      "status": "OPEN",
-      "claimed_by": null,
-      "claimed_at": null,
-      "heartbeat_at": null,
+      "status": "CLAIMED",
+      "claimed_by": "claude-61ea",
+      "claimed_at": "2026-10-27T14:29:10Z",
+      "heartbeat_at": "2026-10-27T14:29:10Z",
       "proposed_by": "claude-61ea",
       "why": "I14 was checked in DONE with 8/8 golden facts, but intel/collectors/people.py _harvest_press_and_deals() has a known_reference_urls list of six pages that are identical to the golden file's sources for PE-02, PE-03, PE-04, PE-05, PE-07 and EV-03 (PR Newswire Mott/ASCO, two BeBeez deal pages, mottcorp.com, ZoneBourse MARCO-ROSMI, MarketScreener ENNIO-MICHELINI) plus path tokens asco-filtri/red-fish/mott; intel/people.py also has an ascoinfo mailbox prefix and a mott|idex role regex. That breaks roadmap rule 6 (do not game the benchmark), so the I14 golden score is not evidence the collector works on unseen companies. Also found: it never uses ctx.search (I05) or intel.verify (I06, a name-only entity check lets same-brand firms through); a parent-company CEO is stored under people.managing_director; an audit firm is stored as people.board_member; the registry roster read swallows all errors; scripts/intel_run.py gives collectors no search client. Rework: remove all company-specific data, discover pages with the I05 query pack and verify with I06, fix the misclassifications, wire search into intel_run.py (additive), re-score honestly.",
       "history": [
@@ -1357,6 +1357,11 @@
           "at": "2026-10-27T14:28:44Z",
           "by": "claude-61ea",
           "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T14:29:10Z",
+          "by": "claude-61ea",
+          "event": "claim"
         }
       ]
     }
