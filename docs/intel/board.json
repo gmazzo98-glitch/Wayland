@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T16:46:49Z",
+  "updated_at": "2026-10-27T16:47:07Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -1619,10 +1619,10 @@
       "needs": [
         "web"
       ],
-      "status": "CLAIMED",
+      "status": "DONE",
       "claimed_by": "vibe-c727",
       "claimed_at": "2026-10-27T16:40:26Z",
-      "heartbeat_at": "2026-10-27T16:40:26Z",
+      "heartbeat_at": "2026-10-27T16:47:07Z",
       "proposed_by": "claude-61ea",
       "why": "Found while building I95 on the I93 verifier. intel/verify.py _compound_entity_hits() matches '{Capitalized} {brand}' with \\s+, which spans a line break, so a page whose headline ends in a capitalised word and whose next line starts with the company name is read as a foreign compound entity and the fact is rejected as a name collision. Minimal repro: company legal name 'MECCANICA BRAMBILLA S.R.L.' (invented), page text 'Meccanica Brambilla entra nel gruppo Orion<newline>Meccanica Brambilla di Lecco ha annunciato ...' without the legal form on the page: verify() returns 'Name-collision ... (Orion<newline>Meccanica)'. Headline-then-body is the normal shape of extracted press text, so this costs recall on ordinary pages (it rejects, so it is the safe direction, but a collector built on verify() silently loses true facts). Fix: do not let a compound cross a newline or sentence end (use [^\\S\\n]+ between the two tokens, and treat . ! ? : as a boundary), add the repro as a regression test. Describe the ticket under ### I97 in docs/INTEL_ROADMAP.md on your branch.",
       "history": [
@@ -1635,8 +1635,16 @@
           "at": "2026-10-27T16:40:26Z",
           "by": "vibe-c727",
           "event": "claim"
+        },
+        {
+          "at": "2026-10-27T16:47:07Z",
+          "by": "vibe-c727",
+          "event": "done",
+          "note": "docs/intel/results/I97.md"
         }
-      ]
+      ],
+      "done_at": "2026-10-27T16:47:07Z",
+      "result": "docs/intel/results/I97.md"
     },
     "I101": {
       "title": "Golden-set gate: promote the I94 verifier into scripts/ plus a test, and rework the ASCO golden file against it",
