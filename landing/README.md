@@ -35,3 +35,18 @@ If an export already posts to `/api/submit`, `/update-landing` publishes it with
 ## Notifications
 
 Each saved request also sends a push message through ntfy.sh to the private topic in the Vercel env var `NTFY_TOPIC` (production). Subscribe to that topic in the ntfy app or at https://ntfy.sh/<topic>. The message carries only the form type and the company or startup name, no email address; the details are in Neon. If ntfy is down the request is still saved.
+
+## Editing the page (Claude, Antigravity, Codex, Mistral, ChatGPT, by hand)
+
+`index.html` is a Claude Design bundle: fonts and the intro video are embedded, and the page itself sits JSON-escaped on one line. Do not edit that line. The readable copy is `src/page.html`.
+
+1. Edit `src/page.html` (text, CSS, animations, the script at the bottom).
+2. `python landing/tools/pack.py` rebuilds `index.html` from it (it refuses a page that lost the form fields or the POST to `/api/submit`).
+3. `python landing/tools/pack.py --check` says "In sync" when both files match. Commit `src/page.html` and `index.html` together.
+4. Publish: with the Vercel project connected to the repo (Project Settings, Git, root directory `landing`), pushing a branch gives a preview link and merging to `master` goes live. Until it is connected, ask Claude Code to run `/update-landing` or deploy from the Vercel dashboard.
+
+After a NEW Claude Design export (`/update-landing`): `python landing/tools/apply_form_patch.py "<export>.html"` then `python landing/tools/pack.py --unpack` to refresh `src/page.html`.
+
+Rules for any agent: see "Landing page" in the root `AGENTS.md` (keep the form fields, no secrets in the repo, do not touch the Neon tables, keep the removed copy out).
+
+Chat-only tools (ChatGPT or Mistral in the browser) cannot read the repo: paste `src/page.html` into the chat, ask for the change, then save the answer over `src/page.html` and run `pack.py`.
