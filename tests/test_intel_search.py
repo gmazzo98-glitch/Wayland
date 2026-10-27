@@ -1,7 +1,57 @@
 import json
+import requests
 
 from intel.queryplan import build_query_pack, queries_for
 from intel.search import SearchClient, SearchResult, canonical_url
+
+
+def test_provider_failures_are_reported_and_not_cached(tmp_path):
+    class Session:
+        headers = {}
+        calls = 0
+
+        def get(self, url, **kwargs):
+            self.calls += 1
+            raise requests.Timeout("sensitive request URL")
+
+    session = Session()
+    client = SearchClient(session=session, providers=("duckduckgo",), cache_dir=str(tmp_path), delay=0)
+    response = client.search("example")
+    assert response == []
+    assert response.provider_health == {"duckduckgo": "error: Timeout"}
+    assert "sensitive" not in str(response.provider_health)
+    client.search("example")
+    assert session.calls == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_http_throttle_is_distinct_from_no_results():
+    class Response:
+        status_code = 429
+
+    class Session:
+        headers = {}
+        def get(self, url, **kwargs):
+            return Response()
+
+    response = SearchClient(session=Session(), providers=("gdelt",), delay=0).search("example")
+    assert response.provider_health == {"gdelt": "error: ProviderError (HTTP 429)"}
+
+
+def test_empty_success_has_healthy_provider():
+    class Response:
+        status_code = 200
+        def json(self):
+            return {"articles": []}
+
+    class Session:
+        headers = {}
+        def get(self, url, **kwargs):
+            return Response()
+
+    response = SearchClient(session=Session(), providers=("gdelt",), delay=0).search("example")
+    assert response == []
+    assert response.provider_health == {"gdelt": "ok"}
 
 
 def test_query_pack_is_multilingual_and_has_name_variants():

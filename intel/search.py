@@ -31,6 +31,25 @@ class SearchResult:
     query: str = ""
 
 
+class SearchResponse(list):
+    """List-compatible results with a health record for each attempted provider."""
+
+    def __init__(self, results=(), provider_health=None):
+        super().__init__(results)
+        self.provider_health = provider_health or {}
+
+
+class ProviderError(Exception):
+    pass
+
+
+def _check_response(response):
+    status = getattr(response, "status_code", 200)
+    if status >= 400:
+        raise ProviderError(f"HTTP {status}")
+    return response
+
+
 def canonical_url(url: str) -> str:
     url = (url or "").split("#", 1)[0].strip()
     if not url:
@@ -67,17 +86,23 @@ class SearchClient:
             path = os.path.join(self.cache_dir, cache_key + ".json")
             try:
                 if os.path.exists(path) and time.time() - os.path.getmtime(path) < 86400:
-                    return [SearchResult(**x) for x in json.load(open(path, encoding="utf-8"))]
+                    with open(path, encoding="utf-8") as fh:
+                        cached = json.load(fh)
+                    return SearchResponse([SearchResult(**x) for x in cached], {"cache": "ok"})
             except (OSError, ValueError, TypeError):
                 pass
         results: List[SearchResult] = []
+        health = {}
         for provider in self.providers:
             if len(results) >= n:
                 break
             try:
-                results.extend(self._provider(provider, query, kind, lang, n - len(results)))
-            except (requests.RequestException, ValueError, ET.ParseError):
-                continue
+                items = self._provider(provider, query, kind, lang, n - len(results))
+                results.extend(items)
+                health[provider] = "ok"
+            except (requests.RequestException, ValueError, ET.ParseError, ProviderError) as exc:
+                # Do not include request URLs: keyed provider URLs can contain secrets.
+                health[provider] = f"error: {type(exc).__name__}" + (f" ({exc})" if isinstance(exc, ProviderError) else "")
         unique = []
         seen = set()
         for item in results:
@@ -87,14 +112,14 @@ class SearchClient:
                 seen.add(key)
                 unique.append(item)
         unique = unique[:n]
-        if self.cache_dir:
+        if self.cache_dir and not any(value.startswith("error:") for value in health.values()):
             try:
                 os.makedirs(self.cache_dir, exist_ok=True)
                 with open(os.path.join(self.cache_dir, cache_key + ".json"), "w", encoding="utf-8") as fh:
                     json.dump([asdict(x) for x in unique], fh)
             except OSError:
                 pass
-        return unique
+        return SearchResponse(unique, health)
 
     def _provider(self, name: str, query: str, kind: str, lang: str, n: int) -> List[SearchResult]:
         if name == "duckduckgo":
@@ -107,7 +132,7 @@ class SearchClient:
             return self._sec(query, n)
         if name in {"brave", "serper", "tavily", "serpapi"}:
             return self._keyed(name, query, n)
-        return []
+        raise ProviderError("unknown provider")
 
     def _get(self, url: str, host_key: str = "search"):
         with self._lock:
@@ -115,25 +140,20 @@ class SearchClient:
             if wait > 0:
                 time.sleep(wait)
             self._last[host_key] = time.monotonic()
-        return self.session.get(url, timeout=self.timeout)
+        return _check_response(self.session.get(url, timeout=self.timeout))
 
     def _duckduckgo(self, query, n):
         from bs4 import BeautifulSoup
-        try:
-            resp = self._get("https://html.duckduckgo.com/html/?q=" + quote_plus(query), "duckduckgo")
-            if getattr(resp, "status_code", 200) != 200:
-                return []
-            soup = BeautifulSoup(resp.text, "html.parser")
-            out = []
-            for node in soup.select(".result")[:n]:
-                link = node.select_one("a.result__a")
-                if link and link.get("href"):
-                    snippet_node = node.select_one(".result__snippet")
-                    out.append(SearchResult(link["href"], link.get_text(" ", strip=True),
-                                             snippet_node.get_text(" ", strip=True) if snippet_node else "", provider="duckduckgo"))
-            return out
-        except Exception:
-            return []
+        resp = self._get("https://html.duckduckgo.com/html/?q=" + quote_plus(query), "duckduckgo")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        out = []
+        for node in soup.select(".result")[:n]:
+            link = node.select_one("a.result__a")
+            if link and link.get("href"):
+                snippet_node = node.select_one(".result__snippet")
+                out.append(SearchResult(link["href"], link.get_text(" ", strip=True),
+                                        snippet_node.get_text(" ", strip=True) if snippet_node else "", provider="duckduckgo"))
+        return out
 
     def _google_news(self, query, lang, n):
         url = "https://news.google.com/rss/search?q=" + quote_plus(query) + "&hl=" + quote_plus(lang)
@@ -146,52 +166,49 @@ class SearchClient:
         return [SearchResult(x.get("url", ""), x.get("title", ""), x.get("snippet", ""), x.get("seendate", ""), "gdelt") for x in root.get("articles", [])]
 
     def _sec(self, query, n):
-        try:
-            data = self._get("https://efts.sec.gov/LATEST/search-index?q=" + quote_plus(query) + "&from=0&size=" + str(n), "efts.sec.gov").json()
-            out = []
-            for hit in data.get("hits", {}).get("hits", [])[:n]:
-                src = hit.get("_source", {})
-                adsh = src.get("adsh", "")
-                ciks = src.get("ciks", [])
-                cik = str(ciks[0]).lstrip("0") if ciks else ""
-                adsh_clean = adsh.replace("-", "")
-                url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{adsh_clean}/{adsh}.txt" if (cik and adsh) else ""
-                title = ", ".join(src.get("display_names", []))
-                form = src.get("form", "")
-                desc = src.get("file_description") or form
-                date = src.get("file_date", "")
-                if url:
-                    out.append(SearchResult(url=url, title=f"{title} ({form})", snippet=desc, date=date, provider="sec"))
-            return out
-        except Exception:
-            return []
+        data = self._get("https://efts.sec.gov/LATEST/search-index?q=" + quote_plus(query) + "&from=0&size=" + str(n), "efts.sec.gov").json()
+        out = []
+        for hit in data.get("hits", {}).get("hits", [])[:n]:
+            src = hit.get("_source", {})
+            adsh = src.get("adsh", "")
+            ciks = src.get("ciks", [])
+            cik = str(ciks[0]).lstrip("0") if ciks else ""
+            adsh_clean = adsh.replace("-", "")
+            url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{adsh_clean}/{adsh}.txt" if (cik and adsh) else ""
+            title = ", ".join(src.get("display_names", []))
+            form = src.get("form", "")
+            desc = src.get("file_description") or form
+            date = src.get("file_date", "")
+            if url:
+                out.append(SearchResult(url=url, title=f"{title} ({form})", snippet=desc, date=date, provider="sec"))
+        return out
 
     def _keyed(self, provider, query, n):
         env = {"brave": "BRAVE_SEARCH_API_KEY", "serper": "SERPER_API_KEY", "tavily": "TAVILY_API_KEY", "serpapi": "SERPAPI_API_KEY"}[provider]
         key = os.getenv(env)
         if not key:
-            return []
+            raise ProviderError(f"missing {env}")
         try:
             if provider == "serper":
                 resp = self.session.post("https://google.serper.dev/search",
                                          headers={"X-API-KEY": key, "Content-Type": "application/json"},
                                          json={"q": query, "num": n}, timeout=self.timeout)
-                data = resp.json()
+                data = _check_response(resp).json()
                 return [SearchResult(x.get("link", ""), x.get("title", ""), x.get("snippet", ""), provider="serper")
                         for x in data.get("organic", [])[:n]]
             if provider == "brave":
                 resp = self.session.get("https://api.search.brave.com/res/v1/web/search",
                                         headers={"X-Subscription-Token": key, "Accept": "application/json"},
                                         params={"q": query, "count": n}, timeout=self.timeout)
-                data = resp.json()
+                data = _check_response(resp).json()
                 return [SearchResult(x.get("url", ""), x.get("title", ""), x.get("description", ""), provider="brave")
                         for x in data.get("web", {}).get("results", [])[:n]]
             if provider == "tavily":
                 resp = self.session.post("https://api.tavily.com/search",
                                          json={"api_key": key, "query": query, "max_results": n}, timeout=self.timeout)
-                data = resp.json()
+                data = _check_response(resp).json()
                 return [SearchResult(x.get("url", ""), x.get("title", ""), x.get("content", ""), provider="tavily")
                         for x in data.get("results", [])[:n]]
-        except Exception:
-            pass
-        return []
+        except (requests.RequestException, ValueError, ProviderError):
+            raise
+        raise ProviderError("provider not implemented")

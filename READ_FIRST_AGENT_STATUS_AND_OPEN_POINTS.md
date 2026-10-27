@@ -67,6 +67,8 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
   ```
   Expect differences by design (open points OP-003, OP-004): the live engine scores a company with no data as 0.0, the new one returns no score and 0% coverage.
 
+* Deep-intelligence I104 (2026-10-27, codex-a7f2): partial search reliability work adds provider health to list-compatible results and avoids caching searches with provider errors; eight focused tests pass. A bounded live ownership query reported DuckDuckGo and GDELT timeouts and returned SEC links. Full suite: 1167 passed, 12 skipped, 3 failed (login timeout, status point ordering, stale worker bundle). Not verified: returned-page ownership evidence, collector propagation of health, Google News publisher resolution, cross-process GDELT backoff and a reliable provider; I104 remains open.
+
 ## C. Open points
 
 ### OP-001: Row 14 (Number of Employees) role mismatch
