@@ -1,0 +1,27 @@
+{
+  "legal_form_suffixes": [
+    "s.p.a.", "s.p.a", "spa", "s.r.l.", "s.r.l", "srl", "s.n.c.", "s.n.c", "snc",
+    "s.a.s.", "sas", "gmbh", "ag", "inc", "inc.", "ltd", "ltd.", "llc", "plc",
+    "group", "holding", "societa per azioni", "societa a responsabilita limitata"
+  ],
+  "person_context_markers": [
+    "calciatore", "calciomercato", "calciatori", "gol", "serie a", "serie b",
+    "allenatore", "giocatore", "partita", "campionato", "campionessa", "squadra",
+    "ciclista", "giro d'italia", "giro d'italia", "tappa", "maglia rosa", "atleta",
+    "olimpiadi", "olimpiadi invernali", "medaglia", "gara", "scudetto",
+    "attore", "attrice", "regista", "film", "trama", "festival", "premiere",
+    "cantante", "cantautore", "canzone", "album", "concerto", "tour",
+    "scrittore", "scrittrice", "romanzo", "libro", "bestseller",
+    "politico", "deputato", "senatore", "sindaco", "elezioni", "candidato",
+    "nipote di", "figlio di", "fratello di", "suo padre", "sua madre"
+  ],
+  "cap_stopwords": [
+    "the", "our", "its", "their", "his", "her", "and", "or", "in", "of", "at", "to",
+    "di", "della", "delle", "degli", "del", "della", "il", "lo", "la", "le", "un", "una",
+    "via", " Italy", "italy", "italia", "europa", "europe", "european", "eu",
+    "germania", "germany", "francia", "france", "spagna", "spain", "usa", "america", "china", "cina",
+    "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+    "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+    "welcome", "home", "about", "contact", "contact", "certifications", "products", "company", "news"
+  ]
+}
