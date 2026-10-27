@@ -30,6 +30,7 @@ import requests
 
 USER_AGENT = "Mozilla/5.0 (compatible; ViennaResearchBot/1.0; +https://wayland.my)"
 MAX_BYTES = 6_000_000
+MAX_RAW_CHARS = 600_000   # cap on Page.raw (the decoded markup / JSON), so a cached page stays a sane size
 DEFAULT_DELAY = 1.0
 
 
@@ -45,6 +46,10 @@ class Page:
     links: List[str] = field(default_factory=list)      # absolute, same-document links in page order
     note: str = ""                                       # why it is not ok, or a caveat about the text
     content_hash: str = ""
+    # The decoded response body exactly as served (HTML markup incl. scripts and attributes, or the JSON / XML of an
+    # API), capped at MAX_RAW_CHARS. `text` is the reduced human reading of it; a collector that fingerprints markup
+    # (script URLs, meta tags, alt attributes) or reads an API quotes from `raw`. Added by ticket I18; additive.
+    raw: str = ""
 
 
 def normalise_url(url: str) -> str:
@@ -90,6 +95,10 @@ def pdf_to_text(data: bytes) -> str:
 
 
 class PoliteFetcher:
+    # True for a fetcher that talks to the real internet. A collector may then make a direct probe that is not a page
+    # fetch (a TLS handshake); a recorded-page test double lacks the attribute, so unit tests never touch the network.
+    network_probes = True
+
     def __init__(self, delay: float = DEFAULT_DELAY, timeout: int = 20, respect_robots: bool = True,
                  session: Optional[requests.Session] = None, cache_dir: Optional[str] = None,
                  cache_ttl: int = 86400, browser_fallback: bool = False) -> None:
@@ -209,10 +218,12 @@ class PoliteFetcher:
             encoding = resp.encoding or (resp.apparent_encoding if hasattr(resp, "apparent_encoding") else None) or "utf-8"
             html = raw[:MAX_BYTES].decode(encoding, errors="replace")
             page.title, page.text, hrefs = html_to_text(html)
+            page.raw = html[:MAX_RAW_CHARS]
             if self.browser_fallback and len(page.text.strip()) < 80:
                 rendered = self._render_with_browser(resp.url)
                 if rendered:
                     page.title, page.text, hrefs = html_to_text(rendered)
+                    page.raw = rendered[:MAX_RAW_CHARS]
                     page.note = "rendered with optional browser fallback"
             seen, links = set(), []
             for h in hrefs:
@@ -221,6 +232,10 @@ class PoliteFetcher:
                     seen.add(absolute)
                     links.append(absolute)
             page.links = links
+        elif "json" in ctype or "xml" in ctype:
+            # API answers (RDAP, Wayback CDX, feeds): keep the body verbatim for the collector to quote from.
+            encoding = resp.encoding or "utf-8"
+            page.raw = raw[:MAX_BYTES].decode(encoding, errors="replace")[:MAX_RAW_CHARS]
         self._write_cache(url, page)
         return page
 

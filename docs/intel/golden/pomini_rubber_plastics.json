@@ -5,147 +5,840 @@
     "company_id": "793f44b5-4439-474d-8d56-c08a0cbd6441",
     "legal_name": "POMINI RUBBER & PLASTICS S.R.L. O IN FORMA ABBREVIATA POMINI R&P S.R.L.",
     "vat": "05699990965",
-    "website": "https://www.hf-mixinggroup.com",
-    "city": "Rescaldina (MI) / Castellanza (VA)"
+    "website": null,
+    "website_note": "empty in the database; the real site is the group site https://www.hf-group.com (formerly hf-mixinggroup.com)",
+    "city": "Rescaldina (MI)",
+    "never_hardcode": [
+      "possehl",
+      "hf-group.com",
+      "hf-mixinggroup.com",
+      "bonvesin"
+    ]
   },
   "researched_on": "2026-10-27",
-  "researcher": "antigravity-e2f4 (manual web research: HF Mixing Group publications, AMAPLAST records, Possehl annual reports, public registries; public sources only).",
-  "how_to_read": "Each fact is something an expert researcher found about POMINI RUBBER & PLASTICS S.R.L. (empty website in DB case, German group subsidiary). `match` is verified by scripts/intel_gap.py against stored tool text. `split` is hold-out.",
+  "researcher": "claude-e9be (ticket I94: repair of the I03 set; every quote was grounded against the fetched page or the live-DB text by a checker, see docs/intel/results/I94.md)",
+  "how_to_read": "Each fact is something a researcher found about POMINI RUBBER & PLASTICS S.R.L. (empty-website case, German group subsidiary) and could re-check: every `quote` is verbatim text from a page that was fetched, or from the AIDA text held in the tool, and `match` is what scripts/intel_gap.py looks for in the tool's text. `not_found` lists what was searched for and not found (absent is not the same as unchecked). Hold-out: only release captains and I43 score against this file.",
   "facts": [
-    {"id": "ID-01", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "Legal name POMINI RUBBER & PLASTICS S.R.L. (short form POMINI R&P S.R.L.), Partita IVA / Codice Fiscale 05699990965, REA MI-2009721.",
-     "sources": ["https://www.hf-mixinggroup.com", "https://ufficiocamerale.it/05699990965/pomini-rubber-plastics-srl"],
-     "match": {"any": ["05699990965"]}, "closed_by": ["I20"]},
-    {"id": "ID-02", "category": "identity", "weight": 2, "grade": "B",
-     "claim": "Registered office: Via Bonvesin de la Riva 43, 20027 Rescaldina (MI), Italy (historical roots in Castellanza VA).",
-     "sources": ["https://www.hf-mixinggroup.com", "https://federazionegommaplastica.it"],
-     "match": {"any": ["rescaldina", "bonvesin de la riva", "castellanza"]}, "closed_by": ["I10", "I20"]},
-    {"id": "ID-03", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "Share capital EUR 100,000.00 fully paid up.",
-     "sources": ["https://ufficiocamerale.it/05699990965/pomini-rubber-plastics-srl"],
-     "match": {"any": ["100[.,]000", "capitale sociale.{0,20}100"]}, "closed_by": ["I10", "I20"]},
-    {"id": "ID-04", "category": "identity", "weight": 2, "grade": "B",
-     "claim": "Historic industrial heritage founded in 1886 by Luigi Pomini in Castellanza; corporate entity incorporated March 2007.",
-     "sources": ["https://www.hf-mixinggroup.com", "https://varesefocus.it"],
-     "match": {"any": ["1886", "luigi pomini", "fondata nel 1886"]}, "closed_by": ["I10"]},
-    {"id": "ID-05", "category": "identity", "weight": 1, "grade": "A",
-     "claim": "ATECO 28.96.00: Manufacture of machinery for plastics and rubber industries (internal mixers, calenders, continuous compounding systems).",
-     "sources": ["https://reportaziende.it/pomini_rubber_plastics_srl"],
-     "match": {"any": ["28\\.96", "materie plastiche e della gomma"]}, "closed_by": ["I20"]},
-
-    {"id": "CT-01", "category": "contact", "weight": 3, "grade": "B",
-     "claim": "Switchboard telephone: +39 0331 444111, Fax: +39 0331 444311.",
-     "sources": ["https://www.hf-mixinggroup.com", "https://amaplast.org"],
-     "match": {"any": ["0331 ?444111", "\\+39 ?0331 ?444111"]}, "closed_by": ["I10", "I14"]},
-    {"id": "CT-02", "category": "contact", "weight": 3, "grade": "B",
-     "claim": "Certified email (PEC) pomini-rp@certimprese.it.",
-     "sources": ["https://ufficiocamerale.it/05699990965/pomini-rubber-plastics-srl"],
-     "match": {"any": ["pomini-rp@certimprese\\.it", "pomini-rp"]}, "closed_by": ["I10", "I14", "I20"]},
-
-    {"id": "OW-01", "category": "ownership", "weight": 3, "grade": "A",
-     "claim": "100% owned subsidiary of Harburg-Freudenberger Maschinenbau GmbH (Hamburg/Freudenberg, Germany).",
-     "sources": ["AIDA export held in the tool", "https://www.hf-mixinggroup.com"],
-     "match": {"any": ["harburg-freudenberger", "hf mixing group", "hf group"]}, "closed_by": ["I12"]},
-    {"id": "OW-02", "category": "ownership", "weight": 3, "grade": "A",
-     "claim": "Ultimate parent group is L. Possehl & Co. mit beschränkter Haftung / Possehl-Stiftung (Lübeck, Germany).",
-     "sources": ["AIDA export held in the tool", "https://www.possehl.de"],
-     "match": {"any": ["possehl", "possehl-stiftung"]}, "closed_by": ["I12"]},
-    {"id": "OW-03", "category": "ownership", "weight": 2, "grade": "B",
-     "claim": "Operates within HF Mixing Group alongside sister brands Farrel (USA/UK) and Harburg-Freudenberger (Germany).",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["hf mixing group", "farrel"]}, "closed_by": ["I12", "I13"]},
-    {"id": "OW-04", "category": "ownership", "weight": 3, "grade": "D",
-     "claim": "Targeting note: Controlled subsidiary of a German foundation/group, not an Italian family-run company; capital decisions sit in Lübeck/Hamburg.",
-     "sources": ["AIDA export held in the tool"],
-     "match": {"any": ["controlled subsidiary", "subsidiary of", "gruppo tedesco"]}, "closed_by": ["I12", "I42"]},
-
-    {"id": "EV-01", "category": "events", "weight": 2, "grade": "B",
-     "claim": "1886 founding in Castellanza as a pioneering heavy mechanical machinery manufacturer.",
-     "sources": ["https://varesefocus.it"],
-     "match": {"any": ["1886", "castellanza"]}, "closed_by": ["I10", "I13"]},
-    {"id": "EV-02", "category": "events", "weight": 2, "grade": "B",
-     "claim": "2007 acquisition by Harburg-Freudenberger forming the basis of the modern polymer mixing group.",
-     "sources": ["https://polimerica.it", "https://www.hf-mixinggroup.com"],
-     "match": {"any": ["2007", "harburg-freudenberger"]}, "closed_by": ["I10", "I13"]},
-    {"id": "EV-03", "category": "events", "weight": 2, "grade": "C",
-     "claim": "Creation of HF Mixing Group uniting Pomini, Farrel, and Harburg-Freudenberger.",
-     "sources": ["https://polimerica.it"],
-     "match": {"any": ["hf mixing group", "farrel-pomini"]}, "closed_by": ["I13"]},
-
-    {"id": "FI-01", "category": "financials", "weight": 2, "grade": "A",
-     "claim": "Latest AIDA accounts: revenue EUR 34.3M (34,300k EUR), EBIT EUR 5.19M, 69 employees.",
-     "sources": ["AIDA export held in the tool"],
-     "match": {"any": ["34,300k", "34\\.300\\.348", "69 employees"]}, "closed_by": []},
-    {"id": "FI-02", "category": "financials", "weight": 2, "grade": "A",
-     "claim": "Strong profitability with EBIT exceeding EUR 5.1M and net margin around 15%.",
-     "sources": ["AIDA export held in the tool"],
-     "match": {"any": ["5,194k", "5\\.194\\.449"]}, "closed_by": ["I20"]},
-
-    {"id": "PE-01", "category": "people", "weight": 2, "grade": "C",
-     "claim": "Corporate governance appointed by parent company HF Group / Possehl executive directors.",
-     "sources": ["AIDA export held in the tool"],
-     "match": {"any": ["consiglio di amministrazione", "amministratore delegato"]}, "closed_by": ["I14"]},
-    {"id": "PE-02", "category": "people", "weight": 2, "grade": "C",
-     "claim": "Italian operating team centered in Rescaldina managing R&D, mechanical design, and assembly testing.",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["rescaldina", "ingegneria", "mixing specialists"]}, "closed_by": ["I14"]},
-
-    {"id": "PR-01", "category": "products", "weight": 3, "grade": "B",
-     "claim": "VIC (Variable Intermeshing Clearance) internal mixers for high-performance tire and technical rubber compounding.",
-     "sources": ["https://www.hf-mixinggroup.com/products/internal-mixers/vic/"],
-     "match": {"any": ["vic", "variable intermeshing clearance"]}, "closed_by": ["I10"]},
-    {"id": "PR-02", "category": "products", "weight": 3, "grade": "B",
-     "claim": "LCM (Long Continuous Mixer) systems for continuous masterbatch and rubber mixing.",
-     "sources": ["https://www.hf-mixinggroup.com/products/continuous-mixers/lcm/"],
-     "match": {"any": ["lcm", "continuous mixer", "long continuous mixer"]}, "closed_by": ["I10"]},
-    {"id": "PR-03", "category": "products", "weight": 2, "grade": "B",
-     "claim": "Intermix and tangential internal mixers (Intermix E-Series) for rubber and thermoplastic elastomers.",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["intermix", "internal mixer", "mescolatori interni"]}, "closed_by": ["I10"]},
-    {"id": "PR-04", "category": "products", "weight": 2, "grade": "B",
-     "claim": "Industrial calenders, mixing mills, and extrusion systems for polymer processing.",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["calenders", "calandre", "estrusori"]}, "closed_by": ["I10"]},
-
-    {"id": "CE-01", "category": "certifications", "weight": 2, "grade": "B",
-     "claim": "Quality management system certified according to ISO 9001.",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["iso 9001", "qualit"]}, "closed_by": ["I10", "I15"]},
-    {"id": "CE-02", "category": "certifications", "weight": 2, "grade": "B",
-     "claim": "Environmental and safety standards aligned with ISO 14001 and ISO 45001 across HF Group production facilities.",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["iso 14001", "iso 45001"]}, "closed_by": ["I10", "I15"]},
-
-    {"id": "LO-01", "category": "locations", "weight": 2, "grade": "B",
-     "claim": "HQ and production facility at Via Bonvesin de la Riva 43, 20027 Rescaldina (Milano).",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["via bonvesin de la riva 43", "rescaldina"]}, "closed_by": ["I10"]},
-    {"id": "LO-02", "category": "locations", "weight": 2, "grade": "C",
-     "claim": "Historical site in Castellanza (VA); separate from Tenova Pomini (heavy roll grinders division).",
-     "sources": ["https://prealpina.it"],
-     "match": {"any": ["castellanza"]}, "closed_by": ["I10"]},
-
-    {"id": "NW-01", "category": "networks", "weight": 2, "grade": "B",
-     "claim": "Member of AMAPLAST (Italian Plastics and Rubber Processing Machinery and Molds Manufacturers Association).",
-     "sources": ["https://amaplast.org"],
-     "match": {"any": ["amaplast"]}, "closed_by": ["I16"]},
-    {"id": "NW-02", "category": "networks", "weight": 2, "grade": "B",
-     "claim": "Member of Federazione Gomma Plastica.",
-     "sources": ["https://federazionegommaplastica.it"],
-     "match": {"any": ["federazione gomma plastica"]}, "closed_by": ["I16"]},
-    {"id": "NW-03", "category": "networks", "weight": 2, "grade": "B",
-     "claim": "Regular exhibitor at K-Trade Fair (Düsseldorf), Tire Technology Expo (Hannover), and Plast (Milano).",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["k trade fair", "tire technology expo", "plast milano"]}, "closed_by": ["I16"]},
-
-    {"id": "DG-01", "category": "digital", "weight": 3, "grade": "D",
-     "claim": "Website URL was missing (NULL) in the database; actual websites are hf-mixinggroup.com and pominirp.com.",
-     "sources": ["https://www.hf-mixinggroup.com", "https://pominirp.com"],
-     "match": {"any": ["hf-mixinggroup\\.com", "pominirp\\.com"]}, "closed_by": ["I05", "I10", "I18"]},
-
-    {"id": "DC-01", "category": "documents", "weight": 1, "grade": "B",
-     "claim": "Publishes technical brochures detailing VIC mixers, continuous mixers, and technical data sheets.",
-     "sources": ["https://www.hf-mixinggroup.com"],
-     "match": {"any": ["brochure", "datasheet", "technical data"]}, "closed_by": ["I11"]}
+    {
+      "id": "ID-01",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Legal name POMINI RUBBER & PLASTICS S.R.L. (short form Pomini R&P S.r.l.), Partita IVA 05699990965.",
+      "sources": [
+        "https://atoka.io/public/it/azienda/pomini-rubber-plastics-srl-o-in-forma-abbreviata-pomini-rp-srl/cfcb0640446d",
+        "AIDA export held in the tool"
+      ],
+      "quote": "Sede legale: Via Bonvesin De La Riva, 43, 20027, Rescaldina (MI) P.IVA: 05699990965",
+      "match": {
+        "any": [
+          "05699990965"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-02",
+      "category": "identity",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Registered office and plant: Via Bonvesin de la Riva 43, 20027 Rescaldina (MI), Italy (listed as 'POMINI Rubber & Plastics srl, Italien' among the group sites).",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/standorte/",
+        "https://atoka.io/public/it/azienda/pomini-rubber-plastics-srl-o-in-forma-abbreviata-pomini-rp-srl/cfcb0640446d"
+      ],
+      "quote": "POMINI Rubber & Plastics srl Italien Via Bonvesin de la Riva 43 20027 Rescaldina (Milano) Italy",
+      "match": {
+        "any": [
+          "bonvesin de la riva"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-03",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Share capital EUR 100,000 (Atoka: 'capitale sociale 100.0 K euro').",
+      "sources": [
+        "https://atoka.io/public/it/azienda/pomini-rubber-plastics-srl-o-in-forma-abbreviata-pomini-rp-srl/cfcb0640446d"
+      ],
+      "quote": "La dotazione di capitale sociale è pari a 100.0 K €",
+      "match": {
+        "any": [
+          "capitale sociale\\D{0,40}100[.,]0\\s?k",
+          "share capital\\D{0,40}(eur|€)?\\s?100[.,]000\\b"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-04",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Incorporated 29 March 2007 as a S.r.l. (AIDA); status active.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "2007-03-29T00:00:00",
+      "match": {
+        "any": [
+          "2007-03-29"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-05",
+      "category": "identity",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Historic brand: the Pomini machine-building business was founded in 1886 by Luigi Pomini in Castellanza (Italy), starting with overhauling knitting and cotton-spinning machinery.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/historie/"
+      ],
+      "quote": "Das von Luigi Pomini 1886 in Castellanza/Italien gegründete Maschinenbauunternehmen",
+      "match": {
+        "any": [
+          "luigi pomini",
+          "1886.{0,60}castellanza",
+          "castellanza.{0,60}1886"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I13"
+      ]
+    },
+    {
+      "id": "ID-06",
+      "category": "identity",
+      "weight": 1,
+      "grade": "A",
+      "claim": "ATECO 28.96.00, manufacture of machinery for the plastics and rubber industry (incl. parts and accessories).",
+      "sources": [
+        "https://atoka.io/public/it/azienda/pomini-rubber-plastics-srl-o-in-forma-abbreviata-pomini-rp-srl/cfcb0640446d",
+        "AIDA export held in the tool"
+      ],
+      "quote": "28.96.00 : Fabbricazione di macchine per l'industria delle materie plastiche e della gomma",
+      "match": {
+        "any": [
+          "28\\.96\\.00",
+          "\\b289600\\b"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "ID-07",
+      "category": "identity",
+      "weight": 3,
+      "grade": "C",
+      "claim": "NAME COLLISION (T20): 'Pomini Long Rolling Mills S.r.l.' (Legnano, new assembly centre in Rescaldina opened 2024, rolling-mill technology) and 'Tenova Pomini' (roll grinders) are different companies; neither belongs to the rubber and plastics mixer maker. The tool must not attribute their news, sites or figures to Pomini Rubber & Plastics.",
+      "sources": [
+        "https://www.legnanonews.com/aree-geografiche/alto_milanese/2024/06/26/un-nuovo-centro-di-assemblaggio-a-rescaldina-per-la-pomini-long-rolling-mills/1221063/?output=pdf"
+      ],
+      "quote": "Un nuovo centro di assemblaggio a Rescaldina per la Pomini Long Rolling Mills",
+      "match": {
+        "any": [
+          "pomini long rolling mills.{0,200}(different|separate|distinct|homonym|collision|not the same|other company)",
+          "(different|separate|distinct|homonym|collision|not the same|other company).{0,200}pomini long rolling mills",
+          "name[ _-]collision.{0,120}pomini"
+        ]
+      },
+      "closed_by": [
+        "I06",
+        "I20"
+      ]
+    },
+    {
+      "id": "CT-01",
+      "category": "contact",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Switchboard +39 0331 743-111, fax +39 0331 743-204 (HF Mixing Group 'Standorte' page; an earlier draft of this file gave 0331 444111, which no opened source confirms).",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/standorte/"
+      ],
+      "quote": "Tel.: +39 0331 743-111 Fax: +39 0331 743-204",
+      "match": {
+        "any": [
+          "0331\\D{0,3}743\\D{0,3}111"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I14"
+      ]
+    },
+    {
+      "id": "CT-02",
+      "category": "contact",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Published general e-mail of the Italian entity: info.pomini-rp@hf-mixinggroup.com.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/standorte/"
+      ],
+      "quote": "Fax: +39 0331 743-204 info.pomini-rp@hf-mixinggroup.com",
+      "match": {
+        "any": [
+          "info\\.pomini-rp@hf-mixinggroup\\.com"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I14"
+      ]
+    },
+    {
+      "id": "CT-03",
+      "category": "contact",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Group 24-hour service hotline outside the Americas: 00800-HFMIXING (00800-43649464) or +49-2734-491-300, support@hf-mixinggroup.com.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/service/24-stunden-hotline/"
+      ],
+      "quote": "00800-HFMIXING (00800-43649464) oder +49-2734-491-300 support@hf-mixinggroup.com",
+      "match": {
+        "any": [
+          "00800\\D{0,2}43649464",
+          "2734\\D{0,3}491\\D{0,3}300"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I14"
+      ]
+    },
+    {
+      "id": "OW-01",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "A",
+      "claim": "100% of the share capital is held directly by Harburg-Freudenberger Maschinenbau GmbH (Germany) (AIDA).",
+      "sources": [
+        "AIDA export held in the tool",
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/historie/"
+      ],
+      "quote": [
+        "{'name': 'HARBURG-FREUDENBERGER MASCHINENBAU GMBH', 'type': 'Società', 'country': 'DE', 'direct': 100.0, 'total': 100.0}",
+        "2007 Pomini Rubber & Plastics Srl wird von der Harburg-Freudenberger Maschinenbau GmbH übernommen"
+      ],
+      "match": {
+        "any": [
+          "harburg-freudenberger maschinenbau"
+        ]
+      },
+      "closed_by": [
+        "I12"
+      ]
+    },
+    {
+      "id": "OW-02",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "A",
+      "claim": "Control chain above HF: L. Possehl & Co. mbH (level 2) and the Possehl-Stiftung foundation (level 3) (AIDA); HF's own history says Possehl bought it 100% in spring 2005.",
+      "sources": [
+        "AIDA export held in the tool",
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/historie/"
+      ],
+      "quote": [
+        "{'name': 'POSSEHL-STIFTUNG', 'type': 'Fondazioni/Istituti di Ricerca', 'level': '3'}",
+        "Im Frühjahr 2005 erwarb die L. Possehl & Co. mbH das Unternehmen zu 100 Prozent von ThyssenKrupp Technologies"
+      ],
+      "match": {
+        "any": [
+          "possehl-stiftung",
+          "l\\. possehl & co"
+        ]
+      },
+      "closed_by": [
+        "I12"
+      ]
+    },
+    {
+      "id": "OW-03",
+      "category": "ownership",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Operates inside HF Mixing Group (since 2010; the group site now trades as HF GROUP) next to the sister brands Harburg-Freudenberger and Farrel Pomini (Ansonia, USA), which calls HF GROUP its parent.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/historie/",
+        "https://rubberworld.com/farrel-pomini-highlights-sustainability-at-k-2025/"
+      ],
+      "quote": [
+        "HF Mixing Group Harburg-Freudenberger Farrel Pomini",
+        "FARREL POMINI® will exhibit at K 2025 alongside its parent company, HF GROUP"
+      ],
+      "match": {
+        "any": [
+          "farrel pomini.{0,120}parent company.{0,40}hf group",
+          "hf mixing group harburg-freudenberger farrel pomini"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I13"
+      ]
+    },
+    {
+      "id": "OW-04",
+      "category": "ownership",
+      "weight": 3,
+      "grade": "D",
+      "claim": "Targeting consequence: Pomini R&P is a 100% controlled subsidiary of a German foundation group (BvD independence class D, no family share, 100% foreign-owned); decisions sit in Germany. The tool must flag this; today it only lists shareholders.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "bvd_independence_class\": \"D",
+        "derived_foreign_ownership_share\": 100.0"
+      ],
+      "match": {
+        "any": [
+          "controlled[ _-]subsidiary",
+          "group[ _-]controlled",
+          "foreign[ _-]controlled",
+          "subsidiary of[^.]{0,60}(harburg|possehl|hf group)"
+        ]
+      },
+      "closed_by": [
+        "I12",
+        "I42"
+      ]
+    },
+    {
+      "id": "EV-01",
+      "category": "events",
+      "weight": 2,
+      "grade": "B",
+      "claim": "1988: Pomini became a subsidiary of the Techint group (Italian-Argentine), before the German takeover.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/historie/"
+      ],
+      "quote": "1988 Pomini wird Tochtergesellschaft von TECHINT",
+      "match": {
+        "any": [
+          "techint"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-02",
+      "category": "events",
+      "weight": 2,
+      "grade": "B",
+      "claim": "January 2007: the mixer business of Pomini was taken over by Harburg-Freudenberger Maschinenbau GmbH (new S.r.l. incorporated March 2007).",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/historie/",
+        "https://european-rubber-journal.com/article/2082763/website"
+      ],
+      "quote": [
+        "2007 Pomini Rubber & Plastics Srl wird von der Harburg-Freudenberger Maschinenbau GmbH übernommen",
+        "taken over the mixer manufacturer division of the Italian company Pomini already in January 2007"
+      ],
+      "match": {
+        "any": [
+          "2007.{0,60}pomini.{0,80}harburg",
+          "pomini.{0,100}(taken over|acquired|übernommen|acquisit).{0,100}2007",
+          "taken over.{0,80}pomini.{0,80}2007"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-03",
+      "category": "events",
+      "weight": 2,
+      "grade": "B",
+      "claim": "2010: Harburg-Freudenberger, Farrel and Pomini Rubber & Plastics were merged into HF MIXING GROUP.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/historie/"
+      ],
+      "quote": "2010 Zusammenführung der Unternehmen Harburg-Freudenberger, Farrel und Pomini Rubber & Plastics zur HF MIXING GROUP",
+      "match": {
+        "any": [
+          "2010.{0,40}farrel und pomini",
+          "2010.{0,60}farrel.{0,30}pomini.{0,40}hf mixing group"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "EV-04",
+      "category": "events",
+      "weight": 1,
+      "grade": "C",
+      "claim": "December 2008: HF (a Possehl subsidiary) announced the acquisition of Farrel Corp (US), the sister brand that became Farrel Pomini.",
+      "sources": [
+        "https://european-rubber-journal.com/article/2082763/website"
+      ],
+      "quote": "Harburg-Freudenberger Maschinenbau GmbH (HF), subsidiary of the Possehl Group, has acquired Farrel Corp US",
+      "match": {
+        "any": [
+          "harburg-freudenberger.{0,120}acquired farrel",
+          "hf.{0,60}(acquired|acquisition of) farrel corp"
+        ]
+      },
+      "closed_by": [
+        "I13"
+      ]
+    },
+    {
+      "id": "FI-01",
+      "category": "financials",
+      "weight": 2,
+      "grade": "A",
+      "claim": "Latest accounts (AIDA): revenue about EUR 34.3M, EBIT about EUR 5.19M, 69 employees.",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "revenue_latest\": 34300.348",
+        "ebit_latest\": 5194.449",
+        "employees_latest\": 69"
+      ],
+      "match": {
+        "any": [
+          "34,300k",
+          "34300\\.348",
+          "69 employees"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "FI-02",
+      "category": "financials",
+      "weight": 2,
+      "grade": "A",
+      "claim": "EBIT margin about 15.1% (AIDA derived), i.e. strongly profitable (an earlier draft called it a net margin, which AIDA does not give here).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": "derived_ebit_margin\": 15.144",
+      "match": {
+        "any": [
+          "15\\.144",
+          "ebit margin\\D{0,20}15[.,]1"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "FI-03",
+      "category": "financials",
+      "weight": 1,
+      "grade": "C",
+      "claim": "Public revenue history 2019-2024 (Top Aziende): 42.0, 29.3, 20.9, 31.9, 40.6, 42.1 M EUR. It does not equal AIDA's 'latest' 34.3M (Atoka shows 35.0M, -16.8%, data year 2025): sources differ by reporting year, so a dossier must show the year.",
+      "sources": [
+        "https://topaziende.quotidiano.net/?p=158964"
+      ],
+      "quote": "2019 42.013.865 2020 29.323.987 2021 20.885.999 2022 31.889.765 2023 40.623.319 2024 42.124.760",
+      "match": {
+        "any": [
+          "42[.,]013[.,]865",
+          "42[.,]124[.,]760"
+        ]
+      },
+      "closed_by": [
+        "I20"
+      ]
+    },
+    {
+      "id": "PE-01",
+      "category": "people",
+      "weight": 2,
+      "grade": "A",
+      "claim": "Registry board: Dr. Holger Rudzio is chairman of the board of directors; Daniele Tessarolo is director and managing director (amministratore delegato).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Dr. Holger Rudzio",
+        "PRESIDENTE CONSIGLIO AMMINISTRAZIONE",
+        "Daniele Tessarolo",
+        "AMMINISTRATORE DELEGATO"
+      ],
+      "match": {
+        "any": [
+          "\\brudzio\\b",
+          "\\btessarolo\\b"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "PE-02",
+      "category": "people",
+      "weight": 1,
+      "grade": "A",
+      "claim": "Statutory auditors board chaired by Luca Simone Fontanesi; external auditor BDO Italia S.p.A. (AIDA).",
+      "sources": [
+        "AIDA export held in the tool"
+      ],
+      "quote": [
+        "Luca Simone Fontanesi",
+        "PRESIDENTE DEL COLLEGIO SINDACALE",
+        "BDO Italia"
+      ],
+      "match": {
+        "any": [
+          "\\bfontanesi\\b",
+          "bdo italia"
+        ]
+      },
+      "closed_by": []
+    },
+    {
+      "id": "PR-01",
+      "category": "products",
+      "weight": 3,
+      "grade": "B",
+      "claim": "Intermix VIC series: internal mixers with stepless (variable) rotor-gap adjustment, for tyre and technical rubber goods.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/produkte/mischer/intermix-vic-baureihe/"
+      ],
+      "quote": [
+        "Der Spezialist für stufenlose Spalteinstellung",
+        "Intermix ® VIC ist idealer Partner der Reifen- und Technische Gummiwaren-Industrie"
+      ],
+      "match": {
+        "any": [
+          "intermix\\W{0,4}vic",
+          "stufenlose spalteinstellung",
+          "variable intermeshing clearance"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-02",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Intermix E series: interlocking-rotor internal mixers for homogeneous dispersion in technical rubber goods and tyres.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/produkte/mischer/intermix-e-baureihe/"
+      ],
+      "quote": "Intermix ® E gewährleistet homogene Verteilung und hohen Dispersionsgrad der Mischung",
+      "match": {
+        "any": [
+          "intermix\\W{0,4}e\\W{1,4}(series|serie|baureihe)",
+          "intermix\\W{0,4}e gew[aä]hrleistet"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-03",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Internal-mixer range on the group site: Banbury, Intermix E, Intermix VIC, Tandem, universal mixers UMIX and Tecnolab laboratory mixers.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/produkte/mischer/banbury-baureihe/"
+      ],
+      "quote": "Mischer Banbury Baureihe Intermix E Baureihe Intermix VIC Baureihe Tandem Mischer Universalmischer UMIX Tecnolab Labormischer",
+      "match": {
+        "any": [
+          "banbury\\W{0,4}(baureihe|series|mixers?|mischer)",
+          "tecnolab\\W{1,4}(labormischer|laboratory)"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-04",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "UMIX universal mixers and kneaders (product line bought from Coperion), with maintenance and modernisation packages that also cover Werner & Pfleiderer, Coperion and Homrich machines.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/produkte/mischer/universalmischer-umix/"
+      ],
+      "quote": "von der Coperion GmbH den Produktzweig Universal- Misch- und Knetmaschinen",
+      "match": {
+        "any": [
+          "\\bumix\\b.{0,200}(coperion|kneader|knetmaschinen)",
+          "(coperion|knetmaschinen).{0,200}\\bumix\\b"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-05",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Discharge and downstream equipment: Convex discharge units, Sindex, Millmix and Tecnolab mixing mills, Filtex; cutting equipment Balecut and Stripcut.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/produkte/mischer/banbury-baureihe/"
+      ],
+      "quote": "Convex Baureihe Sindex Millmix Tecnolab Mischwalzwerke Filtex",
+      "match": {
+        "any": [
+          "\\bbalecut\\b",
+          "\\bstripcut\\b",
+          "\\bmillmix\\b",
+          "\\bsindex\\b"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "PR-06",
+      "category": "products",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Continuous mixers are part of the group range (Farrel Pomini compounding systems): the current site has a products/continuous-mixers section.",
+      "sources": [
+        "https://www.hf-group.com/sitemap.xml"
+      ],
+      "quote": "https://www.hf-group.com/en/products/continuous-mixers",
+      "match": {
+        "any": [
+          "\\bcontinuous mixers?\\b"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "CE-01",
+      "category": "certifications",
+      "weight": 2,
+      "grade": "B",
+      "claim": "The group downloads page lists certificates DIN EN ISO 9001, ISO 14001 and ISO 45001, issued to Harburg-Freudenberger (the German entity). No certificate naming Pomini Rubber & Plastics S.r.l. was found, so do not assume the Italian site holds them.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/mediaportal/downloads/"
+      ],
+      "quote": "Zertifikat Harburg-Freudenberger DIN EN ISO 9001 Zertifikat Harburg-Freudenberger DIN EN ISO 14001 Zertifikat Harburg-Freudenberger DIN EN ISO 45001",
+      "match": {
+        "any": [
+          "harburg-freudenberger.{0,40}(din )?en iso (9001|14001|45001)"
+        ]
+      },
+      "closed_by": [
+        "I11",
+        "I15"
+      ]
+    },
+    {
+      "id": "LO-01",
+      "category": "locations",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Sister sites on the same group page: Farrel Corporation (Ansonia, CT, USA), Farrel Ltd. (Rochdale, UK) and HF Rubber Machinery (USA); the Italian S.r.l. is the group's only Italian mixer site.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/standorte/"
+      ],
+      "quote": "Farrel Corporation USA 1 Farrel Boulevard Ansonia, CT 06401 USA",
+      "match": {
+        "any": [
+          "ansonia",
+          "rochdale"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "NW-01",
+      "category": "networks",
+      "weight": 2,
+      "grade": "B",
+      "claim": "HF Mixing Group is a partner of Blue Competence, the VDMA sustainability initiative for mechanical engineering.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/gruppe/netzwerk/"
+      ],
+      "quote": "Wir sind Partner der Nachhaltigkeitsinitiative Blue Competence",
+      "match": {
+        "any": [
+          "blue competence"
+        ]
+      },
+      "closed_by": [
+        "I16"
+      ]
+    },
+    {
+      "id": "NW-02",
+      "category": "networks",
+      "weight": 2,
+      "grade": "B",
+      "claim": "Trade fair: Farrel Pomini exhibits at K 2025 (Duesseldorf) with HF GROUP, Hall 9, Stand A16.",
+      "sources": [
+        "https://rubberworld.com/farrel-pomini-highlights-sustainability-at-k-2025/"
+      ],
+      "quote": "FARREL POMINI® will exhibit at K 2025 alongside its parent company, HF GROUP, in Hall 9, Stand A16",
+      "match": {
+        "any": [
+          "k 2025.{0,120}hall 9",
+          "hall 9.{0,30}stand a16"
+        ]
+      },
+      "closed_by": [
+        "I16"
+      ]
+    },
+    {
+      "id": "DG-01",
+      "category": "digital",
+      "weight": 3,
+      "grade": "D",
+      "claim": "Website discovery: the database has no website_url. The brand domain hf-mixinggroup.com redirects (HTTP, checked 2026-10-27) to www.hf-group.com ('HF GROUP'); the earlier draft's pominirp.com does not resolve in DNS. The Italian entity has no site of its own that was found.",
+      "sources": [
+        "https://www.hf-group.com/"
+      ],
+      "quote": "HF GROUP",
+      "match": {
+        "any": [
+          "hf-group\\.com",
+          "hf-mixinggroup\\.com"
+        ]
+      },
+      "closed_by": [
+        "I05",
+        "I10",
+        "I18"
+      ]
+    },
+    {
+      "id": "DG-02",
+      "category": "digital",
+      "weight": 2,
+      "grade": "B",
+      "claim": "hf-group.com is a client-rendered single-page app: the server answers every path, even a nonsense one, with the same 10,808-byte shell; content comes from a headless CMS CDN (cdn.hf-group.com) with a Cookiebot consent banner. A plain fetch sees no product text, so page reading needs rendering or the sitemap.",
+      "sources": [
+        "https://www.hf-group.com/"
+      ],
+      "quote": [
+        "cdn.hf-group.com",
+        "consent.cookiebot.com"
+      ],
+      "match": {
+        "any": [
+          "cdn\\.hf-group\\.com",
+          "cookiebot"
+        ]
+      },
+      "closed_by": [
+        "I10",
+        "I18"
+      ]
+    },
+    {
+      "id": "DG-03",
+      "category": "digital",
+      "weight": 1,
+      "grade": "B",
+      "claim": "Careers: the group site navigation lists vacancies in Germany (DE) and the USA only; no Italian vacancy list is offered.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/service/24-stunden-hotline/"
+      ],
+      "quote": "Stellenangebote in DE Stellenangebote in USA",
+      "match": {
+        "any": [
+          "stellenangebote in de.{0,20}stellenangebote in usa"
+        ]
+      },
+      "closed_by": [
+        "I10"
+      ]
+    },
+    {
+      "id": "DC-01",
+      "category": "documents",
+      "weight": 1,
+      "grade": "B",
+      "claim": "The group downloads page offers brand and segment brochures (HF MIXING GROUP 'Pure Passion', Technical Center, segment brochures tyres / technical rubber / special applications, system brochure mixing-room) and certificates.",
+      "sources": [
+        "https://web.archive.org/web/20241222235507/https://www.hf-mixinggroup.com/mediaportal/downloads/"
+      ],
+      "quote": "Markenbroschüre HF MIXING GROUP - Pure Passion HF MIXING GROUP - Technical Center Segmentbroschüren Segmentbroschüre Reifen",
+      "match": {
+        "any": [
+          "pure passion",
+          "segmentbrosch[uü]re"
+        ]
+      },
+      "closed_by": [
+        "I11"
+      ]
+    }
+  ],
+  "not_found": [
+    {
+      "looked_for": "Operating management of the Italian entity (sales, R&D or plant managers) beyond the registry board",
+      "where": "HF site pages opened (standorte, historie, hotline, downloads), AIDA roster",
+      "result": "not found: no named Italian operating manager is published on any opened page"
+    },
+    {
+      "looked_for": "Certified e-mail (PEC) address",
+      "where": "Atoka, HF location page",
+      "result": "not found on an opened page; an earlier draft cited pomini-rp@certimprese.it from a registry URL that returns 404, so it is not asserted"
+    },
+    {
+      "looked_for": "Italian trade association memberships (AMAPLAST, Federazione Gomma Plastica)",
+      "where": "HF netzwerk page, K 2025 article",
+      "result": "not found: the group page names only Blue Competence (VDMA); the earlier draft's AMAPLAST claim could not be confirmed"
+    },
+    {
+      "looked_for": "Named customers or reference installations of the Italian site",
+      "where": "HF application pages (tyres)",
+      "result": "not found: no customer is named on the opened pages"
+    },
+    {
+      "looked_for": "Certificates issued to Pomini Rubber & Plastics S.r.l. itself",
+      "where": "HF downloads page",
+      "result": "not found: only Harburg-Freudenberger certificates are listed"
+    },
+    {
+      "looked_for": "A dedicated website for the Italian entity",
+      "where": "DNS and HTTP checks of pominirp.com and www.pominirp.com",
+      "result": "not found: both names fail to resolve; the group site hf-group.com covers it"
+    },
+    {
+      "looked_for": "Current deep product pages with readable text on hf-group.com",
+      "where": "plain fetch of /products/internal-mixers/vic/",
+      "result": "not readable: the SPA shell is returned for any path, so product facts were verified on archived copies of the previous static site (web.archive.org captures of hf-mixinggroup.com, Dec 2024 to Jan 2025)"
+    }
   ]
 }

@@ -236,10 +236,13 @@ def _compound_entity_hits(page_text: str, brand: str, full_brand: str = "",
     """Occurrences of the brand inside a LARGER compound proper name (another entity embedding it).
     A compound is '{Capitalized} {brand}' or '{brand} {Capitalized}' where the neighbouring token is
     capitalised in the original text (a proper-name token, not an ordinary sentence word:
-    'BRAND manufactures' is not an entity, 'Othercorp BRAND' is)."""
+    'BRAND manufactures' is not an entity, 'Othercorp BRAND' is). The two tokens must sit on the SAME
+    line with no sentence boundary between them (ticket I100): extracted text puts the headline on
+    its own line, so 'Orion\nMeccanica' is headline-then-body, not the entity 'Orion Meccanica'."""
     hits: List[str] = []
     word = r"([A-Za-z][a-zA-Z0-9&\-]+)"
-    for m in re.finditer(r"(?<![A-Za-z0-9])(" + word + r"\s+" + re.escape(brand) + r")(?![a-z0-9])", page_text, re.I):
+    gap = r"[^\S\n]+"    # horizontal whitespace only: a compound never crosses a line break or a sentence end
+    for m in re.finditer(r"(?<![A-Za-z0-9])(" + word + gap + re.escape(brand) + r")(?![a-z0-9])", page_text, re.I):
         prefix = m.group(2)
         if prefix.lower() in _CAP_STOPWORDS or len(prefix) <= 1:
             continue
@@ -250,7 +253,7 @@ def _compound_entity_hits(page_text: str, brand: str, full_brand: str = "",
         if any(m.group(1).lower().endswith(p) for p in (known_people or [])):
             continue    # a compound ending with a known person's name is the person, not an entity
         hits.append(m.group(1))
-    for m in re.finditer(r"(?<![A-Za-z0-9])(" + re.escape(brand) + r"\s+" + word + r")(?![a-z0-9])", page_text, re.I):
+    for m in re.finditer(r"(?<![A-Za-z0-9])(" + re.escape(brand) + gap + word + r")(?![a-z0-9])", page_text, re.I):
         suffix = m.group(2)
         if suffix.lower() in _CAP_STOPWORDS or len(suffix) <= 1:
             continue
