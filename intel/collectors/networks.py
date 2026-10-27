@@ -60,7 +60,7 @@ MAX_GROUP_SITES = 2               # one company rarely has more than one or two 
 
 
 def _brand_tokens(legal_name: str) -> List[str]:
-    """Short name tokens the company is announced by (ASCO FILTRI S.p.A. -> ['asco filtri', 'asco'])."""
+    """Short name tokens the company is announced by (the cleaned full name plus its first word)."""
     cleaned = re.sub(r"\b(s\.?p\.?a\.?|s\.?r\.?l\.?|s\.?a\.?s\.?|s\.?n\.?c\.?|gmbh|in breve|"
                      r"o in forma abbreviata)\b", " ", (legal_name or ""), flags=re.I)
     cleaned = re.sub(r"[^A-Za-z0-9À-ž' ]+", " ", cleaned)

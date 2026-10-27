@@ -65,7 +65,7 @@ OWN_SITE_NEWS = (
     "10/01/2024 New certification achieved.\n"
 )
 GROUP_BLOG = (
-    "Mott-style group blog\n"
+    "Group blog\n"
     "FARMINGTON, CT [May, 2015] - The group in conjunction with Authorized Representative "
     "ACME Filtri S.r.l. (Italy) will feature products at this year's ACHEMA 2015 tradeshow "
     "in Frankfurt, Germany (June 15-17, 2015). The booth will be in Hall 5 Stand C18.\n"
