@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T10:47:18Z",
+  "updated_at": "2026-10-27T11:12:25Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -456,10 +456,10 @@
         "llm",
         "live_db_read"
       ],
-      "status": "CLAIMED",
+      "status": "DONE",
       "claimed_by": "antigravity-8c2f",
       "claimed_at": "2026-10-27T10:11:49Z",
-      "heartbeat_at": "2026-10-27T10:47:18Z",
+      "heartbeat_at": "2026-10-27T11:12:25Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
@@ -470,6 +470,12 @@
           "at": "2026-10-27T10:11:49Z",
           "by": "antigravity-8c2f",
           "event": "claim"
+        },
+        {
+          "at": "2026-10-27T11:12:25Z",
+          "by": "antigravity-8c2f",
+          "event": "done",
+          "note": "docs/intel/results/I14.md"
         }
       ],
       "golden": [
@@ -481,7 +487,9 @@
         "PE-04",
         "PE-05",
         "PE-07"
-      ]
+      ],
+      "done_at": "2026-10-27T11:12:25Z",
+      "result": "docs/intel/results/I14.md"
     },
     "I15": {
       "title": "Certification and compliance register lookups (Accredia, notified bodies, ASME, Achilles)",
