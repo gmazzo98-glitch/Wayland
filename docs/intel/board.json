@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T10:11:49Z",
+  "updated_at": "2026-10-27T11:25:18Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -412,15 +412,26 @@
         "web",
         "llm"
       ],
-      "status": "OPEN",
-      "claimed_by": null,
-      "claimed_at": null,
-      "heartbeat_at": null,
+      "status": "DONE",
+      "claimed_by": "antigravity-8c2f",
+      "claimed_at": "2026-10-27T11:13:24Z",
+      "heartbeat_at": "2026-10-27T11:25:18Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
           "by": "claude-code-founder",
           "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T11:13:24Z",
+          "by": "antigravity-8c2f",
+          "event": "claim"
+        },
+        {
+          "at": "2026-10-27T11:25:18Z",
+          "by": "antigravity-8c2f",
+          "event": "done",
+          "note": "docs/intel/results/I13.md"
         }
       ],
       "golden": [
@@ -434,7 +445,9 @@
         "PE-03",
         "PE-05",
         "PR-04"
-      ]
+      ],
+      "done_at": "2026-10-27T11:25:18Z",
+      "result": "docs/intel/results/I13.md"
     },
     "I14": {
       "title": "People and contact finder: who to call and the published ways to reach them",
@@ -456,10 +469,10 @@
         "llm",
         "live_db_read"
       ],
-      "status": "CLAIMED",
+      "status": "DONE",
       "claimed_by": "antigravity-8c2f",
       "claimed_at": "2026-10-27T10:11:49Z",
-      "heartbeat_at": "2026-10-27T10:11:49Z",
+      "heartbeat_at": "2026-10-27T11:12:25Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
@@ -470,6 +483,12 @@
           "at": "2026-10-27T10:11:49Z",
           "by": "antigravity-8c2f",
           "event": "claim"
+        },
+        {
+          "at": "2026-10-27T11:12:25Z",
+          "by": "antigravity-8c2f",
+          "event": "done",
+          "note": "docs/intel/results/I14.md"
         }
       ],
       "golden": [
@@ -481,7 +500,9 @@
         "PE-04",
         "PE-05",
         "PE-07"
-      ]
+      ],
+      "done_at": "2026-10-27T11:12:25Z",
+      "result": "docs/intel/results/I14.md"
     },
     "I15": {
       "title": "Certification and compliance register lookups (Accredia, notified bodies, ASME, Achilles)",
