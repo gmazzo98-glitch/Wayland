@@ -31,7 +31,10 @@ def test_shipped_board_is_well_formed():
         assert tid.startswith("I") and tid[1:].isdigit(), tid
         assert t["status"] in ("OPEN", "CLAIMED", "DONE", "BLOCKED"), tid
         assert t["priority"] in ("P0", "P1", "P2", "P3") and t["size"] in ("S", "M", "L", "XL"), tid
-        assert f"docs/intel/results/{tid}.md" in t["files"], f"{tid} must declare its results note"
+        if "proposed_by" not in t or t["status"] == "DONE":
+            # seeded tickets, and any ticket once finished, must declare their own results note; a ticket an agent
+            # proposed with `add` is only structurally checked while it is in progress (the proposer is mid-work)
+            assert f"docs/intel/results/{tid}.md" in t["files"], f"{tid} must declare its results note"
         assert set(t["needs"]) <= NEEDS, (tid, set(t["needs"]) - NEEDS)
         for dep in t["depends_on"]:
             assert dep in tickets and dep != tid, (tid, dep)
@@ -64,7 +67,9 @@ def test_every_golden_fact_is_owned_by_a_real_ticket_and_listed_on_it():
 
 
 def test_the_roadmap_describes_every_ticket_and_the_prompt_names_the_protocol():
-    for tid in BOARD["tickets"]:
+    for tid, t in BOARD["tickets"].items():
+        if "proposed_by" in t and t["status"] != "DONE":
+            continue   # a proposed ticket must be described by the time it is DONE, not the moment it is added
         assert f"### {tid} " in ROADMAP, f"docs/INTEL_ROADMAP.md has no '### {tid} ' section"
     for must in ("scripts/intel_board.py", "preflight", "docs/INTEL_ROADMAP.md", "INTEL_AGENT", "intel_gap.py"):
         assert must in PROMPT, must
@@ -117,7 +122,16 @@ def remote_and_clone(tmp_path):
     _run(seed, "config", "user.email", "t@t")
     _run(seed, "config", "user.name", "t")
     (seed / "docs" / "intel").mkdir(parents=True)
-    board_doc = json.loads(json.dumps(BOARD))
+    # A synthetic board, NOT a copy of the shipped one: the shipped board changes every time an agent claims a
+    # ticket, and a test that claims "the real I12" fails whenever someone else already holds it.
+    def ticket(title, files):
+        return {"title": title, "wave": 1, "priority": "P0", "size": "M", "depends_on": [], "files": files, "needs": [],
+                "status": "OPEN", "claimed_by": None, "claimed_at": None, "heartbeat_at": None, "history": []}
+
+    board_doc = {"schema": 1, "program": "intel", "spec": "docs/INTEL_ROADMAP.md", "plan": "docs/INTEL_ROADMAP.md",
+                 "stale_after_hours": 8, "updated_at": "2026-10-27T09:00:00Z",
+                 "tickets": {"I77": ticket("Synthetic claim target", ["intel/zz_one.py", "docs/intel/results/I77.md"]),
+                             "I78": ticket("Synthetic second ticket", ["intel/zz_two.py", "docs/intel/results/I78.md"])}}
     (seed / "docs" / "intel" / "board.json").write_text(json.dumps(board_doc, indent=2) + "\n", encoding="utf-8")
     (seed / "README.md").write_text("x\n")
     _run(seed, "add", "-A")
@@ -132,11 +146,13 @@ def remote_and_clone(tmp_path):
 
 def test_claiming_through_the_shim_writes_only_the_intel_board(remote_and_clone, capsys):
     bare, clone = remote_and_clone
-    code = ib.main(["claim", "I12", "--agent", "claude-test", "--repo", str(clone)])
+    code = ib.main(["claim", "I77", "--agent", "claude-test", "--repo", str(clone)])
     assert code == 0
     shown = subprocess.run(["git", "show", "master:docs/intel/board.json"], cwd=bare, capture_output=True, text=True, check=True)
-    t = json.loads(shown.stdout)["tickets"]["I12"]
+    t = json.loads(shown.stdout)["tickets"]["I77"]
     assert t["status"] == "CLAIMED" and t["claimed_by"] == "claude-test"
-    assert "intel/I12-" in capsys.readouterr().out
-    # a second agent is refused the same ticket
-    assert ib.main(["claim", "I12", "--agent", "other-agent", "--repo", str(clone)]) != 0
+    assert "intel/I77-" in capsys.readouterr().out
+    # a second agent is refused the same ticket, and the diagnosis board path was never created
+    assert ib.main(["claim", "I77", "--agent", "other-agent", "--repo", str(clone)]) != 0
+    listing = subprocess.run(["git", "ls-tree", "-r", "--name-only", "master"], cwd=bare, capture_output=True, text=True, check=True)
+    assert "docs/diagnosis/board.json" not in listing.stdout.split()

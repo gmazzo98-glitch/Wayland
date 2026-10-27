@@ -86,7 +86,10 @@ THE RULES THAT MATTER MOST (full list: roadmap section 5)
   - Collectors write ledger facts only. No scores, no weights, no new signal_keys, no writes to company_people (management signals are
     computed from it), no changes to existing signal producers outside ticket I35. NEED and READINESS are never blended.
   - Do not game the benchmark: never hard-code the golden company, its VAT, its names or its pages in code or prompts. Your work is
-    judged on companies you have not seen.
+    judged on companies you have not seen. tests/test_intel_no_golden_leak.py scans intel/ for the golden companies' names, VAT numbers,
+    domains and owners and fails the suite: never add a line to its ALLOWED_UNTIL_FIXED baseline, and delete yours when your ticket
+    removes a hard-coded name. Review the done tickets you build on; if you find hard-coding or a test that only passes because of it,
+    that is a rework ticket (add it), not something to build on.
   - Multi-PC: crawlers run on helper computers that hold no database password. Everything a crawler needs arrives through its input
     file and allowlisted environment; a new variable must be added to ENV_ALLOWLIST in worker/worker.mjs; honour SOFT_DEADLINE_SECONDS;
     never assume Node, Playwright browsers or paths exist on the machine that runs it.
@@ -95,7 +98,8 @@ THE RULES THAT MATTER MOST (full list: roadmap section 5)
   - Git in a shared tree: your own worktree and branch, explicit paths when staging (never git add -A), no stash, no rebase, no force
     push. If you find uncommitted changes that are not yours, leave them alone.
   - Problems you find outside your scope become tickets: python scripts/intel_board.py add --title ... --files ... --why ...
-    never a silent fix. Decisions that are the user's (budget, LinkedIn, contact policy, score-moving fixes) are asked, not assumed.
+    never a silent fix. Declare the new ticket's own results note (docs/intel/results/<ITS OWN ID>.md) in --files, and describe it
+    under "### <ID> " in docs/INTEL_ROADMAP.md on your branch (the engine's own message names the diagnosis doc; ignore that). Decisions that are the user's (budget, LinkedIn, contact policy, score-moving fixes) are asked, not assumed.
   - Report faithfully: if a test fails, a source is blocked, a precision audit disappoints or a step was not verified, say so in the
     results note and the status line. A BLOCKED ticket with a clear reason is a good outcome; a fabricated success is not.
 

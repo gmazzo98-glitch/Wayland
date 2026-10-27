@@ -4,7 +4,7 @@
   "spec": "docs/INTEL_ROADMAP.md",
   "plan": "docs/INTEL_ROADMAP.md",
   "stale_after_hours": 8,
-  "updated_at": "2026-10-27T14:22:58Z",
+  "updated_at": "2026-10-27T14:41:37Z",
   "tickets": {
     "I01": {
       "title": "Golden benchmark and gap scorer (ASCO Filtri)",
@@ -298,7 +298,7 @@
       "status": "CLAIMED",
       "claimed_by": "antigravity-7a4c",
       "claimed_at": "2026-10-27T14:17:23Z",
-      "heartbeat_at": "2026-10-27T14:17:23Z",
+      "heartbeat_at": "2026-10-27T14:26:59Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
@@ -343,15 +343,20 @@
         "web",
         "llm"
       ],
-      "status": "OPEN",
-      "claimed_by": null,
-      "claimed_at": null,
-      "heartbeat_at": null,
+      "status": "CLAIMED",
+      "claimed_by": "zai-a3f7",
+      "claimed_at": "2026-10-27T14:23:50Z",
+      "heartbeat_at": "2026-10-27T14:28:59Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
           "by": "claude-code-founder",
           "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T14:23:50Z",
+          "by": "zai-a3f7",
+          "event": "claim"
         }
       ],
       "golden": [
@@ -384,7 +389,7 @@
       "status": "CLAIMED",
       "claimed_by": "vibe-c727",
       "claimed_at": "2026-10-27T14:22:58Z",
-      "heartbeat_at": "2026-10-27T14:22:58Z",
+      "heartbeat_at": "2026-10-27T14:37:42Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
@@ -530,15 +535,20 @@
       "needs": [
         "web"
       ],
-      "status": "OPEN",
-      "claimed_by": null,
-      "claimed_at": null,
-      "heartbeat_at": null,
+      "status": "CLAIMED",
+      "claimed_by": "vibe-a3f7",
+      "claimed_at": "2026-10-27T14:23:39Z",
+      "heartbeat_at": "2026-10-27T14:29:21Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
           "by": "claude-code-founder",
           "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T14:23:39Z",
+          "by": "vibe-a3f7",
+          "event": "claim"
         }
       ],
       "golden": [
@@ -564,15 +574,20 @@
         "web",
         "llm"
       ],
-      "status": "OPEN",
-      "claimed_by": null,
-      "claimed_at": null,
-      "heartbeat_at": null,
+      "status": "CLAIMED",
+      "claimed_by": "vibe-a17f",
+      "claimed_at": "2026-10-27T14:24:09Z",
+      "heartbeat_at": "2026-10-27T14:41:37Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
           "by": "claude-code-founder",
           "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T14:24:09Z",
+          "by": "vibe-a17f",
+          "event": "claim"
         }
       ],
       "golden": [
@@ -627,15 +642,20 @@
       "needs": [
         "web"
       ],
-      "status": "OPEN",
-      "claimed_by": null,
-      "claimed_at": null,
-      "heartbeat_at": null,
+      "status": "CLAIMED",
+      "claimed_by": "claude-0625",
+      "claimed_at": "2026-10-27T14:25:31Z",
+      "heartbeat_at": "2026-10-27T14:25:31Z",
       "history": [
         {
           "at": "2026-10-27T09:00:00Z",
           "by": "claude-code-founder",
           "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T14:25:31Z",
+          "by": "claude-0625",
+          "event": "claim"
         }
       ],
       "golden": [
@@ -1234,6 +1254,145 @@
         {
           "at": "2026-10-27T09:00:00Z",
           "by": "claude-code-founder",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I93": {
+      "title": "Verification gate v2: generic name-collision detection (remove per-company rules) and a harder unseen-company benchmark",
+      "wave": 1,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "I06"
+      ],
+      "files": [
+        "intel/verify.py",
+        "tests/test_intel_verify.py",
+        "docs/intel/results/I93.md"
+      ],
+      "needs": [
+        "web",
+        "llm"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "proposed_by": "claude-f41b",
+      "why": "Found while re-checking I06 (claude-f41b, 2026-10-27). intel/verify.py KNOWN_COLLISION_RULES (lines 155-214) is a per-brand table keyed on asco, emmegi, pomini, corrada: the golden company and the I03 dev/hold-out companies, with exception patterns holding the golden company's real owners (mott, idex, binasco). It is the only collision detector (single call site, line 387), so it breaks roadmap rule 'never hard-code the golden company, its names or pages' and contaminates the Pomini and Emmegi hold-outs. It does not generalise: probe with the same namesake shape (page 'Emerson {BRAND} solenoid valves ... distributor in Milano', company city Milano) gives ASCO rejected/collision, but an unseen brand (ZETA FILTRI) verified=True with no collision. The 24-case benchmark (precision 1.0) does not show generalisation: TN01-TN05 pages contain no discriminator, so the generic no-discriminator rule rejects them even without the table; no case has a namesake page that also mentions the company's city or a known person. Do: replace the table with generic detection from the page and search results themselves (roadmap I06: second entity with the same brand token but a different legal form, city, domain or group name; page about a larger/different entity that only incidentally mentions the discriminator; brand token that is a common surname or common word; page host belongs to another company); keep any lexical hints in a config file as data with NO company names; rebuild the benchmark with at least 20 hard negatives on companies not named in the code, including namesake pages that contain one discriminator, and report precision and recall on a split the author did not tune on. Accept: grep of intel/ for asco|emmegi|pomini|corrada|mott|idex finds no rule; precision >= 0.95 on the new hard set; the old 24 cases still pass.",
+      "history": [
+        {
+          "at": "2026-10-27T14:25:45Z",
+          "by": "claude-f41b",
+          "event": "proposed"
+        }
+      ]
+    },
+    "I94": {
+      "title": "Repair the I03 golden set: loose patterns inflate the baseline, unverifiable and non-existent sources, no not-found lists",
+      "wave": 0,
+      "priority": "P0",
+      "size": "L",
+      "depends_on": [
+        "I03"
+      ],
+      "files": [
+        "docs/intel/golden/*.json",
+        "docs/intel/golden/README.md",
+        "docs/intel/results/I46.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read"
+      ],
+      "status": "CLAIMED",
+      "claimed_by": "claude-e9be",
+      "claimed_at": "2026-10-27T14:27:08Z",
+      "heartbeat_at": "2026-10-27T14:40:41Z",
+      "proposed_by": "claude-e9be",
+      "why": "Independent audit of I03 (claude-e9be, 2026-10-27): (1) patterns like 'vic', 'qualit', '2007', 'brochure', 'subsidiary of' are trivially true: DB baseline holds false captures (Pomini PR-01 via the signal key cost_services_k, EV-02 via a bare year); (2) cited sources include a non-existent domain (pominirp.com does not resolve) and deep URLs that an SPA answers for any path; (3) the ticket asked to record what was looked for and not found, none of the six files has it; (4) I03 was claimed and done in 25 minutes for six companies.",
+      "history": [
+        {
+          "at": "2026-10-27T14:26:43Z",
+          "by": "claude-e9be",
+          "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T14:27:08Z",
+          "by": "claude-e9be",
+          "event": "claim"
+        }
+      ]
+    },
+    "I95": {
+      "title": "I14 rework: people and contacts collectors hard-code the golden company's source pages; discover by search and verify generically",
+      "wave": 1,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "I05",
+        "I06"
+      ],
+      "files": [
+        "intel/people.py",
+        "intel/collectors/people.py",
+        "intel/collectors/contacts.py",
+        "tests/test_intel_people.py",
+        "scripts/intel_run.py",
+        "docs/intel/results/I14_rework.md"
+      ],
+      "needs": [
+        "web",
+        "live_db_read"
+      ],
+      "status": "CLAIMED",
+      "claimed_by": "claude-61ea",
+      "claimed_at": "2026-10-27T14:29:10Z",
+      "heartbeat_at": "2026-10-27T14:32:21Z",
+      "proposed_by": "claude-61ea",
+      "why": "I14 was checked in DONE with 8/8 golden facts, but intel/collectors/people.py _harvest_press_and_deals() has a known_reference_urls list of six pages that are identical to the golden file's sources for PE-02, PE-03, PE-04, PE-05, PE-07 and EV-03 (PR Newswire Mott/ASCO, two BeBeez deal pages, mottcorp.com, ZoneBourse MARCO-ROSMI, MarketScreener ENNIO-MICHELINI) plus path tokens asco-filtri/red-fish/mott; intel/people.py also has an ascoinfo mailbox prefix and a mott|idex role regex. That breaks roadmap rule 6 (do not game the benchmark), so the I14 golden score is not evidence the collector works on unseen companies. Also found: it never uses ctx.search (I05) or intel.verify (I06, a name-only entity check lets same-brand firms through); a parent-company CEO is stored under people.managing_director; an audit firm is stored as people.board_member; the registry roster read swallows all errors; scripts/intel_run.py gives collectors no search client. Rework: remove all company-specific data, discover pages with the I05 query pack and verify with I06, fix the misclassifications, wire search into intel_run.py (additive), re-score honestly.",
+      "history": [
+        {
+          "at": "2026-10-27T14:28:44Z",
+          "by": "claude-61ea",
+          "event": "proposed"
+        },
+        {
+          "at": "2026-10-27T14:29:10Z",
+          "by": "claude-61ea",
+          "event": "claim"
+        }
+      ]
+    },
+    "I96": {
+      "title": "I13 rework: events collector emits canned ASCO deal events and hard-codes the golden company's pages",
+      "wave": 1,
+      "priority": "P0",
+      "size": "M",
+      "depends_on": [
+        "I05",
+        "I06"
+      ],
+      "files": [
+        "intel/events.py",
+        "intel/collectors/events.py",
+        "tests/test_intel_events.py",
+        "docs/intel/results/I13_rework.md"
+      ],
+      "needs": [
+        "web"
+      ],
+      "status": "OPEN",
+      "claimed_by": null,
+      "claimed_at": null,
+      "heartbeat_at": null,
+      "proposed_by": "claude-61ea",
+      "why": "Found while reviewing I14 (see I95). intel/collectors/events.py: known_sources (lines ~246-258) lists six pages that are the golden file's sources (PR Newswire Mott/ASCO, two BeBeez deal pages, two mottcorp.com pages, MarketScreener ENNIO-MICHELINI) and fires when the legal name contains asco; path filter uses literal tokens asco-filtri, red-fish, mott; when a fetched page merely contains red-fish or mott it appends fully pre-written CorporateEvent objects (title '2019: Red-Fish Kapital acquires ASCO Filtri in PE club deal', date 2019-07, parties and named managers, amount 'EUR 19.9M revenue (FY2018)', a Mott 2022-01-13 event with a pre-written conflict note) instead of reading them from the page; the fallback quotes at ~281 and ~325 are literal ASCO headlines; parties 'IDEX Corporation', 'ASCORP Energies India Pvt Ltd (Pune)', 'Asco Filtration Trading Ltd (Abu Dhabi)' are keyed on words in the description (~182-187); intel/events.py line ~136 deal_tokens set holds mott, red-fish, idex, ascorp, binasco, emerson. This breaks roadmap rules 2 (evidence) and 6 (do not game the benchmark): the I13 golden score (OW-02, OW-04, OW-05, EV-01..03, PE-02, PE-03, PE-05, PR-04) and the combined 21/42 web-only figure in the status file do not show that the collector works on any other company. Rework: remove every company-specific URL, token and canned event; discover pages with the I05 query pack; build each event only from sentences found in the fetched text (quote_in_text, I06 verify); re-score honestly and correct the status-file line.",
+      "history": [
+        {
+          "at": "2026-10-27T14:30:23Z",
+          "by": "claude-61ea",
           "event": "proposed"
         }
       ]
