@@ -8,7 +8,7 @@ import streamlit as st
 from aida_single_report import DATASET_NAME, import_report, parse_report, plan_import
 from aida_report_mapping import (
     DEFAULT_PROFILE, PROFILE_PREFIX, NEW_INDICATOR, load_report_profile,
-    report_sources, report_targets, suggest_report_mapping,
+    expand_new_indicators, line_stem, report_sources, report_targets, suggest_report_mapping,
 )
 
 
@@ -75,8 +75,10 @@ def render_mapping_editor(db, report, prefix, initial_mapping=None, initial_prof
         st.session_state[f"{prefix}_mapping_context"] = signature
         st.session_state[state_key] = suggest_report_mapping(report, seed)
         st.session_state[f"{prefix}_new_labels"] = {}
+        st.session_state[f"{prefix}_whole_line"] = set()
     mapping = st.session_state[state_key]
     new_labels = st.session_state[f"{prefix}_new_labels"]
+    whole_line = st.session_state[f"{prefix}_whole_line"]
     target_labels = report_targets(db, report)
     sections = ["All sections"] + list(dict.fromkeys(s["section"] for s in sources.values()))
     section = st.selectbox("Report section", sections, key=f"{prefix}_section")
@@ -123,9 +125,20 @@ def render_mapping_editor(db, report, prefix, initial_mapping=None, initial_prof
                                   key=f"{prefix}_map_{signature}_{token}")
             mapping[sid] = picked or None
             if picked == NEW_INDICATOR:
-                new_labels[sid] = st.text_input("New indicator label", value=new_labels.get(sid, f"{src['label']} ({src['period'] or src['section']})"),
+                every = False
+                if src["period"]:
+                    every = st.checkbox("Create it for every period of this line (one indicator per year)", value=True,
+                                        key=f"{prefix}_all_{signature}_{token}")
+                    (whole_line.add if every else whole_line.discard)(sid)
+                new_labels[sid] = st.text_input("New indicator name" if every else "New indicator label",
+                                                value=new_labels.get(sid, src["label"] if every else f"{src['label']} ({src['period'] or src['section']})"),
                                                 key=f"{prefix}_new_{signature}_{token}")
-    return dict(mapping), dict(new_labels), profile_name.strip()
+                if every:
+                    others = [o["period"] for k, o in sources.items() if o.get("period") and line_stem(k) == line_stem(sid)
+                              and k != sid and not mapping.get(k)]
+                    st.caption(f"Also created for: {', '.join(others) or 'no other free period'}. Existing connections are kept.")
+    final_mapping, final_labels = expand_new_indicators(sources, mapping, new_labels, whole_line)
+    return final_mapping, final_labels, profile_name.strip()
 
 
 def render_connection_preview(plan):

@@ -219,3 +219,36 @@ def test_explicit_row_units_override_the_generic_table_currency(db):
     mapping[sid] = "variable:cash_latest"
     with pytest.raises(ValueError, match="monetary unit"):
         prepare_connections(db, report, mapping)
+
+
+def test_new_indicator_can_be_created_once_for_every_period_of_a_line():
+    import aida_report_mapping as m
+    from test_report_upload import report_file
+    report = parse_report(report_file(), "aida.xlsx")
+    sources = m.report_sources(report)
+    first = next(sid for sid, s in sources.items() if s["period"] == "latest" and s["label"] == "EBITDA")
+    mapping = {sid: None for sid in sources}
+    mapping[first] = m.NEW_INDICATOR
+    other = next(sid for sid in sources if m.line_stem(sid) == m.line_stem(first) and sources[sid]["period"] == "y-1")
+    mapping2 = dict(mapping)
+    mapping2[other] = "indicator:revenue_trend"  # an explicit choice must survive
+    expanded, labels = m.expand_new_indicators(sources, mapping2, {first: "EBITDA margin"}, {first})
+    periods = {sources[s]["period"] for s, t in expanded.items() if t == m.NEW_INDICATOR}
+    assert {"latest", "y-2"} <= periods and "y-1" not in periods
+    assert labels[first] == "EBITDA margin (latest)" and expanded[other] == "indicator:revenue_trend"
+    # Not ticked: only the chosen source is created.
+    single, _ = m.expand_new_indicators(sources, mapping, {first: "X"}, set())
+    assert [s for s, t in single.items() if t == m.NEW_INDICATOR] == [first]
+
+
+def test_whole_line_new_indicators_import_as_one_indicator_per_year(db):
+    import aida_report_mapping as m
+    report = parse_report(report_file(), "aida.xlsx")
+    sources = m.report_sources(report)
+    first = next(sid for sid, s in sources.items() if s["period"] == "latest" and s["label"] == "Dipendenti")
+    mapping = {sid: None for sid in sources}
+    mapping[first] = m.NEW_INDICATOR
+    mapping, labels = m.expand_new_indicators(sources, mapping, {first: "Headcount note"}, {first})
+    import_report(db, report, mapping=mapping, new_labels=labels)
+    keys = {s.signal_key for s in db.query(SignalRecord).filter_by(status="present")}
+    assert {"headcount_note_(latest)", "headcount_note_(y-1)", "headcount_note_(y-2)"} <= keys

@@ -69,6 +69,28 @@ def report_sources(report):
     return sources
 
 
+def line_stem(source_id):
+    """The source id without its period: all years of one report line share it."""
+    return re.sub(r"\|(?:latest|y-\d+)(?:\|\d\d-\d\d)?$", "", source_id)
+
+
+def expand_new_indicators(sources, mapping, new_labels, whole_line):
+    """Create-once for a whole line: every source in `whole_line` (ids marked "new indicator, all periods")
+    becomes one indicator per reporting period, labelled "<name> (<period>)". Periods the operator already
+    connected to something are left alone. Returns the expanded (mapping, new_labels)."""
+    mapping, new_labels = dict(mapping), dict(new_labels)
+    for sid in whole_line:
+        if mapping.get(sid) != NEW_INDICATOR or not sources[sid].get("period"):
+            continue
+        name = str(new_labels.get(sid, "")).strip()
+        stem = line_stem(sid)
+        for other, src in sources.items():
+            if src.get("period") and line_stem(other) == stem and (other == sid or not mapping.get(other)):
+                mapping[other] = NEW_INDICATOR
+                new_labels[other] = f"{name} ({src['period']})" if name else ""
+    return mapping, new_labels
+
+
 def suggest_report_mapping(report, profile=None):
     profile = profile or {}
     return {sid: (src["default"] if src.get("locked") else profile.get(sid, src["default"]))
