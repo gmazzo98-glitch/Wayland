@@ -288,19 +288,6 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
   - 2026-10-28: Corrective implementation now provides a dedicated report preview/import and preserves every source cell. Mondial source reconciled 3751/3751 cells in disposable SQLite; nine people/ten appointments and actual years verified. Existing production data remains uninspected/unmodified; retain this point for an audited repair if a bad import was confirmed.
   - 2026-10-28: Parser diagnosis: positional years ignored actual dates (2015 absent), duplicated financial aliases, full ATECO description used as code, people left inside a JSON string, no report preview. Dedicated import replacement is being built; no production rows have been inspected or changed in this session.
 
-### OP-019: Merge dated PDF financial statements with AIDA history and roll relative years
-* status: CHECKED_OUT
-* needs: agent work
-* owner: claude-code-bs01
-* checked_out_at: 2026-10-28T16:47:50Z
-* lease_until: 2026-10-30T16:47:50Z
-* blocked_by: none
-* context: Giorgio supplied Mondial Bony 2022-2025 PDFs after a 2024 AIDA import; docs/FINANCIAL_YEAR_ROLLOVER_PLAN.md. Current uploader accepts XLSX and derives relative periods within one report, without a cross-source annual ledger.
-* done_when: Reviewed PDF extraction preserves dated source evidence; per-company annual facts merge with unit conversion, comparative deduplication and conflict review; a 2025 import reanchors all consumers and connections so 2024 is Y-1 without inventing missing 2025 values; regression coverage includes out-of-order uploads and restatements.
-* notes:
-  - 2026-10-28: checked out by claude-code-bs01
-  - 2026-10-28: Read-only review confirms 2025 report covers 31 December 2025 with 2024 comparatives. No PDF importer, data migration or production write performed.
-
 ## D. Decisions log
 
 Only Giorgio's decisions. One line each: date, decision, who decided, quote or source.
@@ -331,3 +318,17 @@ Done points, with the commit hash of the work. Move the whole point here when it
   - 2026-10-26: 2026-10-26 cutover: Vercel agri-portal access granted; vienna-worker-shim DATABASE_URL updated from US to Frankfurt and production redeployed as dpl_2nnUVFVgJCKb2g6ED4zkycJQveFK (READY). Local .env DATABASE_URL also changed to Frankfurt. At 16:41 UTC, source worker heartbeat remained at 16:39:32 while destination advanced to 16:41:04; 21 table counts and content fingerprints match with volatile crawler_workers.last_seen_at excluded, 142018 rows. Main app hosting remains unconfirmed, so keep this point OPEN until its production database setting is checked.
   - 2026-10-26: Fresh source snapshot restored into Frankfurt after crawler queue drained. Exact counts and two content fingerprints match on all 21 tables except crawler_workers.last_seen_at, which continues to heartbeat on the US source; all other crawler_workers fields match. Final row count 142018. Vercel team connector still returns 403 pending in-browser grant, so worker/app connection cutover remains open.
   - 2026-10-26: 2026-10-26: Initial pg_dump/pg_restore succeeded into empty Frankfurt neondb. All 21 public tables and worker functions are present; schema exports match. Live crawler activity caused six tables to differ after the snapshot (company_source_runs, crawler_tasks, crawler_workers, raw_import_records, signal_records, source_health). Vercel agri-portal team access and main app host/write pause requested from Giorgio; no cutover yet.
+
+### OP-019: Merge dated PDF financial statements with AIDA history and roll relative years
+* status: DONE
+* needs: agent work
+* owner: none
+* checked_out_at: none
+* lease_until: none
+* blocked_by: none
+* context: Giorgio supplied Mondial Bony 2022-2025 PDFs after a 2024 AIDA import; docs/FINANCIAL_YEAR_ROLLOVER_PLAN.md. Current uploader accepts XLSX and derives relative periods within one report, without a cross-source annual ledger.
+* done_when: Reviewed PDF extraction preserves dated source evidence; per-company annual facts merge with unit conversion, comparative deduplication and conflict review; a 2025 import reanchors all consumers and connections so 2024 is Y-1 without inventing missing 2025 values; regression coverage includes out-of-order uploads and restatements.
+* notes:
+  - 2026-10-28: Implemented: PDF extraction, dated merge with AIDA, conflict review (balance sheet default), anchor rollover, tests. Not verified: live OCR/AI, hosted app, valuation after rollover. See docs/BALANCE_SHEET_UPLOAD.md. (commit 653d342)
+  - 2026-10-28: checked out by claude-code-bs01
+  - 2026-10-28: Read-only review confirms 2025 report covers 31 December 2025 with 2024 comparatives. No PDF importer, data migration or production write performed.
