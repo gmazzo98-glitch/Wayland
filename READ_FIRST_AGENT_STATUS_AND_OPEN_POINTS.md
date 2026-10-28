@@ -55,6 +55,7 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * AIDA delivery (2026-10-28): Giorgio requested committing and pushing the corrective uploader. This delivery includes the parser, report preview/import tab, dossier integration, tests and documentation; existing production rows remain untouched. A push does not by itself verify the hosted app's rollout.
 * AIDA editable mapping connections (2026-10-28, requested by Giorgio after the parity review): `aida_report_mapping.py` exposes every financial line/date and company/labelled fields as source values. Upload and saved-report views now offer the Flexible Data Import targets (company, canonical fact, direct indicator, new context indicator, ignore), reviewed calculation preview, and reusable profiles in `ColumnMappingProfile` under `aida-report::`. Source keys are independent of company, absolute fiscal year and physical row; source references retain file/sheet/cell/date/unit. Default connections cover known financial facts in the latest three years; older periods and unknown lines can be connected manually. Saved-report remapping clears disconnected source-owned signals, protects other sources and keeps people unchanged. New indicators/profile/data save transactionally, with zero-weight context indicators created only on confirmation. Verified on the actual Mondial workbook: all 3010 financial points connectable, 3751 source cells retained, manually connected ROA 159.87% traces to Page 1!Q94 (2024-12-31). Only disposable SQLite was used; no production-data changes. Upload-version history and inference of a full cost-analytics supplement remain outside this change.
 * AIDA connection verification (2026-10-28): 25 report and mapping tests pass in the final mandated full run: 1200 passed, 2 skipped, 2 existing failures (status-file OP ordering and stale worker bundle, OP-010). Tested existing and new indicators, reusable next-company/next-year profiles, saved-report editing, exact source references, ignored-field clearing, period validation, explicit units, read-only preview and rollback including new definitions/profiles. Committing and pushing this change per Giorgio's standing instruction; hosted rollout not independently verified.
+* PDF financial-year integration review (2026-10-28): inspected Mondial Bony 2022-2025 reports; the newest statement explicitly ends 2025-12-31 with 2024 comparatives. PDFs use EUR while AIDA uses thousand EUR, with some differences requiring reconciliation. Proposed dated annual facts and source-preserving merge, then company-wide relative-year rollover (2025 Latest, 2024 Y-1), including saved connections and downstream calculations; missing 2025 metrics must stay missing. Current XLSX importer does not provide PDF extraction or cross-source annual merging. Plan: `docs/FINANCIAL_YEAR_ROLLOVER_PLAN.md`; implementation gap: OP-019. Read-only local investigation; no production writes or importer changes.
 * Run tests: `python -m pytest tests --capture=no -q -p no:cacheprovider` (never bare `pytest`; `tests/conftest.py` forces a throwaway SQLite DB).
 * Regenerate the contract after editing the workbook or settings: `python scripts/build_indicator_contract.py` (`--check` to verify).
 * Bridge comparison (live engine vs new engine on one company; read-only, point `DATABASE_URL` at a throwaway or real DB deliberately):
@@ -282,6 +283,18 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * notes:
   - 2026-10-28: Corrective implementation now provides a dedicated report preview/import and preserves every source cell. Mondial source reconciled 3751/3751 cells in disposable SQLite; nine people/ten appointments and actual years verified. Existing production data remains uninspected/unmodified; retain this point for an audited repair if a bad import was confirmed.
   - 2026-10-28: Parser diagnosis: positional years ignored actual dates (2015 absent), duplicated financial aliases, full ATECO description used as code, people left inside a JSON string, no report preview. Dedicated import replacement is being built; no production rows have been inspected or changed in this session.
+
+### OP-019: Merge dated PDF financial statements with AIDA history and roll relative years
+* status: OPEN
+* needs: agent work
+* owner: none
+* checked_out_at: none
+* lease_until: none
+* blocked_by: none
+* context: Giorgio supplied Mondial Bony 2022-2025 PDFs after a 2024 AIDA import; docs/FINANCIAL_YEAR_ROLLOVER_PLAN.md. Current uploader accepts XLSX and derives relative periods within one report, without a cross-source annual ledger.
+* done_when: Reviewed PDF extraction preserves dated source evidence; per-company annual facts merge with unit conversion, comparative deduplication and conflict review; a 2025 import reanchors all consumers and connections so 2024 is Y-1 without inventing missing 2025 values; regression coverage includes out-of-order uploads and restatements.
+* notes:
+  - 2026-10-28: Read-only review confirms 2025 report covers 31 December 2025 with 2024 comparatives. No PDF importer, data migration or production write performed.
 
 ## D. Decisions log
 
