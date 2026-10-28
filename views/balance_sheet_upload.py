@@ -60,6 +60,10 @@ def _mapping_editor(db, statement, signature):
     context = f"{signature}|{profile_name}"
     if st.session_state.get("bs_context") != context:
         st.session_state.update(bs_context=context, bs_suggestions=bs.suggest_mapping(statement, profile), bs_version=0)
+    if not isinstance(st.session_state.get("bs_suggestions"), dict):
+        st.session_state["bs_suggestions"] = bs.suggest_mapping(statement, profile)
+    if not isinstance(st.session_state.get("bs_version"), int):
+        st.session_state["bs_version"] = 0
     suggestions = st.session_state["bs_suggestions"]
     labels = fl.targets(db)
     options = list(labels.values()) + [NEW_LABEL]
@@ -121,7 +125,7 @@ def render_upload(db):
     content = uploaded.getvalue()
     signature = hashlib.sha256(content).hexdigest()
     try:
-        if st.session_state.get("bs_signature") != signature:
+        if st.session_state.get("bs_signature") != signature or "bs_statement" not in st.session_state:
             with st.spinner("Reading the statements..."):
                 ocr = bs.vision_ocr if bs.llm_available("vision") else None
                 statement = bs.parse_statement(content, uploaded.name, ocr=ocr)

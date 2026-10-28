@@ -76,6 +76,12 @@ def render_mapping_editor(db, report, prefix, initial_mapping=None, initial_prof
         st.session_state[state_key] = suggest_report_mapping(report, seed)
         st.session_state[f"{prefix}_new_labels"] = {}
         st.session_state[f"{prefix}_whole_line"] = set()
+    if not isinstance(st.session_state.get(state_key), dict):
+        st.session_state[state_key] = suggest_report_mapping(report, seed)
+    if not isinstance(st.session_state.get(f"{prefix}_new_labels"), dict):
+        st.session_state[f"{prefix}_new_labels"] = {}
+    if not isinstance(st.session_state.get(f"{prefix}_whole_line"), set):
+        st.session_state[f"{prefix}_whole_line"] = set(st.session_state.get(f"{prefix}_whole_line") or [])
     mapping = st.session_state[state_key]
     new_labels = st.session_state[f"{prefix}_new_labels"]
     whole_line = st.session_state[f"{prefix}_whole_line"]
@@ -183,7 +189,7 @@ def render_upload(db):
         return
     signature = hashlib.sha256(uploaded.getvalue()).hexdigest()
     try:
-        if st.session_state.get("aida_single_signature") != signature:
+        if st.session_state.get("aida_single_signature") != signature or "aida_single_report" not in st.session_state:
             with st.spinner("Reading the company report..."):
                 report = parse_report(uploaded, uploaded.name)
             st.session_state["aida_single_report"] = report

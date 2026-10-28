@@ -252,3 +252,25 @@ def test_whole_line_new_indicators_import_as_one_indicator_per_year(db):
     import_report(db, report, mapping=mapping, new_labels=labels)
     keys = {s.signal_key for s in db.query(SignalRecord).filter_by(status="present")}
     assert {"headcount_note_(latest)", "headcount_note_(y-1)", "headcount_note_(y-2)"} <= keys
+
+
+def test_render_mapping_editor_survives_missing_whole_line_in_session_state(db):
+    import hashlib
+    report = parse_report(report_file(), "aida.xlsx")
+    target_labels = report_targets(db, report)
+    signature = hashlib.sha256(json.dumps([report["sha256"], "Standard AIDA company report", {}], sort_keys=True).encode()).hexdigest()[:16]
+    app = AppTest.from_string("""
+import streamlit as st
+from views.aida_single_report import render_mapping_editor
+render_mapping_editor(None, st.session_state['report'], 'aida_upload')
+""")
+    app.session_state["report"] = report
+    # Simulate an active session from before _whole_line was added
+    app.session_state["aida_upload_mapping_context"] = signature
+    app.session_state["aida_upload_mapping_state"] = suggest_report_mapping(report, {})
+    app.session_state["aida_upload_new_labels"] = {}
+    with patch("views.aida_single_report.load_report_profile", return_value={}), \
+         patch("company_service.list_mapping_profiles", return_value=[]), \
+         patch("views.aida_single_report.report_targets", return_value=target_labels):
+        app.run(timeout=30)
+    assert not app.exception
