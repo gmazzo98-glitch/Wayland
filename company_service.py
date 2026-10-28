@@ -954,15 +954,17 @@ def create_ad_hoc_indicator(db: Session, label: str, dataset_name: str = None, s
 
 def parse_uploaded_file(file_or_buffer, filename: str = None) -> pd.DataFrame:
     """
-    Reads an uploaded company dataset (.csv or .xlsx, one row per company)
-    into a DataFrame with normalized column headers — same lower/strip/
-    space-to-underscore normalization import_companies_from_csv already uses
-    (deliberately NOT touching hyphens: detect_column_groups' 'y-1'-style
-    suffix pattern depends on the hyphen surviving normalization).
+    Read tabular datasets with one record per row. AIDA company reports have
+    their own parser and upload flow; they must never become mapping columns.
     """
     name = (filename or getattr(file_or_buffer, "name", "") or "").lower()
     if name.endswith(".xlsx") or name.endswith(".xls"):
-        df = pd.read_excel(file_or_buffer)
+        with pd.ExcelFile(file_or_buffer) as workbook:
+            raw = pd.read_excel(workbook, header=None, dtype=object)
+            from aida_single_report import looks_like_aida_report
+            if looks_like_aida_report(raw):
+                raise ValueError('Use "AIDA single company report upload" for this report workbook.')
+            df = pd.read_excel(workbook)
     else:
         if hasattr(file_or_buffer, "read"):
             content = file_or_buffer.read()

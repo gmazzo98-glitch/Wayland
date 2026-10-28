@@ -1310,6 +1310,11 @@ def sec_data_trends(ctx: DossierContext) -> None:
         with st.expander("📈 Data Trends (from Raw Injected Data)", expanded=False):
             st.caption("Every multi-year figure exactly as uploaded — financial and non-financial, whether or not it was mapped to a scored indicator (financial values in thousands, **k**).")
             for rec in raw_records_for_trends:
+                if (rec.raw_row or {}).get("_aida_report"):
+                    from views.aida_single_report import render_financial_tables
+                    st.markdown(f"**{rec.dataset_name} — actual reporting dates**")
+                    render_financial_tables(rec.raw_row["_aida_report"])
+                    continue
                 trend_groups = _trend_groups_from_raw(rec.raw_row, rec.mapping_snapshot)
                 flat_fields = _single_point_fields_from_raw(rec.raw_row)
                 st.markdown(f"**{rec.dataset_name}**")
@@ -1544,6 +1549,10 @@ def sec_raw_data(ctx: DossierContext) -> None:
         updated_str = rec.updated_at.strftime("%Y-%m-%d %H:%M") if rec.updated_at else "—"
         header = f"{rec.dataset_name} — {rec.source_filename or 'filename not recorded'} · updated {updated_str}"
         with st.expander(header, expanded=False):
+            if (rec.raw_row or {}).get("_aida_report"):
+                from views.aida_single_report import render_report
+                render_report(rec.raw_row["_aida_report"], download_key=f"aida_saved_{rec.id}")
+                continue
             if is_crawler:
                 st.caption(
                     "Crawler capture — already interpreted into per-signal evidence directly (see the 🔍 "

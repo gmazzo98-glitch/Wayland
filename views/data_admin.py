@@ -776,10 +776,11 @@ def render_data_admin_page(db: Session):
     st.title("🛠️ Data Admin")
     st.caption("Add, import and remove companies and people. Reading a company happens in 🏢 Company Intelligence.")
 
-    tab_add, tab_import, tab_flex, tab_people, tab_flat_people, tab_manage = st.tabs([
+    tab_add, tab_import, tab_flex, tab_aida, tab_people, tab_flat_people, tab_manage = st.tabs([
         "➕ Add Single Company",
         "📁 Bulk CSV Import",
         "🔗 Flexible Data Import",
+        "AIDA single company report upload",
         "👥 Import People & Ownership",
         "🧑‍💼 Flexible People Import",
         "🗑️ Manage Companies",
@@ -790,6 +791,9 @@ def render_data_admin_page(db: Session):
         _render_bulk_csv_tab(db)
     with tab_flex:
         _render_flexible_import_tab(db)
+    with tab_aida:
+        from views.aida_single_report import render_upload
+        render_upload(db)
     with tab_people:
         _render_people_import_tab(db)
     with tab_flat_people:

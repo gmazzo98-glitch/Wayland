@@ -99,6 +99,13 @@ def _go_to_section(tab: str) -> None:
 def _load_shared(ctx: cd.DossierContext) -> dict:
     db, company = ctx.db, ctx.company
     aida = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=dd.AIDA_DATASET).first()
+    from aida_single_report import DATASET_NAME as REPORT_DATASET
+    single_report = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=REPORT_DATASET).first()
+    # Choose one complete source; never assemble different fiscal periods from
+    # unrelated uploads. Prefer the report on a tie as it was reviewed here.
+    if single_report and (not aida or str(single_report.raw_row.get("accounts_close", ""))[:10]
+                          >= str(aida.raw_row.get("accounts_close", ""))[:10]):
+        aida = single_report
     blob = aida.raw_row if aida else None
     fin = dd.financial_statement(blob)
     sig_map = {k: (s.numeric_value, s.status) for k, s in ctx.sig_dict.items()}

@@ -325,6 +325,7 @@ def test_data_admin_page_keeps_every_import_and_management_tab(tmp_path):
     app = AppTest.from_string(script, default_timeout=120).run()
     assert not app.exception, [e.value for e in app.exception]
     assert [t.label for t in app.tabs] == ["➕ Add Single Company", "📁 Bulk CSV Import", "🔗 Flexible Data Import",
+                                           "AIDA single company report upload",
                                            "👥 Import People & Ownership", "🧑‍💼 Flexible People Import", "🗑️ Manage Companies"]
 
 
