@@ -1550,8 +1550,9 @@ def sec_raw_data(ctx: DossierContext) -> None:
         header = f"{rec.dataset_name} — {rec.source_filename or 'filename not recorded'} · updated {updated_str}"
         with st.expander(header, expanded=False):
             if (rec.raw_row or {}).get("_aida_report"):
-                from views.aida_single_report import render_report
+                from views.aida_single_report import render_report, render_saved_mapping
                 render_report(rec.raw_row["_aida_report"], download_key=f"aida_saved_{rec.id}")
+                render_saved_mapping(db, rec)
                 continue
             if is_crawler:
                 st.caption(

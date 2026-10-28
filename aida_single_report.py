@@ -295,9 +295,11 @@ def signal_drafts(report):
     return derive_financial_signals(report["facts"])
 
 
-def plan_import(db, report):
+def plan_import(db, report, mapping=None, new_labels=None):
     """Read-only preview. Identity conflicts stop import instead of creating duplicates."""
     from models import Company, RawImportRecord, SignalRecord
+    from aida_report_mapping import prepare_connections
+    prepared = prepare_connections(db, report, mapping, new_labels)
     company = db.query(Company).filter_by(registration_number=report["company"]["registration_number"]).first()
     if company is None:
         names = db.query(Company).filter_by(legal_name=report["company"]["legal_name"]).all()
@@ -306,25 +308,35 @@ def plan_import(db, report):
     record = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=DATASET_NAME).first() if company else None
     signals = {s.signal_key: s for s in db.query(SignalRecord).filter_by(company_id=company.id).all()} if company else {}
     conflicts = []
-    for name, draft in signal_drafts(report).items():
+    for name, draft in prepared["drafts"].items():
         old = signals.get(name)
         if draft["status"] == "present" and old and old.source != DATASET_NAME and old.status != "not_yet_checked" and not old.is_simulated:
             conflicts.append(dict(signal=name, source=old.source, existing_value=old.numeric_value, report_value=draft["value"]))
     changes = [dict(field=k, existing=safe(getattr(company, k)) if company else None, report=v)
-               for k, v in report["company"].items() if v is not None and (company is None or safe(getattr(company, k)) != v)]
+               for k, v in prepared["company"].items() if v is not None and (company is None or safe(getattr(company, k)) != v)]
+    connections = [dict(indicator=name, value=d["value"], status=d["status"], basis=d["basis"],
+                        sources=d.get("raw_fields", [])) for name, d in prepared["drafts"].items()]
     return dict(company_id=company.id if company else None, action="Update existing company" if company else "Create company",
-                existing_report=record is not None, conflicts=conflicts, changes=changes)
+                existing_report=record is not None, conflicts=conflicts, changes=changes,
+                connections=connections, warnings=prepared["warnings"])
 
 
-def import_report(db, report, replace_report=False, replace_other_signals=False):
+def import_report(db, report, replace_report=False, replace_other_signals=False,
+                  mapping=None, profile_name=None, new_labels=None, remap_only=False):
     """One transaction for company, report, people, and source-backed signals."""
     from indicators import fetch_indicator_defs
+    from aida_report_mapping import prepare_connections, save_report_profile
+    from company_service import create_ad_hoc_indicator
     from models import Company, CompanyPerson, RawImportRecord, SignalRecord
-    plan = plan_import(db, report)
+    plan = plan_import(db, report, mapping, new_labels)
+    prepared = prepare_connections(db, report, mapping, new_labels)
     if plan["existing_report"] and not replace_report:
         raise ValueError("This company already has an AIDA report. Select replace to import again.")
     now = datetime.utcnow()
     try:
+        for sid, label in prepared["proposals"].items():
+            indicator = create_ad_hoc_indicator(db, label, dataset_name=DATASET_NAME, source_column=sid, commit=False)
+            prepared["mapping"][sid] = f"indicator:{indicator}"
         defs = fetch_indicator_defs(db)
         company = db.get(Company, plan["company_id"]) if plan["company_id"] else Company(
             legal_name=report["company"]["legal_name"], registration_number=report["company"]["registration_number"],
@@ -332,17 +344,27 @@ def import_report(db, report, replace_report=False, replace_other_signals=False)
         if company.country != "Italy":
             raise ValueError("The matched company's country is not Italy. Resolve its identity before importing.")
         db.add(company)
-        for field, value in report["company"].items():
+        for field, value in prepared["company"].items():
             if value is not None:
                 setattr(company, field, datetime.fromisoformat(value) if field == "incorporation_date" else value)
-        if company.headcount is not None:
+        if "headcount" in prepared["company"] and company.headcount is not None:
             company.headcount_source_tier = "T1"
             company.segment = "SME" if company.headcount < 250 else "Midcap"
         db.flush()
         existing = {s.signal_key: s for s in db.query(SignalRecord).filter_by(company_id=company.id).all()}
         updated, skipped = 0, []
-        from aida_import import FINANCIAL_SIGNAL_INPUT_FIELDS
-        for name, draft in signal_drafts(report).items():
+        # Ignoring or moving a connection clears only results owned by this
+        # dataset, including previously created custom indicators.
+        for name, sig in existing.items():
+            if sig.source != DATASET_NAME or name in prepared["drafts"]:
+                continue
+            sig.status, sig.numeric_value, sig.text_value = "not_yet_checked", None, None
+            sig.is_simulated, sig.fetched_at = False, now
+            sig.raw_payload_ref = json.dumps(dict(dataset=DATASET_NAME, source_file=report["filename"],
+                                                 basis="The reviewed report mapping no longer supplies this indicator.",
+                                                 source_columns=[], raw_fields=[]))
+            updated += 1
+        for name, draft in prepared["drafts"].items():
             if name not in defs:
                 continue
             old = existing.get(name)
@@ -355,9 +377,11 @@ def import_report(db, report, replace_report=False, replace_other_signals=False)
             sig = old or SignalRecord(company_id=company.id, signal_key=name)
             sig.source, sig.status, sig.numeric_value = DATASET_NAME, draft["status"], draft["value"]
             sig.text_value, sig.confidence, sig.is_simulated, sig.fetched_at = draft["text"], 1.0, False, now
-            fields = [p for k in FINANCIAL_SIGNAL_INPUT_FIELDS.get(name, ()) for p in report["lineage"].get(k, [])]
+            fields = draft.get("raw_fields", [])
             sig.raw_payload_ref = json.dumps(dict(dataset=DATASET_NAME, source_file=report["filename"], sha256=report["sha256"],
-                                                 basis=draft["basis"], evidence=dict(inputs=draft["inputs"], raw_fields=fields)), ensure_ascii=False)
+                                                 basis=draft["basis"], derived_automatically=draft.get("derived_automatically", False),
+                                                 source_columns=[f["column"] for f in fields], raw_fields=fields,
+                                                 evidence=dict(inputs=draft["inputs"], raw_fields=fields)), ensure_ascii=False)
             db.add(sig)
             updated += 1
         rec = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=DATASET_NAME).first()
@@ -365,18 +389,23 @@ def import_report(db, report, replace_report=False, replace_other_signals=False)
             rec = RawImportRecord(company_id=company.id, dataset_name=DATASET_NAME)
             db.add(rec)
         rec.source_filename, rec.source_row_index, rec.updated_at = report["filename"], 1, now
-        rec.raw_row = {**report["facts"], "_aida_report": report}
-        rec.mapping_snapshot = {k: f"variable:{k}" for k in report["lineage"]}
-        db.query(CompanyPerson).filter_by(company_id=company.id, dataset_name=DATASET_NAME).delete(synchronize_session=False)
-        for i, person in enumerate(report["people"]):
+        rec.raw_row = {**{sid: src["value"] for sid, src in prepared["sources"].items()},
+                       **prepared["facts"], "_aida_report": report, "_aida_mapping_profile": profile_name}
+        rec.mapping_snapshot = prepared["mapping"]
+        if profile_name:
+            save_report_profile(db, profile_name, prepared["mapping"])
+        if not remap_only:
+            db.query(CompanyPerson).filter_by(company_id=company.id, dataset_name=DATASET_NAME).delete(synchronize_session=False)
+        for i, person in enumerate(report["people"] if not remap_only else []):
             started = re.search(r"dal\s+(\d{2}/\d{2}/\d{4})", person["role"], re.I)
             db.add(CompanyPerson(company_id=company.id, dataset_name=DATASET_NAME, role_group="Flat Import", position_in_row=i,
                                  full_name=person["full_name"], role=person["role"], current_or_former="Current",
                                  appointment_date=datetime.strptime(started[1], "%d/%m/%Y") if started else None,
                                  raw_fields=person, updated_at=now))
         company.need_score, company.readiness_score, company.last_scored_at = None, None, None
+        company_id = company.id
         db.commit()
-        return dict(company_id=company.id, signals_updated=updated, signals_skipped=skipped, people=len(report["people"]))
+        return dict(company_id=company_id, signals_updated=updated, signals_skipped=skipped, people=len(report["people"]))
     except Exception:
         db.rollback()
         raise

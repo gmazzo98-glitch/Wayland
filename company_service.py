@@ -912,7 +912,8 @@ def infer_canonical_variable(column: str) -> Optional[str]:
     return f"{base}_{period}" if base else None
 
 
-def create_ad_hoc_indicator(db: Session, label: str, dataset_name: str = None, source_column: str = None) -> str:
+def create_ad_hoc_indicator(db: Session, label: str, dataset_name: str = None, source_column: str = None,
+                            commit: bool = True) -> str:
     """
     Creates a new context-axis, unscored (weight=0) IndicatorDefinition for a
     column the user chose to map as "genuinely new" rather than link to an
@@ -927,7 +928,8 @@ def create_ad_hoc_indicator(db: Session, label: str, dataset_name: str = None, s
     label with no context for where it came from.
 
     Returns the new indicator's key; no-ops (returns the existing key) if one
-    with that exact key already exists.
+    with that exact key already exists. With commit=False, flush only so the
+    report importer can save the indicator and all import data atomically.
     """
     key = _norm(label)[:100]
     if not key:
@@ -948,7 +950,10 @@ def create_ad_hoc_indicator(db: Session, label: str, dataset_name: str = None, s
         ),
         source_description=dataset_name,
     ))
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return key
 
 
