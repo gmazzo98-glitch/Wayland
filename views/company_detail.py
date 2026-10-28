@@ -1315,6 +1315,11 @@ def sec_data_trends(ctx: DossierContext) -> None:
                     st.markdown(f"**{rec.dataset_name} — actual reporting dates**")
                     render_financial_tables(rec.raw_row["_aida_report"])
                     continue
+                if rec.dataset_name.startswith("Balance Sheet PDF "):
+                    from views.balance_sheet_upload import render_saved_statement
+                    st.markdown(f"**{rec.dataset_name} — printed lines**")
+                    render_saved_statement(rec, scope="trend")
+                    continue
                 trend_groups = _trend_groups_from_raw(rec.raw_row, rec.mapping_snapshot)
                 flat_fields = _single_point_fields_from_raw(rec.raw_row)
                 st.markdown(f"**{rec.dataset_name}**")
@@ -1553,6 +1558,14 @@ def sec_raw_data(ctx: DossierContext) -> None:
                 from views.aida_single_report import render_report, render_saved_mapping
                 render_report(rec.raw_row["_aida_report"], download_key=f"aida_saved_{rec.id}")
                 render_saved_mapping(db, rec)
+                continue
+            if rec.dataset_name.startswith("Balance Sheet PDF "):
+                from views.balance_sheet_upload import render_saved_statement
+                render_saved_statement(rec, scope="raw")
+                continue
+            if rec.dataset_name == "Merged Annual Financials":
+                from views.balance_sheet_upload import render_merged_history
+                render_merged_history(db, company, rec, scope="raw")
                 continue
             if is_crawler:
                 st.caption(

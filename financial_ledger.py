@@ -13,7 +13,7 @@ from datetime import datetime
 from balance_sheet_pdf import DATASET_PREFIX, MONETARY_BASES, key
 
 LEDGER_DATASET = "Merged Annual Financials"
-LEDGER_SOURCE = "Merged annual financials"
+LEDGER_SOURCE = LEDGER_DATASET  # same name, so the signal audit finds the record that backs a signal
 PROFILE_PREFIX = "balance-sheet::"
 NEW_INDICATOR = "__new__"
 CALCULATION_PERIODS = ("latest", "y-1", "y-2")
@@ -402,3 +402,11 @@ def rebuild_company(db, company, now=None):
         return None
     merged = compute(db, company.id)
     return _write(db, company, merged, {}, now or datetime.utcnow())
+
+
+def apply_decisions(db, company, decisions):
+    """Operator's new choices on conflicting facts, applied to the stored history and the signals. Commits."""
+    merged = compute(db, company.id, None, decisions)
+    _write(db, company, merged, {}, datetime.utcnow())
+    db.commit()
+    return merged

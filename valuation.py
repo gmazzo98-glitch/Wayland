@@ -96,6 +96,7 @@ class Financials:
     dataset: str
     unit_eur: float
     series: Dict[str, List[Optional[float]]] = field(default_factory=dict)
+    fiscal_year: Optional[int] = None      # year of the "latest" column, when the row says which
 
     def val(self, name: str, i: int = 0) -> Optional[float]:
         s = self.series.get(name)
@@ -125,13 +126,22 @@ def extract_financials(raw_row: dict, dataset: str, unit_eur: float) -> Optional
                 break
     if "revenue" not in series:
         return None
-    return Financials(dataset=dataset, unit_eur=unit_eur, series=series)
+    year = _to_float(raw_row.get("derived_last_accounts_year"))
+    if year is None:
+        close = str(raw_row.get("accounts_close") or "")[:4]
+        year = float(close) if close.isdigit() else None
+    return Financials(dataset=dataset, unit_eur=unit_eur, series=series, fiscal_year=int(year) if year else None)
 
 
 def best_financials(candidates: List[Financials]) -> Optional[Financials]:
     """When a company has several imported datasets, the one with the most revenue+EBITDA years."""
     if not candidates:
         return None
+    # A dataset that reaches a later fiscal year (a newer statement, the merged history) beats an older one.
+    years = {f.fiscal_year for f in candidates if f.fiscal_year}
+    if len(years) > 1:
+        newest = max(years)
+        candidates = [f for f in candidates if f.fiscal_year == newest or not f.fiscal_year]
     return sorted(candidates, key=lambda f: (-f.completeness(), f.dataset))[0]
 
 

@@ -106,11 +106,17 @@ def _load_shared(ctx: cd.DossierContext) -> dict:
     if single_report and (not aida or str(single_report.raw_row.get("accounts_close", ""))[:10]
                           >= str(aida.raw_row.get("accounts_close", ""))[:10]):
         aida = single_report
-    # Statement history merged by fiscal year wins whenever it reaches at least as far as the chosen source.
+    ownership_blob = aida.raw_row if aida else None
+    # Statement history merged by fiscal year wins for the financials whenever it reaches at least as far as the
+    # chosen source; ownership and group data only exist in the AIDA blob, so they keep reading it.
     from financial_ledger import LEDGER_DATASET
+    from balance_sheet_pdf import DATASET_PREFIX
     merged = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=LEDGER_DATASET).first()
     if merged and (not aida or str(merged.raw_row.get("accounts_close", ""))[:10] >= str(aida.raw_row.get("accounts_close", ""))[:10]):
         aida = merged
+    statements = db.query(RawImportRecord).filter(RawImportRecord.company_id == company.id,
+                                                  RawImportRecord.dataset_name.like(DATASET_PREFIX + "%")
+                                                  ).order_by(RawImportRecord.dataset_name.desc()).all()
     blob = aida.raw_row if aida else None
     fin = dd.financial_statement(blob)
     sig_map = {k: (s.numeric_value, s.status) for k, s in ctx.sig_dict.items()}
@@ -121,7 +127,7 @@ def _load_shared(ctx: cd.DossierContext) -> dict:
         cost = ca.company_breakdown(db, company, frame)
     pains = company_service.get_company_pain_points(db, company)
     return {"blob": blob, "fin": fin, "flags": dd.flags(fin, sig_map), "cost": cost, "cost_frame": frame, "pains": pains,
-            "ownership": dd.ownership(blob)}
+            "ownership": dd.ownership(ownership_blob), "merged": merged, "statements": statements}
 
 
 # ------------------------------------------------------------------------------------------------------- header
@@ -271,13 +277,21 @@ def _fmt_table(lines, labels, fin, fmt="{:,.0f}"):
 
 def _render_statement(ctx: cd.DossierContext, shared: dict) -> None:
     fin = shared["fin"]
-    st.subheader("📑 Financial statement (AIDA, thousand EUR)")
+    merged = shared.get("merged")
+    is_merged = bool(merged) and shared["blob"] is merged.raw_row
+    st.subheader("📑 Financial statement (merged annual history, thousand EUR)" if is_merged
+                 else "📑 Financial statement (AIDA, thousand EUR)")
     if not fin or not fin["has_data"]:
         st.caption("No AIDA multi-year statement on file for this company.")
+        _render_statement_files(ctx, shared)
         return
     lab = fin["labels"]
-    st.caption("Three filed years straight from the AIDA export - nothing estimated. Ratios need both inputs, otherwise they are blank. "
-               "'Total liabilities' is AIDA's 'total debt' line (it includes trade payables).")
+    if is_merged:
+        from views.balance_sheet_upload import render_merged_summary
+        render_merged_summary(merged.raw_row)
+    else:
+        st.caption("Three filed years straight from the AIDA export - nothing estimated. Ratios need both inputs, otherwise they are blank. "
+                   "'Total liabilities' is AIDA's 'total debt' line (it includes trade payables).")
     st.markdown("**Income statement**")
     st.dataframe(_fmt_table(dd.INCOME_LINES, lab, fin), hide_index=True, use_container_width=True)
     st.markdown("**Balance sheet**")
@@ -310,6 +324,18 @@ def _render_statement(ctx: cd.DossierContext, shared: dict) -> None:
     fig.update_layout(template="plotly_dark", height=320, margin=dict(t=30, b=10), title="Margins & capitalisation (%)",
                       legend=dict(orientation="h", y=-0.2))
     g2.plotly_chart(fig, use_container_width=True, key="dos_fin_margin")
+    _render_statement_files(ctx, shared)
+
+
+def _render_statement_files(ctx: cd.DossierContext, shared: dict) -> None:
+    """Full merged history by year with its source, conflicts the operator can still change, and each uploaded statement."""
+    from views.balance_sheet_upload import render_merged_history, render_saved_statement
+    if shared.get("merged"):
+        with st.expander("🗂️ Full annual history, source of every figure, conflicts", expanded=False):
+            render_merged_history(ctx.db, ctx.company, shared["merged"], scope="dos")
+    for record in shared.get("statements") or []:
+        with st.expander(f"📄 Balance sheet {record.raw_row.get('period_end')} — {record.source_filename}", expanded=False):
+            render_saved_statement(record, scope="dos")
 
 
 def _tab_financials(ctx: cd.DossierContext, shared: dict) -> None:

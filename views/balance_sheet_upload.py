@@ -207,3 +207,94 @@ def render_upload(db):
             return
         st.success(f"Imported. Latest year is now FY{result['anchor']}; {result['signals_written']} indicators written, "
                    f"{result['signals_cleared']} withdrawn. The merged history is in Company Intelligence.")
+
+
+# ------------------------------------------------------------------------------ saved data (Company Intelligence)
+
+def _short(dataset):
+    return dataset.replace(fl.DATASET_PREFIX, "Balance sheet ")
+
+
+def _source_counts(raw):
+    """{year: {dataset: figures}} from the stored merged history."""
+    out = {}
+    for by_year in (raw.get("_series") or {}).values():
+        for year, entry in by_year.items():
+            counts = out.setdefault(int(year), {})
+            counts[entry["dataset"]] = counts.get(entry["dataset"], 0) + 1
+    return out
+
+
+def render_merged_summary(raw):
+    anchor = raw.get("derived_last_accounts_year")
+    counts = _source_counts(raw)
+    st.caption(f"Merged from every dated source: Latest = FY{anchor}, earlier years counted down from it. "
+               "Where sources disagree the balance sheet is used unless an operator chose otherwise (see the full history below).")
+    if counts:
+        st.caption("Figures per year come from: " + "; ".join(
+            f"FY{y}: " + ", ".join(f"{_short(d)} ({n})" for d, n in sorted(c.items())) for y, c in sorted(counts.items(), reverse=True)[:6]))
+    if raw.get("_missing_at_anchor"):
+        st.warning(f"Not reported for FY{anchor}: " + ", ".join(m.replace("_", " ") for m in raw["_missing_at_anchor"])
+                   + ". They stay empty for the latest year; older values are history only.")
+
+
+def render_merged_history(db, company, record, scope=""):
+    """Every year and fact of the merged history with its source, and the conflicts that can still be decided."""
+    from company_service import CANONICAL_SERIES_LABELS
+    raw = record.raw_row or {}
+    series = raw.get("_series") or {}
+    years = sorted({int(y) for by_year in series.values() for y in by_year}, reverse=True)
+    st.caption(f"Thousand EUR (ratios and headcount in their own units). Latest = FY{raw.get('derived_last_accounts_year')}. "
+               "Each cell names where the figure comes from.")
+    rows = []
+    for base, by_year in sorted(series.items()):
+        row = {"Fact": CANONICAL_SERIES_LABELS.get(base, base)}
+        for y in years:
+            entry = by_year.get(str(y))
+            row[f"FY{y}"] = "—" if entry is None else f"{entry['value']:,.1f} · {_short(entry['dataset'])}" + (" ✓" if entry.get("corroborated_by") else "")
+        rows.append(row)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.caption("✓ = confirmed by another source within rounding (AIDA prints whole thousands).")
+    merged = fl.compute(db, company.id)
+    if merged["conflicts"]:
+        st.markdown("**Data conflicts**")
+        st.caption("Same fact and year, different values. The balance sheet is the default; change a row and apply to keep the other value.")
+        decisions = {}
+        for conflict in merged["conflicts"]:
+            names = {o["dataset"]: f"{_short(o['dataset'])}: {o['value']:,.3f}" for o in conflict["options"]}
+            decisions[conflict["key"]] = st.selectbox(
+                f"{CANONICAL_SERIES_LABELS.get(conflict['base'], conflict['base'])} FY{conflict['year']}", list(names),
+                index=list(names).index(conflict["chosen"]), format_func=names.get, key=f"merged_conf_{scope}_{record.id}_{conflict['key']}")
+        changed = {k: v for k, v in decisions.items() if v != next(c["chosen"] for c in merged["conflicts"] if c["key"] == k)}
+        if st.button("Apply my choices", key=f"merged_apply_{scope}_{record.id}", disabled=not changed):
+            fl.apply_decisions(db, company, {**merged["decisions"], **decisions})
+            st.rerun()
+    else:
+        st.success("No conflicts between sources.")
+
+
+def render_saved_statement(record, scope=""):
+    """One uploaded balance sheet: arithmetic checks, every printed line with its page and connection."""
+    raw = record.raw_row or {}
+    statement = raw.get("_statement") or {}
+    if not statement:
+        st.caption("This record holds no parsed statement.")
+        return
+    mapping = record.mapping_snapshot or {}
+    st.caption(f"{statement.get('filename')} · statement date {statement.get('period_end')} · amounts in {raw.get('_unit')} · "
+               f"{len(statement.get('lines', []))} lines · {len(statement.get('pages', []))} pages")
+    for warning in statement.get("warnings", []):
+        st.warning(warning)
+    checks = statement.get("checks") or []
+    if checks:
+        st.caption("Arithmetic checks: " + ("all passed" if all(c["ok"] for c in checks) else "FAILED - " + "; ".join(c["name"] for c in checks if not c["ok"])))
+    for key_, title in STATEMENTS.items():
+        lines = [l for l in statement.get("lines", []) if l["statement"] == key_]
+        if lines:
+            st.markdown(f"**{title}**")
+            st.dataframe(pd.DataFrame([{"Page": l["page"], "Line": l["label"], **{d: _money(v) for d, v in l["values"].items()},
+                                        "Connected to": mapping.get(l["id"]) or ""} for l in lines]), hide_index=True, width="stretch")
+    import json
+    st.download_button("Download parsed statement (JSON)", json.dumps(statement, ensure_ascii=False, indent=2, default=str),
+                       file_name=f"balance_sheet_{statement.get('period_end')}.json", mime="application/json",
+                       key=f"bs_download_{scope}_{record.id}")

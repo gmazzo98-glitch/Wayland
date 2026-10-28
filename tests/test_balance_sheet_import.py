@@ -314,3 +314,70 @@ def test_upload_view_reads_a_pdf_and_imports_it(tmp_path):
     assert any("Latest year is now FY2025" in s.value for s in app.success), [e.value for e in app.error]
     with sessionmaker(bind=engine)() as session:
         assert session.query(SignalRecord).filter_by(signal_key="total_assets").one().numeric_value == pytest.approx(3965.121)
+
+
+@pytest.fixture(scope="module")
+def dossier_db(tmp_path_factory):
+    """A company with an AIDA bulk blob (ownership, 2024 figures) and a 2025 balance sheet imported on top."""
+    from datetime import datetime
+    import test_company_dossier as tcd
+    db_path = tmp_path_factory.mktemp("bsdossier") / "d.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    with sessionmaker(bind=engine)() as session:
+        seed_indicator_definitions(session)
+        session.add(Company(id="c1", legal_name="Mondial Bony Service SPA", registration_number="IT" + FISCAL, country="Italy", segment="SME"))
+        session.commit()
+        blob = dict(tcd.AIDA_BLOB, total_assets_latest=4229.0, revenue_latest=6761.0, cash_latest=1100.0)
+        session.add(RawImportRecord(company_id="c1", dataset_name="AIDA Raw Exports", raw_row=blob, source_filename="aida.xls"))
+        session.commit()
+        st_ = statement(2025, Y25, Y24)
+        fl.import_statement(session, st_, mapping_of(st_))
+    return db_path
+
+
+def _dossier(dossier_db, tab):
+    from streamlit.testing.v1 import AppTest
+    import test_company_dossier as tcd
+    app = AppTest.from_string(tcd._page_script(dossier_db, 'st.session_state["dossier_open_id"] = "c1"'), default_timeout=120)
+    app.run()
+    app.session_state["dossier_tab"] = tab
+    app.run()
+    assert not app.exception, [e.value for e in app.exception]
+    return app
+
+
+def test_dossier_financials_show_the_merged_history_with_sources_and_the_statement(dossier_db):
+    import test_company_dossier as tcd
+    app = _dossier(dossier_db, "financials")
+    text = tcd._texts(app)
+    assert "merged annual history" in text and "Latest = FY2025" in text
+    assert "Full annual history" in text and "Balance sheet 2025-12-31" in text
+    # EBITDA, headcount: shown as missing for 2025, not carried over
+    assert any("Not reported for FY2025" in w.value and "ebitda" in w.value for w in app.warning)
+
+
+def test_dossier_data_tab_renders_statement_and_merged_records_not_raw_json(dossier_db):
+    import test_company_dossier as tcd
+    app = _dossier(dossier_db, "data")
+    text = tcd._texts(app)
+    assert "Balance Sheet PDF 2025-12-31" in text and "Merged Annual Financials" in text
+
+
+def test_signal_audit_finds_the_record_behind_a_merged_signal(dossier_db):
+    from views.company_detail import _raw_records_for_source
+    with sessionmaker(bind=create_engine(f"sqlite:///{dossier_db}"))() as session:
+        company = session.get(Company, "c1")
+        signal = session.query(SignalRecord).filter_by(company_id="c1", signal_key="total_assets").one()
+        assert signal.source == fl.LEDGER_SOURCE
+        assert [r.dataset_name for r in _raw_records_for_source(session, company, signal.source)] == [fl.LEDGER_DATASET]
+
+
+def test_ownership_still_comes_from_the_aida_blob_and_valuation_prefers_the_newest_year(dossier_db):
+    import test_company_dossier as tcd
+    assert "Shareholders" in tcd._texts(_dossier(dossier_db, "people"))
+    from valuation import Financials, best_financials
+    old = Financials("AIDA Raw Exports", 1000.0, {"revenue": [1, 2, 3], "ebitda": [1, 2, 3]}, fiscal_year=2024)
+    new = Financials(fl.LEDGER_DATASET, 1000.0, {"revenue": [1, 2, None]}, fiscal_year=2025)
+    assert best_financials([old, new]).dataset == fl.LEDGER_DATASET
+    assert best_financials([old, Financials("x", 1000.0, {"revenue": [1]}, fiscal_year=None)]).dataset == "AIDA Raw Exports"
