@@ -68,7 +68,7 @@ def db():
 AIDA_FACTS = {"revenue_latest": 6761.0, "revenue_y-1": 6455.0, "revenue_y-2": 5090.0, "net_income_latest": 204.0,
               "net_income_y-1": 259.0, "employees_latest": 18.0, "employees_y-1": 17.0, "employees_y-2": 20.0,
               "ebit_latest": 6761.0, "ebit_y-1": 6455.0, "ebit_y-2": 5090.0,
-              "total_assets_latest": 4229.0, "total_assets_y-1": 4474.0, "total_assets_y-2": 3511.0,
+              "cash_latest": 1100.0, "total_assets_latest": 4229.0, "total_assets_y-1": 4474.0, "total_assets_y-2": 3511.0,
               "derived_last_accounts_year": 2024, "accounts_close": "2024-12-31"}
 
 
@@ -160,13 +160,16 @@ def test_rollover_conflict_default_and_operator_override(db):
     merged = plan["merged"]
     assert merged["anchor"] == 2025 and merged["previous_anchor"] == 2024
     assert merged["labels"]["latest"] == "FY2025" and merged["labels"]["y-1"] == "FY2024"
-    conflict = next(c for c in merged["conflicts"] if c["key"] == "total_assets|2024")
+    conflict = next(c for c in merged["conflicts"] if c["key"] == "cash|2024")
     assert conflict["chosen"] == fl.statement_dataset("2025-12-31")  # the balance sheet prevails by default
     assert merged["facts"]["total_assets_y-1"] == pytest.approx(4228.215)
-    # Corroborated, not conflicting: 204 thousand (AIDA) equals 203.823 thousand once rounded.
-    assert not any(c["key"] == "net_income|2024" for c in merged["conflicts"])
-    flipped = fl.plan_statement(db, st, mapping_of(st), decisions={"total_assets|2024": "AIDA Single Company Report"})
-    assert flipped["merged"]["facts"]["total_assets_y-1"] == 4229.0
+    assert merged["facts"]["cash_y-1"] == pytest.approx(1127.325)
+    # Corroborated, not conflicting: AIDA prints whole thousands (net result 204, total assets "4.229" = 4,229 k), and the filed
+    # euro figures (203,823; 4,228,215) lie within one thousand of them.
+    assert not any(c["key"] in {"net_income|2024", "total_assets|2024"} for c in merged["conflicts"])
+    assert merged["series"]["total_assets"][2024]["corroborated_by"] == ["AIDA Single Company Report"]
+    flipped = fl.plan_statement(db, st, mapping_of(st), decisions={"cash|2024": "AIDA Single Company Report"})
+    assert flipped["merged"]["facts"]["cash_y-1"] == 1100.0
 
 
 def test_import_rolls_labels_and_signals_and_keeps_missing_facts_missing(db):

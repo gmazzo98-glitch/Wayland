@@ -17,7 +17,10 @@ Data Admin, tab "Balance sheet upload (PDF)". Implements OP-019 (see `docs/FINAN
    Targets are the Flexible Data Import ones: financial fact, direct indicator, new zero-weight indicator, ignore.
 3. **Merge** (`financial_ledger.py`): observations are keyed by fact and actual fiscal year. AIDA figures are thousand EUR and
    rounded, statements are EUR (converted); a difference within rounding is corroboration, not a conflict
-   (203,823 EUR = 204 k EUR; 4,228,215 EUR is not 4,229 k EUR, so it is shown). The newest year anywhere is the anchor (Latest);
+   (203,823 EUR = 204 k EUR). AIDA prints whole thousands with a dot as thousands separator ("Totale Attivo 4.229" = 4,229 k EUR =
+   4,229,000 EUR) and can differ from the filed euro figure by up to one thousand (the filed 4,228,215 EUR vs 4,229 k), so a
+   difference of at most 1 k EUR against an AIDA figure counts as the same figure and the exact statement value is stored;
+   anything larger is a conflict. The newest year anywhere is the anchor (Latest);
    Y-1, Y-2 ... count down from it. An older upload never moves the anchor back; a fact a source does not report stays missing
    (2025 headcount, EBIT: the 2024 value stays as Y-1 history and the indicators that used it as Latest are withdrawn).
 4. **Conflicts**: balance sheet wins by default (newest statement among statements); every conflicting fact/year and every

@@ -156,8 +156,11 @@ def build_record(statement, mapping, unit, new_labels=None):
 
 # ------------------------------------------------------------------------------------------------------ merging
 
+ROUNDING_TOLERANCE = 1.0  # thousand EUR: AIDA prints whole thousands (4.229 = 4,229 k) and can differ from the filed euro figure by up to one
+
+
 def _agree(a, b):
-    tolerance = 0.5 if a.get("rounded") or b.get("rounded") else 0.0005
+    tolerance = ROUNDING_TOLERANCE if a.get("rounded") or b.get("rounded") else 0.0005
     return abs(a["value"] - b["value"]) <= tolerance + 1e-9
 
 
