@@ -9,6 +9,10 @@ import re
 from aida_single_report import DATASET_NAME, _METRICS, key, number, report_date
 
 PROFILE_PREFIX = "aida-report::"
+# Trends and ratios keep the three-point window of the AIDA export (latest, y-1,
+# y-2) however many older years are connected, so a ten-year report cannot silently
+# turn a two-year growth rate into a ten-year one.
+CALCULATION_PERIODS = ("latest", "y-1", "y-2")
 DEFAULT_PROFILE = "Standard AIDA report"
 NEW_INDICATOR = "__new__"
 
@@ -44,7 +48,7 @@ def report_sources(report):
                                           sheet=table["sheet"], cell=point["cell"], date=date, period=period,
                                           value=point["value"], raw_value=point["value"], unit=unit,
                                           table_unit=table["units"].get(date),
-                                          default=f"variable:{canonical}_{period}" if canonical and offset <= 2 else None)
+                                          default=f"variable:{canonical}_{period}" if canonical else None)
     for field, value in report["company"].items():
         if value is None:
             continue
@@ -187,7 +191,8 @@ def prepare_connections(db, report, mapping=None, new_labels=None):
         lineage[variable] = fields
         variable_sources[variable] = {**fields[0], "observations": fields}
     drafts = {}
-    for name, (value, status, fields, extra) in derive_signals_from_variables(facts, variable_sources).items():
+    window = lambda mapping_: {k: v for k, v in mapping_.items() if k.rsplit("_", 1)[-1] in CALCULATION_PERIODS}  # noqa: E731
+    for name, (value, status, fields, extra) in derive_signals_from_variables(window(facts), window(variable_sources)).items():
         drafts[name] = {**extra, "value": value, "status": status, "text": None,
                         "basis": extra.get("basis", "Calculated from reviewed facts"),
                         "inputs": {v: facts[v] for v in extra.get("canonical_variables", [])}, "raw_fields": fields}

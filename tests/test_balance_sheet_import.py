@@ -1,0 +1,313 @@
+import json
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+import balance_sheet_pdf as bs
+import financial_ledger as fl
+from aida_single_report import import_report, parse_report
+from indicators import seed_indicator_definitions
+from models import Base, Company, RawImportRecord, SignalRecord
+from test_report_upload import report_file
+
+FISCAL = "06038441215"
+
+
+def pages(year, current, prior, language="it", fmt=lambda n: f"{n:,}".replace(",", ".")):
+    """A statement shaped like the Mondial Bony PDFs (two columns, bracketed expenses, a wrapped label)."""
+    d1, d2 = f"31-12-{year}", f"31-12-{year - 1}"
+    cur, pri = current, prior
+
+    def n(value):
+        return f"({fmt(-value)})" if value < 0 else fmt(value)
+
+    return [
+        dict(page=1, method="text", text=f"MONDIAL BONY SERVICE SPA\nBilancio di esercizio al 31/12/{year}\nCodice Fiscale {FISCAL}\n"
+                                         "Gli importi presenti sono espressi in Euro\nPag. 1"),
+        dict(page=2, method="text", text=f"Bilancio al 31/12/{year} MONDIAL BONY SERVICE SPA\nSede in NAPOLI - VIA X\n"
+                                         f"STATO PATRIMONIALE ATTIVO {d1} {d2}\n"
+                                         f"10. Cassa e disponibilita liquide {n(cur['cash'])} {n(pri['cash'])}\n"
+                                         f"TOTALE ATTIVO {n(cur['assets'])} {n(pri['assets'])}\n"
+                                         f"STATO PATRIMONIALE PASSIVO {d1} {d2}\n"
+                                         f"170. Utile (Perdita) d'esercizio {n(cur['profit'])} {n(pri['profit'])}\n"
+                                         f"TOTALE PASSIVO E PATRIMONIO NETTO {n(cur['assets'])} {n(pri['assets'])}\nPag. 2"),
+        dict(page=3, method="text", text=f"Bilancio al 31/12/{year} MONDIAL BONY SERVICE SPA\nCONTO ECONOMICO {d1} {d2}\n"
+                                         f"40. Commissioni attive {n(cur['revenue'])} {n(pri['revenue'])}\n"
+                                         f"a) spese per il personale {n(-cur['staff'])} {n(-pri['staff'])}\n"
+                                         "260. UTILE (PERDITA) DELL'ATTIVITA' CORRENTE AL LORDO DELLE\n"
+                                         f"{n(cur['profit'] * 2)} {n(pri['profit'] * 2)}\nIMPOSTE\n"
+                                         f"270. Imposte sul reddito {n(-cur['profit'])} {n(-pri['profit'])}\n"
+                                         f"280. UTILE (PERDITA) DELL'ATTIVITA' CORRENTE AL NETTO DELLE IMPOSTE {n(cur['profit'])} {n(pri['profit'])}\n"
+                                         f"300. UTILE (PERDITA) D'ESERCIZIO {n(cur['profit'])} {n(pri['profit'])}\nPag. 3"),
+    ]
+
+
+Y25 = dict(cash=952074, assets=3965121, profit=109732, revenue=5973306, staff=998618)
+Y24 = dict(cash=1127325, assets=4228215, profit=203823, revenue=6761318, staff=952025)
+Y23 = dict(cash=1724814, assets=4473344, profit=259195, revenue=6455029, staff=935936)
+
+
+def statement(year, current, prior, **kwargs):
+    return bs.parse_pages(pages(year, current, prior, **kwargs), f"bilancio {year}.pdf", f"sha{year}")
+
+
+def mapping_of(st, profile=None):
+    return {k: v["target"] for k, v in bs.suggest_mapping(st, profile).items()}
+
+
+@pytest.fixture
+def db():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with sessionmaker(bind=engine)() as session:
+        seed_indicator_definitions(session)
+        yield session
+
+
+AIDA_FACTS = {"revenue_latest": 6761.0, "revenue_y-1": 6455.0, "revenue_y-2": 5090.0, "net_income_latest": 204.0,
+              "net_income_y-1": 259.0, "employees_latest": 18.0, "employees_y-1": 17.0, "employees_y-2": 20.0,
+              "ebit_latest": 6761.0, "ebit_y-1": 6455.0, "ebit_y-2": 5090.0,
+              "total_assets_latest": 4229.0, "total_assets_y-1": 4474.0, "total_assets_y-2": 3511.0,
+              "derived_last_accounts_year": 2024, "accounts_close": "2024-12-31"}
+
+
+def with_aida_2024(db):
+    """An AIDA single-company import for fiscal 2024 (thousand EUR), stored as the importer stores it."""
+    from aida_import import derive_financial_signals
+    from aida_single_report import DATASET_NAME
+    company = Company(legal_name="Mondial Bony Service SPA", registration_number="IT" + FISCAL, country="Italy")
+    db.add(company)
+    db.flush()
+    db.add(RawImportRecord(company_id=company.id, dataset_name=DATASET_NAME, raw_row=dict(AIDA_FACTS), mapping_snapshot={}))
+    for name, draft in derive_financial_signals(AIDA_FACTS).items():
+        if draft["value"] is not None:
+            db.add(SignalRecord(company_id=company.id, signal_key=name, source=DATASET_NAME, status="present",
+                                numeric_value=draft["value"], is_simulated=False))
+    db.commit()
+
+
+def test_numbers_dates_and_missing_brackets():
+    assert bs.parse_number("1.127.325") == 1127325
+    assert bs.parse_number("1,127,325") == 1127325
+    assert bs.parse_number("(15,938") == -15938
+    assert bs.parse_number("600.000,00") == 600000
+    assert bs.parse_number("-") == 0
+    assert bs.parse_date("12/31/2024", "en") == "2024-12-31"
+    assert bs.parse_date("31-12-2025", "it") == "2025-12-31"
+    assert bs.parse_date("December 31, 2024") == "2024-12-31"
+
+
+def test_statement_lines_dates_and_checks():
+    st = statement(2025, Y25, Y24)
+    assert st["company"]["registration_number"] == "IT" + FISCAL
+    assert st["period_end"] == "2025-12-31" and st["unit"] == "EUR"
+    assert st["dates"] == ["2025-12-31", "2024-12-31"]
+    by_item = {l["item"]: l for l in st["lines"] if l["item"]}
+    assert by_item["260"]["values"]["2024-12-31"] == 407646  # label on one line, numbers on the next, tail ignored
+    assert "IMPOSTE" in by_item["260"]["label"]
+    assert [c["ok"] for c in st["checks"]] and all(c["ok"] for c in st["checks"])
+    staff = next(l for l in st["lines"] if "personale" in l["label"])
+    assert staff["values"]["2025-12-31"] == -998618
+
+
+def test_failed_totals_are_reported():
+    broken = pages(2025, Y25, Y24)
+    broken[1]["text"] = broken[1]["text"].replace("TOTALE ATTIVO 3.965.121", "TOTALE ATTIVO 3.965.000")
+    st = bs.parse_pages(broken)
+    assert any(not c["ok"] for c in st["checks"]) and any("Check failed" in w for w in st["warnings"])
+
+
+def test_line_ids_do_not_depend_on_the_year_so_profiles_carry_over():
+    a, b = statement(2025, Y25, Y24), statement(2024, Y24, Y23)
+    assert [l["id"] for l in a["lines"]] == [l["id"] for l in b["lines"]]
+    profile = {a["lines"][0]["id"]: "indicator:custom"}
+    assert bs.suggest_mapping(b, profile)[a["lines"][0]["id"]]["origin"] == "profile"
+
+
+def test_rule_suggestions_flag_the_uncertain_revenue_line():
+    suggestions = bs.suggest_mapping(statement(2025, Y25, Y24))
+    targets = {s["target"]: s for s in suggestions.values() if s["target"]}
+    assert set(targets) == {"base:cash", "base:total_assets", "base:net_income", "base:revenue", "base:personnel_costs"}
+    assert targets["base:revenue"]["confidence"] < 0.7 and targets["base:revenue"]["note"]
+    # The balance-sheet copy of the result does not feed a second fact.
+    assert sum(1 for s in suggestions.values() if s["target"] == "base:net_income") == 1
+
+
+def test_ai_suggestions_are_validated_and_never_applied_silently():
+    st = statement(2025, Y25, Y24)
+    mapping = bs.suggest_mapping(st)
+    open_id = next(l["id"] for l in st["lines"] if l["item"] == "270")
+    answer = json.dumps([dict(id=open_id, target="ebitda", confidence=0.4, rationale="guess"),
+                         dict(id="made-up", target="revenue", confidence=1), dict(id=open_id, target="nonsense", confidence=1)])
+    out = bs.ai_suggestions(st, mapping, chat_fn=lambda messages: answer)
+    assert list(out) == [open_id] and out[open_id]["origin"] == "ai" and out[open_id]["confidence"] == 0.4
+    assert mapping[open_id]["target"] == ""
+
+
+def test_pages_without_text_use_ocr_and_are_labelled():
+    class Doc:
+        pass
+    text = pages(2025, Y25, Y24)[1]["text"]
+    st = bs.parse_pages([dict(page=1, method="ocr", text=text)])
+    assert any("OCR" in w for w in st["warnings"])
+
+
+def test_rollover_conflict_default_and_operator_override(db):
+    with_aida_2024(db)
+    st = statement(2025, Y25, Y24)
+    plan = fl.plan_statement(db, st, mapping_of(st))
+    merged = plan["merged"]
+    assert merged["anchor"] == 2025 and merged["previous_anchor"] == 2024
+    assert merged["labels"]["latest"] == "FY2025" and merged["labels"]["y-1"] == "FY2024"
+    conflict = next(c for c in merged["conflicts"] if c["key"] == "total_assets|2024")
+    assert conflict["chosen"] == fl.statement_dataset("2025-12-31")  # the balance sheet prevails by default
+    assert merged["facts"]["total_assets_y-1"] == pytest.approx(4228.215)
+    # Corroborated, not conflicting: 204 thousand (AIDA) equals 203.823 thousand once rounded.
+    assert not any(c["key"] == "net_income|2024" for c in merged["conflicts"])
+    flipped = fl.plan_statement(db, st, mapping_of(st), decisions={"total_assets|2024": "AIDA Single Company Report"})
+    assert flipped["merged"]["facts"]["total_assets_y-1"] == 4229.0
+
+
+def test_import_rolls_labels_and_signals_and_keeps_missing_facts_missing(db):
+    with_aida_2024(db)
+    company = db.query(Company).one()
+    before = {s.signal_key: s for s in db.query(SignalRecord).filter_by(company_id=company.id)}
+    assert before["revenue_trend"].status == "present"
+    st = statement(2025, Y25, Y24)
+    result = fl.import_statement(db, st, mapping_of(st), profile_name="Std")
+    assert result["anchor"] == 2025
+    sig = {s.signal_key: s for s in db.query(SignalRecord).filter_by(company_id=company.id)}
+    assert sig["total_assets"].numeric_value == pytest.approx(3965.121) and sig["total_assets"].source == fl.LEDGER_SOURCE
+    # 2025 has no headcount or EBIT: results that used the 2024 figures as Latest are withdrawn, not carried over.
+    for name in ("employee_growth", "ebit_margin", "revenue_per_employee"):
+        assert sig[name].status == "not_yet_checked" and sig[name].numeric_value is None
+    ledger = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=fl.LEDGER_DATASET).one().raw_row
+    assert ledger["derived_last_accounts_year"] == 2025 and "employees_latest" not in ledger
+    assert ledger["employees_y-1"] == 18 and "employees" in ledger["_missing_at_anchor"]
+    payload = json.loads(sig["total_assets"].raw_payload_ref)
+    assert payload["raw_fields"][0]["file"] == "bilancio 2025.pdf" and payload["raw_fields"][0]["page"] == 2
+    assert db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=fl.statement_dataset("2025-12-31")).count() == 1
+
+
+def test_operator_can_keep_the_existing_signal_value(db):
+    with_aida_2024(db)
+    st = statement(2025, Y25, Y24)
+    plan = fl.plan_statement(db, st, mapping_of(st))
+    assert any(c["signal"] == "total_assets" and c["decide"] for c in plan["changes"])
+    fl.import_statement(db, st, mapping_of(st), signal_replace={"total_assets": False})
+    kept = db.query(SignalRecord).filter_by(signal_key="total_assets").one()
+    assert kept.numeric_value == 4229 and kept.source == "AIDA Single Company Report"
+
+
+def test_older_statement_after_a_newer_one_never_moves_the_anchor_back(db):
+    with_aida_2024(db)
+    new, old = statement(2025, Y25, Y24), statement(2024, Y24, Y23)
+    fl.import_statement(db, new, mapping_of(new))
+    result = fl.import_statement(db, old, mapping_of(old))
+    assert result["anchor"] == 2025
+    ledger = db.query(RawImportRecord).filter_by(dataset_name=fl.LEDGER_DATASET).one().raw_row
+    assert ledger["total_assets_latest"] == pytest.approx(3965.121) and ledger["total_assets_y-2"] == pytest.approx(4473.344)
+    again = fl.plan_statement(db, old, mapping_of(old))
+    assert again["replaced_statement"]
+    with pytest.raises(ValueError, match="already has a statement"):
+        fl.import_statement(db, old, mapping_of(old))
+    fl.import_statement(db, old, mapping_of(old), replace_statement=True)
+
+
+def test_older_aida_report_uploaded_afterwards_keeps_the_merged_timeline(db):
+    st = statement(2025, Y25, Y24)
+    fl.import_statement(db, st, mapping_of(st))
+    import_report(db, parse_report(report_file(), "aida.xlsx"))
+    ledger = db.query(RawImportRecord).filter_by(dataset_name=fl.LEDGER_DATASET).one().raw_row
+    assert ledger["derived_last_accounts_year"] == 2025
+    assert db.query(SignalRecord).filter_by(signal_key="total_assets").one().numeric_value == pytest.approx(3965.121)
+
+
+def test_unit_must_be_known_and_a_failed_import_changes_nothing(db):
+    st = statement(2025, Y25, Y24)
+    st["unit"] = None
+    with pytest.raises(ValueError, match="euro or in thousands"):
+        fl.import_statement(db, st, mapping_of(st))
+    assert db.query(Company).count() == 0 and db.query(RawImportRecord).count() == 0
+    thousands = fl.build_record({**st, "unit": "thousand EUR"}, mapping_of(st), None)
+    assert next(o for o in thousands["observations"] if o["base"] == "total_assets" and o["year"] == 2025)["value"] == 3965121
+
+
+def test_costs_are_stored_positive_and_direct_indicators_use_the_printed_unit(db):
+    st = statement(2025, Y25, Y24)
+    mapping = mapping_of(st)
+    tax = next(l["id"] for l in st["lines"] if l["item"] == "270")
+    mapping[tax] = "indicator:revenue_trend"
+    record = fl.build_record(st, mapping, None)
+    staff = next(o for o in record["observations"] if o["base"] == "personnel_costs" and o["year"] == 2025)
+    assert staff["value"] == pytest.approx(998.618) and "brackets" in staff["evidence"]["sign"]
+    assert record["direct"][0]["value"] == -109732 and record["direct"][0]["date"] == "2025-12-31"
+
+
+def test_new_company_created_from_the_statement_and_profile_saved(db):
+    st = statement(2025, Y25, Y24)
+    mapping = mapping_of(st)
+    tax = next(l["id"] for l in st["lines"] if l["item"] == "270")
+    mapping[tax] = fl.NEW_INDICATOR
+    fl.import_statement(db, st, mapping, new_labels={tax: "Income tax charge"}, profile_name="Intermediary")
+    assert db.query(Company).one().registration_number == "IT" + FISCAL
+    from models import ColumnMappingProfile
+    saved = json.loads(db.query(ColumnMappingProfile).filter_by(dataset_name=fl.profile_key("Intermediary")).one().mapping_json)
+    assert saved[tax] == "indicator:income_tax_charge"
+    assert db.query(SignalRecord).filter_by(signal_key="income_tax_charge").one().numeric_value == -109732
+
+
+def test_report_defaults_connect_every_year_but_trends_keep_the_three_year_window(db):
+    import aida_report_mapping as m
+    report = parse_report(report_file(), "aida.xlsx")
+    defaults = m.suggest_report_mapping(report)
+    periods = {v.rsplit("_", 1)[1] for v in defaults.values() if v and v.startswith("variable:")}
+    assert {"latest", "y-1", "y-2", "y-10"} <= periods
+    prepared = m.prepare_connections(db, report, defaults)
+    assert prepared["drafts"]["revenue_trend"]["inputs"] == {"revenue_y-2": 5090.0, "revenue_latest": 6761.0} \
+        or set(prepared["drafts"]["revenue_trend"]["inputs"]) <= {"revenue_y-2", "revenue_latest"}
+    assert prepared["facts"]["revenue_y-10"] == 4089.0
+
+
+def test_upload_view_reads_a_pdf_and_imports_it(tmp_path):
+    """The Data Admin tab end to end on a throwaway database, with the PDF page text patched in."""
+    import textwrap
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+    root = str(Path(__file__).resolve().parents[1])
+    db_path = tmp_path / "ui.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    with sessionmaker(bind=engine)() as session:
+        seed_indicator_definitions(session)
+    script = textwrap.dedent(f"""
+        import sys
+        sys.path.insert(0, {root!r})
+        sys.path.insert(0, {str(Path(__file__).parent)!r})
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        import balance_sheet_pdf as bs
+        import test_balance_sheet_import as t
+        import streamlit as st
+        real_extract, real_uploader = bs.extract_pages, st.file_uploader
+        bs.extract_pages = lambda content, ocr=None: t.pages(2025, t.Y25, t.Y24)
+        engine = create_engine({f"sqlite:///{db_path}"!r}, connect_args={{"check_same_thread": False}})
+        from views.balance_sheet_upload import render_upload
+        class Upload:
+            name = "bilancio 2025.pdf"
+            def getvalue(self): return b"%PDF-fake"
+        st.file_uploader = lambda *a, **k: Upload()
+        try:
+            render_upload(sessionmaker(bind=engine)())
+        finally:  # AppTest shares the process with later tests
+            bs.extract_pages, st.file_uploader = real_extract, real_uploader
+    """)
+    app = AppTest.from_string(script, default_timeout=120).run()
+    assert not app.exception, [e.value for e in app.exception]
+    assert "2025-12-31" in [m.value for m in app.metric]
+    app.button(key="bs_confirm").click().run()
+    assert not app.exception, [e.value for e in app.exception]
+    assert any("Latest year is now FY2025" in s.value for s in app.success), [e.value for e in app.error]
+    with sessionmaker(bind=engine)() as session:
+        assert session.query(SignalRecord).filter_by(signal_key="total_assets").one().numeric_value == pytest.approx(3965.121)

@@ -106,6 +106,11 @@ def _load_shared(ctx: cd.DossierContext) -> dict:
     if single_report and (not aida or str(single_report.raw_row.get("accounts_close", ""))[:10]
                           >= str(aida.raw_row.get("accounts_close", ""))[:10]):
         aida = single_report
+    # Statement history merged by fiscal year wins whenever it reaches at least as far as the chosen source.
+    from financial_ledger import LEDGER_DATASET
+    merged = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=LEDGER_DATASET).first()
+    if merged and (not aida or str(merged.raw_row.get("accounts_close", ""))[:10] >= str(aida.raw_row.get("accounts_close", ""))[:10]):
+        aida = merged
     blob = aida.raw_row if aida else None
     fin = dd.financial_statement(blob)
     sig_map = {k: (s.numeric_value, s.status) for k, s in ctx.sig_dict.items()}

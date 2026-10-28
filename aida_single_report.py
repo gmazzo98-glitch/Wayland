@@ -403,6 +403,10 @@ def import_report(db, report, replace_report=False, replace_other_signals=False,
                                  appointment_date=datetime.strptime(started[1], "%d/%m/%Y") if started else None,
                                  raw_fields=person, updated_at=now))
         company.need_score, company.readiness_score, company.last_scored_at = None, None, None
+        # A company with statement history keeps one merged timeline: an older report must not pull Latest back.
+        from financial_ledger import rebuild_company
+        db.flush()
+        rebuild_company(db, company, now)
         company_id = company.id
         db.commit()
         return dict(company_id=company_id, signals_updated=updated, signals_skipped=skipped, people=len(report["people"]))

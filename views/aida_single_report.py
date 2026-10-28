@@ -82,8 +82,9 @@ def render_mapping_editor(db, report, prefix, initial_mapping=None, initial_prof
     section = st.selectbox("Report section", sections, key=f"{prefix}_section")
     periods = sorted({s["period"] for s in sources.values() if s["period"]},
                      key=lambda p: 0 if p == "latest" else int(p.split("-")[1]))
-    selected_periods = st.multiselect("Reporting periods", periods, default=[p for p in periods if p in {"latest", "y-1", "y-2"}],
-                                     key=f"{prefix}_periods", help="Select older periods to connect more of the report history.")
+    selected_periods = st.multiselect("Reporting periods", periods, default=periods, key=f"{prefix}_periods",
+                                     help="Every reporting date in the file is listed, counted downward from the latest year "
+                                          "(Y-1, Y-2 ...). Trends and ratios use only the latest three.")
     search = st.text_input("Find a report field", key=f"{prefix}_search").strip().casefold()
     unmapped = st.checkbox("Show only unconnected fields", key=f"{prefix}_unmapped")
     filtered = [(sid, src) for sid, src in sources.items()
