@@ -8,15 +8,22 @@ import balance_sheet_pdf as bs
 import financial_ledger as fl
 
 NEW_LABEL = "+ Create New Indicator..."
-STATEMENTS = {"assets": "Balance sheet - assets", "liabilities": "Balance sheet - liabilities and equity",
-              "income": "Income statement", "comprehensive": "Comprehensive income"}
+STATEMENTS = {"details": "Company details", "assets": "Balance sheet - assets", "liabilities": "Balance sheet - liabilities and equity",
+              "income": "Income statement", "comprehensive": "Comprehensive income", "other": "Other figures"}
 
 
 def _money(value):
-    return "" if value is None else f"{value:,.0f}"
+    if value is None:
+        return ""
+    return str(value) if isinstance(value, str) else f"{value:,.0f}"
 
 
 def _render_statement(statement):
+    extraction = statement.get("extraction")
+    if extraction:
+        st.caption(f"AI reading: {extraction['agreed']} lines confirmed by the rule-based reader, {extraction['ai_only']} found only by the AI, "
+                   f"{extraction['mismatch']} with different numbers, {extraction['ungrounded']} dropped (not printed on the page); "
+                   f"{extraction['rules_only']} read only by the rules.")
     a, b, c, d = st.columns(4)
     a.metric("Statement date", statement["period_end"] or "?")
     b.metric("Lines read", len(statement["lines"]))
@@ -113,13 +120,15 @@ def _mapping_editor(db, statement, signature):
     return mapping, new_labels, profile_name.strip()
 
 
-def render_upload(db):
-    st.subheader("Balance sheet upload (PDF)")
-    st.caption("Upload a company's annual financial statements. The text layer is read first; scanned pages are read by OCR "
-               "when a vision model is configured. The system recognises the statements, checks their arithmetic and "
-               "proposes the connections. Figures merge with the company's other sources by fiscal year; where two "
-               "sources disagree, the balance sheet is used unless you decide otherwise.")
-    uploaded = st.file_uploader("Upload balance sheet (.pdf)", type=["pdf"], key="bs_upload")
+def render_upload(db, uploaded=None):
+    """A PDF document as a data source. `uploaded` comes from the Flexible Data Import uploader when given."""
+    st.subheader("Document import (PDF financial statements)")
+    st.caption("The PDF is only the carrier: its text (OCR for scans) is read by the AI, every number is checked against the printed "
+               "text, and what comes out is ordinary company data. You connect it like any other import - to company fields, "
+               "financial facts (every year of a line), existing or new indicators - and it joins the same history as AIDA and "
+               "the other sources, merged by fiscal year. Where two sources disagree the balance sheet is used unless you decide otherwise.")
+    if uploaded is None:
+        uploaded = st.file_uploader("Upload balance sheet (.pdf)", type=["pdf"], key="bs_upload")
     if uploaded is None:
         return
     content = uploaded.getvalue()
@@ -158,6 +167,11 @@ def render_upload(db):
         st.warning(warning)
     merged = plan["merged"]
     st.info(f"{plan['action']}: {statement['company'].get('legal_name')} ({statement['company'].get('registration_number')}).")
+    if plan.get("company_changes"):
+        with st.expander("Company fields that will be updated", expanded=True):
+            st.dataframe(pd.DataFrame([{"Field": c["field"].replace("_", " ").title(), "Now": str(c["existing"] or ""),
+                                        "From the document": str(c["statement"])} for c in plan["company_changes"]]),
+                         hide_index=True, width="stretch")
     if merged["anchor"]:
         before = merged["previous_anchor"]
         st.markdown(f"**Year labels:** Latest = FY{merged['anchor']}"

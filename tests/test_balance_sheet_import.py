@@ -381,3 +381,106 @@ def test_ownership_still_comes_from_the_aida_blob_and_valuation_prefers_the_newe
     new = Financials(fl.LEDGER_DATASET, 1000.0, {"revenue": [1, 2, None]}, fiscal_year=2025)
     assert best_financials([old, new]).dataset == fl.LEDGER_DATASET
     assert best_financials([old, Financials("x", 1000.0, {"revenue": [1]}, fiscal_year=None)]).dataset == "AIDA Raw Exports"
+
+
+def fake_model(page_count_limit=None):
+    """A model answer in the format the extraction prompt asks for (same answer for every batch of pages)."""
+    return lambda messages: json.dumps({
+        "company": {"legal_name": "MONDIAL BONY SERVICE SPA", "share_capital": "600.000", "legal_form": "invented text not on any page"},
+        "facts": [
+            {"page": 3, "statement": "income", "item": "40", "label": "Commissioni attive", "printed": ["5.973.306", "6.761.318"]},
+            {"page": 3, "statement": "income", "item": "999", "label": "Invented income line", "printed": ["1", "2"]},
+            {"page": 3, "statement": "income", "item": "300", "label": "UTILE (PERDITA) D'ESERCIZIO", "printed": ["1", "2"]},
+            {"page": 1, "statement": "other", "item": None, "label": "Numero medio dei dipendenti", "printed": ["18", "17"]},
+        ]})
+
+
+def pages_with_headcount():
+    ps = pages(2025, Y25, Y24)
+    ps[0]["text"] += "\nNumero medio dei dipendenti 18 17\nForma Giuridica Societa per azioni\nCapitale Sociale Euro 600.000,00 i.v."
+    return ps
+
+
+def test_ai_reading_adds_lines_the_rules_missed_and_drops_what_is_not_printed():
+    ps = pages_with_headcount()
+    st = bs.parse_pages(ps)
+    bs.enrich_with_ai(st, ps, fake_model())
+    stats = st["extraction"]
+    assert stats["agreed"] >= 1 and stats["ai_only"] == 1 and stats["ungrounded"] >= 1 and stats["mismatch"] == 1
+    headcount = next(l for l in st["lines"] if l["statement"] == "other")
+    assert headcount["values"] == {"2025-12-31": 18.0, "2024-12-31": 17.0} and headcount["origin"] == "ai"
+    assert st["company"]["share_capital"] == "600.000" and "legal_form" not in st["company"]
+    assert any("dropped" in w for w in st["warnings"])
+
+
+def test_without_a_model_the_rules_still_read_and_say_so():
+    st = bs.parse_statement(b"%PDF-fake", "x.pdf") if False else None
+    ps = pages(2025, Y25, Y24)
+    report = bs.parse_pages(ps)
+    assert report["lines"] and "extraction" not in report
+
+
+def test_extracted_data_feeds_company_fields_headcount_and_the_one_history(db):
+    with_aida_2024(db)
+    ps = pages_with_headcount()
+    st = bs.parse_pages(ps)
+    bs.enrich_with_ai(st, ps, fake_model())
+    suggestions = bs.suggest_mapping(st)
+    headcount = next(l for l in st["lines"] if l["statement"] == "other")
+    assert suggestions[headcount["id"]]["target"] == "base:employees"
+    mapping = {k: v["target"] for k, v in suggestions.items()}
+    mapping[headcount["id"]] = "base:employees"
+    st["lines"].append(dict(id="details|legal_form|1", statement="details", item=None, label="Legal form", page=1,
+                            values={"2025-12-31": "S.p.A."}, raw={"2025-12-31": "S.p.A."}, flags=[], origin="ai"))
+    mapping["details|legal_form|1"] = "company:legal_form"
+    plan = fl.plan_statement(db, st, mapping)
+    assert plan["company_changes"] == [dict(field="legal_form", existing=None, statement="S.p.A.")]
+    fl.import_statement(db, st, mapping)
+    company = db.query(Company).one()
+    assert company.legal_form == "S.p.A."
+    ledger = db.query(RawImportRecord).filter_by(dataset_name=fl.LEDGER_DATASET).one().raw_row
+    assert ledger["employees_latest"] == 18 and ledger["employees_y-1"] == 17  # headcount is not divided by 1000
+    mapping["details|legal_form|1"] = "base:total_assets"
+    with pytest.raises(ValueError, match="is text"):
+        fl.plan_statement(db, st, mapping)
+
+
+def test_flexible_data_import_accepts_a_pdf_and_routes_it_to_the_document_flow(tmp_path):
+    import textwrap
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+    root = str(Path(__file__).resolve().parents[1])
+    db_path = tmp_path / "flex.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    with sessionmaker(bind=engine)() as session:
+        seed_indicator_definitions(session)
+    script = textwrap.dedent(f"""
+        import sys
+        sys.path.insert(0, {root!r})
+        sys.path.insert(0, {str(Path(__file__).parent)!r})
+        import streamlit as st
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        import balance_sheet_pdf as bs
+        import test_balance_sheet_import as t
+        real_extract, real_uploader = bs.extract_pages, st.file_uploader
+        bs.extract_pages = lambda content, ocr=None: t.pages(2025, t.Y25, t.Y24)
+        class Upload:
+            name = "bilancio 2025.pdf"
+            size = 9
+            def getvalue(self): return b"%PDF-fake"
+        st.file_uploader = lambda *a, **k: Upload() if k.get("key") == "flex_uploader" else real_uploader(*a, **k)
+        from views.data_admin import render_data_admin_page
+        engine = create_engine({f"sqlite:///{db_path}"!r}, connect_args={{"check_same_thread": False}})
+        try:
+            render_data_admin_page(sessionmaker(bind=engine)())
+        finally:
+            bs.extract_pages, st.file_uploader = real_extract, real_uploader
+    """)
+    app = AppTest.from_string(script, default_timeout=120).run()
+    assert not app.exception, [e.value for e in app.exception]
+    assert "2025-12-31" in [m.value for m in app.metric]
+    assert "Balance sheet upload (PDF)" not in [t.label for t in app.tabs]
+    app.button(key="bs_confirm").click().run()
+    assert any("Latest year is now FY2025" in s.value for s in app.success), [e.value for e in app.error]

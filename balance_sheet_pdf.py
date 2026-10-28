@@ -25,6 +25,7 @@ MONETARY_BASES = (
     "materials", "cash", "total_debt", "material_capex", "immaterial_capex", "total_assets", "intangibles",
     "equity", "net_income",
 )
+PDF_BASES = MONETARY_BASES + ("employees",)  # facts a statement line can feed; headcount is not converted
 OCR_MIN_CHARS = 60
 
 _MONTHS = {m: i for i, m in enumerate(
@@ -348,7 +349,7 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
     return report
 
 
-def parse_statement(source, filename=None, ocr=None):
+def parse_statement(source, filename=None, ocr=None, chat_fn=None):
     if isinstance(source, (str, bytes)) and not isinstance(source, bytes):
         from pathlib import Path
         content = Path(source).read_bytes()
@@ -359,7 +360,16 @@ def parse_statement(source, filename=None, ocr=None):
         source.seek(0)
         content = source.read()
         filename = filename or getattr(source, "name", "statement.pdf")
-    return parse_pages(extract_pages(content, ocr=ocr), filename or "statement.pdf", hashlib.sha256(content).hexdigest())
+    pages = extract_pages(content, ocr=ocr)
+    report = parse_pages(pages, filename or "statement.pdf", hashlib.sha256(content).hexdigest())
+    if chat_fn is not None or llm_available("text"):
+        try:
+            enrich_with_ai(report, pages, chat_fn)
+        except Exception as exc:  # the rules' reading stands on its own
+            report["warnings"].append(f"The AI reading could not run ({exc}); the lines come from the rule-based reader.")
+    else:
+        report["warnings"].append("No language model is configured, so only the rule-based reader ran. Add a CRAWLER_LLM key for the AI reading.")
+    return report
 
 
 def _find(report, statement, pattern):
@@ -400,6 +410,9 @@ def consistency_checks(report):
 
 # (statement filter, label pattern on the folded label, target base, confidence, note)
 _RULES = (
+    ("details", r"^legal form$|^forma giuridica$", "company:legal_form", 0.8, ""),
+    ("other", r"(?:numero medio|average number)[a-z ]*(?:dipendenti|employees)|^(?:dipendenti|employees)$|^number of employees$", "employees", 0.7,
+     "Average headcount printed outside the primary statements."),
     ("assets", r"^(?:totale attivo|total assets)$", "total_assets", 0.98, ""),
     ("liabilities", r"^(?:a )?(?:totale patrimonio netto|total (?:share|stock)holders s? equity|total net equity|total equity)$", "equity", 0.95, ""),
     ("income", r"(?:utile|profit) \w*\s*(?:perdita|loss)?\s*(?:d esercizio|dell esercizio|for the (?:financial )?year|of the year)$", "net_income", 0.95, ""),
@@ -430,7 +443,7 @@ def suggest_mapping(report, profile=None):
         picked = None
         for statement, pattern, base, confidence, note in _RULES:
             if row["statement"] == statement and re.search(pattern, label):
-                picked = dict(target=f"base:{base}", confidence=confidence, origin="rule", note=note)
+                picked = dict(target=base if ":" in base else f"base:{base}", confidence=confidence, origin="rule", note=note)
                 break
         # One printed figure should feed one fact: the income statement wins over the balance-sheet copy of the result.
         if picked and picked["target"] in taken and picked["target"] == "base:net_income":
@@ -447,7 +460,7 @@ def suggest_mapping(report, profile=None):
 _AI_PROMPT = (
     "You map lines of a company's annual financial statement to a fixed list of facts. Answer with JSON only: "
     '[{"id": "<line id>", "target": "<fact or none>", "confidence": 0-1, "rationale": "<one sentence>"}]. '
-    "Allowed facts: " + ", ".join(MONETARY_BASES) + ". "
+    "Allowed facts: " + ", ".join(PDF_BASES) + ". "
     "Use none unless the line is the same economic quantity. Never map a financial intermediary's margins or commissions to "
     "ebitda, gross_margin or production_costs. Totals only, never a sub-line, unless no total exists. "
     "Revenue is net sales; total_debt is total payables."
@@ -467,7 +480,7 @@ def ai_suggestions(report, mapping, chat_fn=None):
     match = re.search(r"\[.*\]", answer, re.S)
     if not match:
         raise ValueError("The language model did not return a list of mappings.")
-    allowed, ids = set(MONETARY_BASES), {r["id"] for r in open_lines}
+    allowed, ids = set(PDF_BASES), {r["id"] for r in open_lines}
     out = {}
     for item in json.loads(match[0]):
         if item.get("id") in ids and item.get("target") in allowed:
@@ -475,3 +488,130 @@ def ai_suggestions(report, mapping, chat_fn=None):
             out[item["id"]] = dict(target=f"base:{item['target']}", confidence=confidence, origin="ai",
                                    note=str(item.get("rationale") or "")[:300])
     return out
+
+
+# ------------------------------------------------------------------------------------------------ AI extraction
+
+_EXTRACT_PROMPT = (
+    "You read pages of a company's annual financial statements (already OCR'd or taken from the PDF text layer, Italian or "
+    "English). Extract EVERY data point printed on the pages you are given, exactly as printed. Answer with JSON only:\n"
+    '{"company": {"legal_name": "", "registration_number": "", "legal_form": "", "share_capital": "", "registered_office": "", '
+    '"rea": ""}, "facts": [{"page": 2, "statement": "assets|liabilities|income|comprehensive|other", "item": "10 or null", '
+    '"label": "line label as printed", "printed": ["current column text", "previous column text"]}]}\n'
+    "Rules: copy each number exactly as printed in `printed` (keep dots, commas, brackets, minus signs, '-' for nil); never "
+    "calculate, round or invent; one fact per table row, including sub-lines; `other` is for figures outside the primary "
+    "statements (average number of employees, ...), with the label saying what it is; omit what is not on the pages; "
+    "leave company fields empty when not printed."
+)
+EXTRACT_PAGES_PER_CALL = 3
+EXTRACT_MAX_PAGES = 18
+
+
+def _squash(text):
+    return re.sub(r"\s+", "", text or "")
+
+
+def _pages_to_read(pages):
+    picked = []
+    for p in pages:
+        text = p["text"]
+        headed = any(pattern.search(line.strip()) for _, pattern in _HEADINGS for line in text.splitlines())
+        if p["page"] == 1 or headed or re.search(r"dipendenti|employees", text, re.I):
+            picked.append(p)
+    return picked[:EXTRACT_MAX_PAGES]
+
+
+def ai_extract(pages, chat_fn=None):
+    """{company, facts, ungrounded}: the model's reading, kept only where it is printed on the page."""
+    chat_fn = chat_fn or chat
+    text_of = {p["page"]: p["text"] for p in pages}
+    company, facts, ungrounded = {}, [], 0
+    chosen = _pages_to_read(pages)
+    for start in range(0, len(chosen), EXTRACT_PAGES_PER_CALL):
+        batch = chosen[start:start + EXTRACT_PAGES_PER_CALL]
+        body = "\n\n".join(f"=== PAGE {p['page']} ===\n{p['text']}" for p in batch)
+        answer = chat_fn([dict(role="system", content=_EXTRACT_PROMPT), dict(role="user", content=body)])
+        match = re.search(r"\{.*\}", answer, re.S)
+        if not match:
+            continue
+        try:
+            data = json.loads(match[0])
+        except ValueError:
+            continue
+        joined = _squash(" ".join(text_of[p["page"]] for p in batch)).casefold()
+        for field, value in (data.get("company") or {}).items():
+            value = str(value or "").strip()
+            if value and field not in company and _squash(value).casefold() in joined:
+                company[field] = value
+        allowed = {p["page"] for p in batch}
+        for fact in data.get("facts") or []:
+            page = fact.get("page") if fact.get("page") in allowed else (batch[0]["page"] if len(batch) == 1 else None)
+            printed = [str(x).strip() for x in (fact.get("printed") or []) if str(x).strip()]
+            label = str(fact.get("label") or "").strip()
+            if page is None or not label or not printed:
+                ungrounded += 1
+                continue
+            page_text = _squash(text_of[page]).casefold()
+            if not all(_squash(token).casefold() in page_text for token in printed) or _squash(label)[:12].casefold() not in page_text:
+                ungrounded += 1  # a number or label that is not on the page is not accepted
+                continue
+            statement = fact.get("statement") if fact.get("statement") in {"assets", "liabilities", "income", "comprehensive", "other"} else "other"
+            item = str(fact["item"]) if fact.get("item") not in (None, "", "null") else None
+            facts.append(dict(page=page, statement=statement, item=item, label=label, printed=printed))
+    return dict(company=company, facts=facts, ungrounded=ungrounded)
+
+
+def enrich_with_ai(report, pages, chat_fn=None):
+    """Fold the model's reading into a rule-parsed report: it may add lines the rules could not read, and company details.
+    Numbers are always parsed from the printed text; where model and rules read different numbers the rules' value is kept
+    and the line says so."""
+    extraction = ai_extract(pages, chat_fn)
+    columns = report["dates"][:2] or ([report["period_end"], _prior_year(report["period_end"])] if report["period_end"] else [])
+    counters = {}
+    for row in report["lines"]:
+        stem, number = row["id"].rsplit("|", 1)
+        counters[stem] = max(counters.get(stem, 0), int(number))
+    known = {}
+    for row in report["lines"]:
+        known.setdefault((row["statement"], row["item"] or key(row["label"])), []).append(row)
+        row.setdefault("origin", "rules")
+    stats = dict(agreed=0, ai_only=0, mismatch=0, rules_only=0, ungrounded=extraction["ungrounded"])
+    for fact in extraction["facts"]:
+        stem_key = fact["item"] or key(fact["label"])
+        values = {d: parse_number(t) for d, t in zip(columns, fact["printed"])}
+        match = next((r for r in known.get((fact["statement"], stem_key), [])
+                      if r["origin"] in {"rules", "ai+rules"} and r["page"] == fact["page"]), None)
+        if match:
+            if all(match["values"].get(d) == v for d, v in values.items() if v is not None):
+                match["origin"] = "ai+rules"
+                stats["agreed"] += 1
+            else:
+                match["flags"].append("the AI read different numbers: " + ", ".join(fact["printed"])
+                                      + " (kept the numbers parsed from the printed text)")
+                stats["mismatch"] += 1
+            continue
+        if not columns or not values or any(v is None for v in values.values()):
+            stats["ungrounded"] += 1
+            continue
+        stem = f"{fact['statement']}|{stem_key}"
+        counters[stem] = counters.get(stem, 0) + 1
+        report["lines"].append(dict(id=f"{stem}|{counters[stem]}", statement=fact["statement"], item=fact["item"], label=fact["label"],
+                                    page=fact["page"], values=values, raw=dict(zip(columns, fact["printed"])),
+                                    flags=["read by the AI only"], origin="ai"))
+        stats["ai_only"] += 1
+    stats["rules_only"] = sum(1 for r in report["lines"] if r["origin"] == "rules")
+    for field, value in extraction["company"].items():
+        report["company"].setdefault(field, value)
+    if report["period_end"]:
+        for field, label in (("legal_form", "Legal form"), ("share_capital", "Share capital"),
+                             ("registered_office", "Registered office"), ("rea", "REA number")):
+            if extraction["company"].get(field):
+                report["lines"].append(dict(id=f"details|{field}|1", statement="details", item=None, label=label, page=1,
+                                            values={report["period_end"]: extraction["company"][field]},
+                                            raw={report["period_end"]: extraction["company"][field]}, flags=[], origin="ai"))
+    report["extraction"] = stats
+    report["checks"] = consistency_checks(report)
+    report["dates"] = sorted({d for row in report["lines"] if row["statement"] != "details" for d in row["values"]}, reverse=True)
+    if stats["ungrounded"]:
+        report["warnings"].append(f"{stats['ungrounded']} items the AI returned were dropped because they are not printed on the page.")
+    return report

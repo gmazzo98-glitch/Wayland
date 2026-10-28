@@ -38,3 +38,18 @@ turn a two-year growth into a ten-year one.
 ## Not done
 Several PDFs in one go (upload one at a time, any order); cash-flow and equity-movement statements; notes to the accounts;
 consolidated vs separate statements as distinct bases; OCR quality has not been verified live (no vision key in the test run).
+
+## The PDF is a carrier, the data is the point (update)
+- **Entry point:** Data Admin, Flexible Data Import accepts a PDF next to csv/xlsx (the separate tab is gone). The document flow
+  below then behaves like any other import: connect, review, confirm.
+- **AI reads first:** the OCR/text layer goes to the configured language model (`CRAWLER_LLM_*`), which extracts every printed row
+  (statements, sub-lines, figures outside the statements such as average headcount) and the company details (legal form, share
+  capital, REA ...). Each item is kept only if its label and printed numbers are on that page; numbers are always parsed from the
+  printed text, never taken from the model's arithmetic. The rule-based reader runs alongside as a cross-check: lines both read are
+  confirmed, lines only the AI read are added and flagged, numeric disagreements keep the printed-text parse and say so. No model
+  configured = rules only, with a notice.
+- **Flexible-import style mapping:** each line connects to a company field (e.g. legal form, headcount), a financial fact for every
+  year of the line (incl. employees, not divided by 1000), an existing indicator, a new indicator, or ignore; reusable profile.
+- **One database:** the extracted facts join the same annual history as AIDA (merged by fiscal year, conflicts decided by the
+  operator, balance sheet default), feed the same signals, company fields, dossier, valuation and audit. The stored statement is only
+  provenance (page, printed value, connection).

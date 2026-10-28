@@ -79,10 +79,15 @@ def _render_flexible_import_tab(db: Session):
         if existing_names:
             st.caption(f"Previously saved dataset names: {', '.join(existing_names)}")
 
-    uploaded = st.file_uploader("Upload Dataset (.csv or .xlsx)", type=["csv", "xlsx", "xls"], key="flex_uploader")
+    uploaded = st.file_uploader("Upload Dataset (.csv, .xlsx or a PDF of financial statements)", type=["csv", "xlsx", "xls", "pdf"],
+                                key="flex_uploader")
 
     if uploaded is None:
         st.session_state.pop("flex_df", None)
+        return
+    if uploaded.name.lower().endswith(".pdf"):
+        from views.balance_sheet_upload import render_upload as render_document_import
+        render_document_import(db, uploaded)
         return
 
     file_sig = (uploaded.name, uploaded.size)
@@ -776,12 +781,11 @@ def render_data_admin_page(db: Session):
     st.title("🛠️ Data Admin")
     st.caption("Add, import and remove companies and people. Reading a company happens in 🏢 Company Intelligence.")
 
-    tab_add, tab_import, tab_flex, tab_aida, tab_balance, tab_people, tab_flat_people, tab_manage = st.tabs([
+    tab_add, tab_import, tab_flex, tab_aida, tab_people, tab_flat_people, tab_manage = st.tabs([
         "➕ Add Single Company",
         "📁 Bulk CSV Import",
         "🔗 Flexible Data Import",
         "AIDA single company report upload",
-        "Balance sheet upload (PDF)",
         "👥 Import People & Ownership",
         "🧑‍💼 Flexible People Import",
         "🗑️ Manage Companies",
@@ -795,9 +799,6 @@ def render_data_admin_page(db: Session):
     with tab_aida:
         from views.aida_single_report import render_upload
         render_upload(db)
-    with tab_balance:
-        from views.balance_sheet_upload import render_upload as render_balance_sheet_upload
-        render_balance_sheet_upload(db)
     with tab_people:
         _render_people_import_tab(db)
     with tab_flat_people:

@@ -10,7 +10,7 @@ import json
 import re
 from datetime import datetime
 
-from balance_sheet_pdf import DATASET_PREFIX, MONETARY_BASES, key
+from balance_sheet_pdf import DATASET_PREFIX, MONETARY_BASES, PDF_BASES, key
 
 LEDGER_DATASET = "Merged Annual Financials"
 LEDGER_SOURCE = LEDGER_DATASET  # same name, so the signal audit finds the record that backs a signal
@@ -51,9 +51,10 @@ def profile_key(name):
 def targets(db):
     from company_service import CANONICAL_SERIES_LABELS, valid_targets_for_column
     out = {"": "— Ignore (kept in the statement) —"}
-    for base in MONETARY_BASES:
+    for base in PDF_BASES:
         out[f"base:{base}"] = f"Financial fact: {CANONICAL_SERIES_LABELS[base]} (every year of the line)"
-    out.update({k: v for k, v in valid_targets_for_column(db).items() if k.startswith("indicator:")})
+    out.update({k: v for k, v in valid_targets_for_column(db).items()
+                if k.startswith("indicator:") or (k.startswith("company:") and k not in {"company:registration_number", "company:legal_name"})})
     return out
 
 
@@ -107,7 +108,7 @@ def build_record(statement, mapping, unit, new_labels=None):
     period_end = statement.get("period_end")
     if not period_end:
         raise ValueError("The statement date is missing.")
-    observations, direct, proposals, warnings = [], [], {}, []
+    observations, direct, proposals, warnings, company = [], [], {}, [], {}
     for line in statement["lines"]:
         target = mapping.get(line["id"]) or None
         if not target:
@@ -118,17 +119,36 @@ def build_record(statement, mapping, unit, new_labels=None):
                 raise ValueError(f"Enter a label for the new indicator connected to {line['label']}.")
             proposals[line["id"]] = label
             target = f"indicator:{_norm(label)[:100]}"
+        if target.startswith("company:"):
+            field = target.split(":", 1)[1]
+            value = line["values"].get(period_end)
+            if value in (None, ""):
+                continue
+            if field == "headcount":
+                from balance_sheet_pdf import parse_number
+                number = parse_number(str(value)) if isinstance(value, str) else value
+                if number is None or number < 0 or float(number) != int(number):
+                    raise ValueError(f"{line['label']} is not a whole, non-negative employee count.")
+                value = int(number)
+            elif isinstance(value, (int, float)):
+                raise ValueError(f"{line['label']} is a number; connect it to a financial fact or an indicator.")
+            if field in company and company[field] != value:
+                raise ValueError(f"Two statement lines with different values are connected to Company: {field}.")
+            company[field] = value
+            continue
         for date, value in line["values"].items():
             if value is None:
                 continue
+            if isinstance(value, str):
+                raise ValueError(f"{line['label']} is text; connect it to a company field.")
             evidence = dict(file=statement["filename"], sha256=statement.get("sha256"), page=line["page"], line_id=line["id"],
                             item=line["item"], label=line["label"], date=date, raw_value=line["raw"].get(date), unit=unit,
                             statement=line["statement"], period_end=period_end)
             if target.startswith("base:"):
                 base = target.split(":", 1)[1]
-                if base not in MONETARY_BASES:
+                if base not in PDF_BASES:
                     raise ValueError(f"Statement lines cannot feed {base}.")
-                converted = value / 1000 if unit == "EUR" else value
+                converted = value / 1000 if unit == "EUR" and base != "employees" else value
                 if base in COST_BASES and converted < 0:
                     converted, evidence["sign"] = -converted, "expense printed in brackets; stored as a positive cost"
                 evidence["converted_from"] = "EUR" if unit == "EUR" else None
@@ -151,7 +171,7 @@ def build_record(statement, mapping, unit, new_labels=None):
             if len(values) > 1:
                 warnings.append(f"Several lines of this statement feed {base} for {year} with different values; the sources are compared below.")
     return dict(dataset=statement_dataset(period_end), period_end=period_end, unit=unit, observations=observations,
-                direct=direct, proposals=proposals, warnings=warnings)
+                direct=direct, company=company, proposals=proposals, warnings=warnings)
 
 
 # ------------------------------------------------------------------------------------------------------ merging
@@ -300,8 +320,10 @@ def plan_statement(db, statement, mapping, new_labels=None, unit=None, decisions
         company_id = company.id
     record = build_record(statement, mapping, unit, new_labels)
     merged = compute(db, company_id, record, decisions)
+    company_changes = [dict(field=k, existing=getattr(company, k, None) if company else None, statement=v)
+                       for k, v in record["company"].items() if not company or getattr(company, k, None) != v]
     return dict(company_id=company_id, action="Update existing company" if company else "Create company",
-                record=record, merged=merged, changes=signal_changes(db, company_id, merged) if company_id else [],
+                record=record, company_changes=company_changes, merged=merged, changes=signal_changes(db, company_id, merged) if company_id else [],
                 replaced_statement=bool(company_id and statement_dataset(record["period_end"]) in statement_observations(db, company_id)),
                 warnings=record["warnings"] + (["Several statements feed this history; check the conflicts below."] if merged["conflicts"] else []))
 
@@ -364,6 +386,11 @@ def import_statement(db, statement, mapping, new_labels=None, unit=None, decisio
             country="Italy", nace_code=None, sector_name=None, shortlist_status="candidate")
         if company.country != "Italy":
             raise ValueError("The matched company's country is not Italy. Resolve its identity before importing.")
+        for field, value in plan["record"]["company"].items():
+            setattr(company, field, value)
+        if "headcount" in plan["record"]["company"]:
+            company.headcount_source_tier = "T1"
+            company.segment = "SME" if company.headcount < 250 else "Midcap"
         db.add(company)
         db.flush()
         record = plan["record"]
