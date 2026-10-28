@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from sqlalchemy import create_engine
@@ -383,16 +384,21 @@ def test_ownership_still_comes_from_the_aida_blob_and_valuation_prefers_the_newe
     assert best_financials([old, Financials("x", 1000.0, {"revenue": [1]}, fiscal_year=None)]).dataset == "AIDA Raw Exports"
 
 
-def fake_model(page_count_limit=None):
-    """A model answer in the format the extraction prompt asks for (same answer for every batch of pages)."""
-    return lambda messages: json.dumps({
-        "company": {"legal_name": "MONDIAL BONY SERVICE SPA", "share_capital": "600.000", "legal_form": "invented text not on any page"},
-        "facts": [
-            {"page": 3, "statement": "income", "item": "40", "label": "Commissioni attive", "printed": ["5.973.306", "6.761.318"]},
-            {"page": 3, "statement": "income", "item": "999", "label": "Invented income line", "printed": ["1", "2"]},
-            {"page": 3, "statement": "income", "item": "300", "label": "UTILE (PERDITA) D'ESERCIZIO", "printed": ["1", "2"]},
-            {"page": 1, "statement": "other", "item": None, "label": "Numero medio dei dipendenti", "printed": ["18", "17"]},
-        ]})
+def fake_model():
+    """A model answer in the format the extraction prompt asks for, limited to the pages it was shown (one page per call)."""
+    facts = [
+        {"page": 3, "statement": "income", "item": "40", "label": "Commissioni attive", "printed": ["5.973.306", "6.761.318"]},
+        {"page": 3, "statement": "income", "item": "999", "label": "Invented income line", "printed": ["5.973.306", "2"]},
+        {"page": 3, "statement": "income", "item": "300", "label": "UTILE (PERDITA) D'ESERCIZIO", "printed": ["203.823", "109.732"]},
+        {"page": 1, "statement": "other", "item": None, "label": "Numero medio dei dipendenti", "printed": ["18", "17"]},
+    ]
+
+    def answer(messages):
+        shown = {int(n) for n in re.findall(r"=== PAGE (\d+) ===", messages[-1]["content"])}
+        return json.dumps({"company": {"legal_name": "MONDIAL BONY SERVICE SPA", "share_capital": "600.000",
+                                       "legal_form": "invented text not on any page"},
+                           "facts": [f for f in facts if f["page"] in shown]})
+    return answer
 
 
 def pages_with_headcount():

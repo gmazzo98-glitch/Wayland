@@ -95,20 +95,32 @@ def llm_available(kind="text"):
         return False
 
 
-def chat(messages, kind="text", max_tokens=4000, timeout=90):
-    """First answer from the configured OpenAI-compatible providers; raises when none answers."""
+def chat(messages, kind="text", max_tokens=8000, timeout=120, attempts=4):
+    """First answer from the configured OpenAI-compatible providers. A rate-limited provider (429) is waited for
+    (its Retry-After, capped) before the next provider is tried; raises when none answers."""
+    import time
     import requests
     errors = []
     for api_key, base, model in _llm_endpoints(kind):
-        try:
-            response = requests.post(f"{base}/chat/completions", timeout=timeout,
-                                     headers={"Authorization": f"Bearer {api_key}"},
-                                     json=dict(model=model, messages=messages, temperature=0, max_tokens=max_tokens))
+        for attempt in range(attempts):
+            try:
+                response = requests.post(f"{base}/chat/completions", timeout=timeout,
+                                         headers={"Authorization": f"Bearer {api_key}"},
+                                         json=dict(model=model, messages=messages, temperature=0, max_tokens=max_tokens))
+            except Exception as exc:  # next provider
+                errors.append(f"{model}: {exc}")
+                break
             if response.status_code == 200:
                 return response.json()["choices"][0]["message"]["content"]
+            if response.status_code == 429 and attempt < attempts - 1:
+                try:
+                    wait = float(response.headers.get("retry-after") or 0)
+                except ValueError:
+                    wait = 0
+                time.sleep(min(max(wait, 2.0 * (attempt + 1)), 20.0))
+                continue
             errors.append(f"{model}: HTTP {response.status_code}")
-        except Exception as exc:  # next provider
-            errors.append(f"{model}: {exc}")
+            break
     raise RuntimeError("No language model answered. " + ("; ".join(errors) if errors else "No provider key is configured."))
 
 
@@ -503,12 +515,22 @@ _EXTRACT_PROMPT = (
     "statements (average number of employees, ...), with the label saying what it is; omit what is not on the pages; "
     "leave company fields empty when not printed."
 )
-EXTRACT_PAGES_PER_CALL = 3
+EXTRACT_PAGES_PER_CALL = 1  # a statement page has dozens of rows; more pages per call overrun the answer limit
 EXTRACT_MAX_PAGES = 18
 
 
 def _squash(text):
     return re.sub(r"\s+", "", text or "")
+
+
+def _printed_on_page(token, page_text):
+    """The token stands on the page as its own number, not as part of a longer one ("1" is not in "952.074")."""
+    token = re.sub(r"\s+", " ", token or "").strip()
+    if not token:
+        return False
+    if set(token) <= {"-", " "}:
+        return "-" in page_text
+    return bool(re.search(r"(?<![\w.,])" + re.escape(token) + r"(?!\w|[.,]\d)", re.sub(r"\s+", " ", page_text)))
 
 
 def _pages_to_read(pages):
@@ -521,23 +543,50 @@ def _pages_to_read(pages):
     return picked[:EXTRACT_MAX_PAGES]
 
 
+def _parse_answer(answer):
+    """(data, truncated). A cut-off answer still yields every complete row it contained."""
+    match = re.search(r"\{.*\}", answer, re.S)
+    if match:
+        try:
+            return json.loads(match[0]), False
+        except ValueError:
+            pass
+    rows = []
+    for text in re.findall(r"\{[^{}]*\"printed\"\s*:\s*\[[^\]]*\][^{}]*\}", answer, re.S):
+        try:
+            rows.append(json.loads(text))
+        except ValueError:
+            continue
+    company = {}
+    head = re.search(r"\"company\"\s*:\s*(\{[^{}]*\})", answer, re.S)
+    if head:
+        try:
+            company = json.loads(head[1])
+        except ValueError:
+            pass
+    return ({"company": company, "facts": rows}, True) if rows or company else (None, True)
+
+
 def ai_extract(pages, chat_fn=None):
     """{company, facts, ungrounded}: the model's reading, kept only where it is printed on the page."""
     chat_fn = chat_fn or chat
     text_of = {p["page"]: p["text"] for p in pages}
-    company, facts, ungrounded = {}, [], 0
+    company, facts, ungrounded, failures = {}, [], 0, []
     chosen = _pages_to_read(pages)
     for start in range(0, len(chosen), EXTRACT_PAGES_PER_CALL):
         batch = chosen[start:start + EXTRACT_PAGES_PER_CALL]
         body = "\n\n".join(f"=== PAGE {p['page']} ===\n{p['text']}" for p in batch)
-        answer = chat_fn([dict(role="system", content=_EXTRACT_PROMPT), dict(role="user", content=body)])
-        match = re.search(r"\{.*\}", answer, re.S)
-        if not match:
-            continue
         try:
-            data = json.loads(match[0])
-        except ValueError:
+            answer = chat_fn([dict(role="system", content=_EXTRACT_PROMPT), dict(role="user", content=body)])
+        except Exception as exc:  # the other batches still count
+            failures.append(f"pages {batch[0]['page']}-{batch[-1]['page']}: {exc}")
             continue
+        data, truncated = _parse_answer(answer)
+        if data is None:
+            failures.append(f"pages {batch[0]['page']}-{batch[-1]['page']}: the answer was not readable")
+            continue
+        if truncated:
+            failures.append(f"pages {batch[0]['page']}-{batch[-1]['page']}: the answer was cut off; only its complete rows were used")
         joined = _squash(" ".join(text_of[p["page"]] for p in batch)).casefold()
         for field, value in (data.get("company") or {}).items():
             value = str(value or "").strip()
@@ -552,13 +601,25 @@ def ai_extract(pages, chat_fn=None):
                 ungrounded += 1
                 continue
             page_text = _squash(text_of[page]).casefold()
-            if not all(_squash(token).casefold() in page_text for token in printed) or _squash(label)[:12].casefold() not in page_text:
+            if not all(_printed_on_page(token, text_of[page]) for token in printed) or _squash(label)[:12].casefold() not in page_text:
                 ungrounded += 1  # a number or label that is not on the page is not accepted
                 continue
             statement = fact.get("statement") if fact.get("statement") in {"assets", "liabilities", "income", "comprehensive", "other"} else "other"
             item = str(fact["item"]) if fact.get("item") not in (None, "", "null") else None
             facts.append(dict(page=page, statement=statement, item=item, label=label, printed=printed))
-    return dict(company=company, facts=facts, ungrounded=ungrounded)
+    return dict(company=company, facts=facts, ungrounded=ungrounded, failures=failures)
+
+
+def _base_key(label):
+    """Label without its item number or letter, so "a) crediti verso banche" and "crediti verso banche" meet."""
+    return key(re.sub(r"^\s*(?:\d{1,3}\.|[A-Za-z]\))\s*", "", label or ""))
+
+
+def _printed_number(token):
+    token = re.sub(r"\s+", "", token or "")
+    if token and set(token) <= {"-"}:
+        return 0.0                       # nil marker, however many the model repeated
+    return parse_number(token) if _is_number_token(token) else None
 
 
 def enrich_with_ai(report, pages, chat_fn=None):
@@ -573,14 +634,29 @@ def enrich_with_ai(report, pages, chat_fn=None):
         counters[stem] = max(counters.get(stem, 0), int(number))
     known = {}
     for row in report["lines"]:
-        known.setdefault((row["statement"], row["item"] or key(row["label"])), []).append(row)
+        known.setdefault((row["statement"], row["page"], row["item"] if row["item"] else _base_key(row["label"])), []).append(row)
+        known.setdefault((row["statement"], row["page"], _base_key(row["label"])), []).append(row)
         row.setdefault("origin", "rules")
     stats = dict(agreed=0, ai_only=0, mismatch=0, rules_only=0, ungrounded=extraction["ungrounded"])
     for fact in extraction["facts"]:
-        stem_key = fact["item"] or key(fact["label"])
-        values = {d: parse_number(t) for d, t in zip(columns, fact["printed"])}
-        match = next((r for r in known.get((fact["statement"], stem_key), [])
-                      if r["origin"] in {"rules", "ai+rules"} and r["page"] == fact["page"]), None)
+        numeric_item = fact["item"] if fact["item"] and fact["item"].isdigit() else None
+        stem_key = numeric_item or _base_key(fact["label"])
+        numbers = [_printed_number(t) for t in fact["printed"]]
+        identifier = bool(re.search(r"codice fiscale|(?<!\w)p\.?\s?i\.?(?!\w)|partita iva|(?<!\w)rea(?!\w)|iscrizione|denominazione|paese|"
+                                    r"capitale sociale|tax code|(?<!\w)vat(?!\w)|registration|albo", fact["label"], re.I))
+        if fact["statement"] == "other" and (identifier or (numbers and any(n is None for n in numbers))) and report["period_end"]:
+            # Text printed outside the tables (cover page): a company detail, not a figure.
+            stem = f"details|{_base_key(fact['label'])}"
+            counters[stem] = counters.get(stem, 0) + 1
+            report["lines"].append(dict(id=f"{stem}|{counters[stem]}", statement="details", item=None, label=fact["label"],
+                                        page=fact["page"], values={report["period_end"]: fact["printed"][0]},
+                                        raw={report["period_end"]: fact["printed"][0]}, flags=[], origin="ai"))
+            stats["details"] = stats.get("details", 0) + 1
+            continue
+        values = dict(zip(columns, numbers))
+        match = next((r for r in known.get((fact["statement"], fact["page"], stem_key), []) if r["origin"] in {"rules", "ai+rules"}), None) \
+            or next((r for r in known.get((fact["statement"], fact["page"], _base_key(fact["label"])), [])
+                     if r["origin"] in {"rules", "ai+rules"}), None)
         if match:
             if all(match["values"].get(d) == v for d, v in values.items() if v is not None):
                 match["origin"] = "ai+rules"
@@ -593,7 +669,7 @@ def enrich_with_ai(report, pages, chat_fn=None):
         if not columns or not values or any(v is None for v in values.values()):
             stats["ungrounded"] += 1
             continue
-        stem = f"{fact['statement']}|{stem_key}"
+        stem = f"{fact['statement']}|{numeric_item or key(fact['label'])}"
         counters[stem] = counters.get(stem, 0) + 1
         report["lines"].append(dict(id=f"{stem}|{counters[stem]}", statement=fact["statement"], item=fact["item"], label=fact["label"],
                                     page=fact["page"], values=values, raw=dict(zip(columns, fact["printed"])),
@@ -612,6 +688,8 @@ def enrich_with_ai(report, pages, chat_fn=None):
     report["extraction"] = stats
     report["checks"] = consistency_checks(report)
     report["dates"] = sorted({d for row in report["lines"] if row["statement"] != "details" for d in row["values"]}, reverse=True)
+    for failure in extraction["failures"]:
+        report["warnings"].append(f"The AI could not read {failure}; those pages come from the rule-based reader only.")
     if stats["ungrounded"]:
         report["warnings"].append(f"{stats['ungrounded']} items the AI returned were dropped because they are not printed on the page.")
     return report
