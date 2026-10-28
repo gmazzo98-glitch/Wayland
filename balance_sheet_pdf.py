@@ -80,12 +80,20 @@ def _llm_endpoints(kind):
                (get("CRAWLER_VISION_LLM_FALLBACK_API_KEY"), get("CRAWLER_VISION_LLM_FALLBACK_BASE_URL"),
                 get("CRAWLER_VISION_LLM_FALLBACK_MODEL"))]
         out += [(e.get("api_key"), e.get("base_url"), e.get("model")) for e in config._numbered_llm_fallbacks("CRAWLER_VISION_LLM")]
+        a = config.assistant_llm_settings()
+        out += [(e["key"], e["base"], e["model"]) for e in _assistant_endpoints(a) if re.search(r"gemini|pixtral|vision|gpt-4", e["model"], re.I)]
     else:
         s = config.crawler_llm_settings()
         out = [(s.get("api_key"), s.get("base_url"), s.get("model")),
                (s.get("fallback_api_key"), s.get("fallback_base_url"), s.get("fallback_model"))]
         out += [(e.get("api_key"), e.get("base_url"), e.get("model")) for e in s.get("extra_fallbacks") or []]
+        out += [(e["key"], e["base"], e["model"]) for e in _assistant_endpoints(config.assistant_llm_settings())]
     return [(k, b.rstrip("/"), m) for k, b, m in out if k and b and m]
+
+
+def _assistant_endpoints(a):
+    return [dict(key=a.get("api_key"), base=a.get("base_url"), model=a.get("model") or ""),
+            dict(key=a.get("fallback_api_key"), base=a.get("fallback_base_url"), model=a.get("fallback_model") or "")]
 
 
 def llm_available(kind="text"):
@@ -95,7 +103,7 @@ def llm_available(kind="text"):
         return False
 
 
-def chat(messages, kind="text", max_tokens=8000, timeout=120, attempts=4):
+def chat(messages, kind="text", max_tokens=4000, timeout=120, attempts=2):
     """First answer from the configured OpenAI-compatible providers. A rate-limited provider (429) is waited for
     (its Retry-After, capped) before the next provider is tried; raises when none answers."""
     import time
@@ -106,7 +114,8 @@ def chat(messages, kind="text", max_tokens=8000, timeout=120, attempts=4):
             try:
                 response = requests.post(f"{base}/chat/completions", timeout=timeout,
                                          headers={"Authorization": f"Bearer {api_key}"},
-                                         json=dict(model=model, messages=messages, temperature=0, max_tokens=max_tokens))
+                                         json=dict(model=model, messages=messages, temperature=0, max_tokens=max_tokens,
+                                                   **({"reasoning_effort": "low"} if "gpt-oss" in model else {})))
             except Exception as exc:  # next provider
                 errors.append(f"{model}: {exc}")
                 break
@@ -508,8 +517,8 @@ _EXTRACT_PROMPT = (
     "You read pages of a company's annual financial statements (already OCR'd or taken from the PDF text layer, Italian or "
     "English). Extract EVERY data point printed on the pages you are given, exactly as printed. Answer with JSON only:\n"
     '{"company": {"legal_name": "", "registration_number": "", "legal_form": "", "share_capital": "", "registered_office": "", '
-    '"rea": ""}, "facts": [{"page": 2, "statement": "assets|liabilities|income|comprehensive|other", "item": "10 or null", '
-    '"label": "line label as printed", "printed": ["current column text", "previous column text"]}]}\n'
+    '"rea": ""}, "facts": [[page, "assets|liabilities|income|comprehensive|other", "item number or empty", '
+    '"line label as printed", "current column text", "previous column text"], ...]}\n'
     "Rules: copy each number exactly as printed in `printed` (keep dots, commas, brackets, minus signs, '-' for nil); never "
     "calculate, round or invent; one fact per table row, including sub-lines; `other` is for figures outside the primary "
     "statements (average number of employees, ...), with the label saying what it is; omit what is not on the pages; "
@@ -543,6 +552,15 @@ def _pages_to_read(pages):
     return picked[:EXTRACT_MAX_PAGES]
 
 
+def _row_to_fact(row):
+    """Compact row [page, statement, item, label, printed...] -> fact dict (dict rows pass through)."""
+    if isinstance(row, dict):
+        return row
+    row = list(row)
+    return dict(page=row[0] if row else None, statement=row[1] if len(row) > 1 else "other", item=row[2] if len(row) > 2 else None,
+                label=row[3] if len(row) > 3 else "", printed=row[4:])
+
+
 def _parse_answer(answer):
     """(data, truncated). A cut-off answer still yields every complete row it contained."""
     match = re.search(r"\{.*\}", answer, re.S)
@@ -552,7 +570,7 @@ def _parse_answer(answer):
         except ValueError:
             pass
     rows = []
-    for text in re.findall(r"\{[^{}]*\"printed\"\s*:\s*\[[^\]]*\][^{}]*\}", answer, re.S):
+    for text in re.findall(r"\{[^{}]*\"printed\"\s*:\s*\[[^\]]*\][^{}]*\}|\[\s*\d+\s*,\s*\"[a-z]+\"\s*,[^\[\]]*\]", answer, re.S):
         try:
             rows.append(json.loads(text))
         except ValueError:
@@ -582,6 +600,8 @@ def ai_extract(pages, chat_fn=None):
             failures.append(f"pages {batch[0]['page']}-{batch[-1]['page']}: {exc}")
             continue
         data, truncated = _parse_answer(answer)
+        if data is not None:
+            data["facts"] = [_row_to_fact(f) for f in data.get("facts") or []]
         if data is None:
             failures.append(f"pages {batch[0]['page']}-{batch[-1]['page']}: the answer was not readable")
             continue

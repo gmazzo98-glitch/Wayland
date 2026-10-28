@@ -490,3 +490,56 @@ def test_flexible_data_import_accepts_a_pdf_and_routes_it_to_the_document_flow(t
     assert "Balance sheet upload (PDF)" not in [t.label for t in app.tabs]
     app.button(key="bs_confirm").click().run()
     assert any("Latest year is now FY2025" in s.value for s in app.success), [e.value for e in app.error]
+
+
+def test_compact_rows_and_cut_off_answers_are_read():
+    full = json.dumps({"company": {"legal_name": "X"}, "facts": [[2, "assets", "10", "Cassa", "952.074", "1.127.325"],
+                                                                   [2, "assets", "", "TOTALE ATTIVO", "3.965.121", "4.228.215"]]})
+    data, cut = bs._parse_answer(full)
+    assert not cut and [bs._row_to_fact(r)["label"] for r in data["facts"]] == ["Cassa", "TOTALE ATTIVO"]
+    data, cut = bs._parse_answer(full[:full.rindex('[2, "assets", ""')] + '[2, "assets", "", "TOTALE AT')
+    assert cut and len(data["facts"]) == 1 and data["facts"][0][3] == "Cassa"
+
+
+def test_printed_numbers_must_stand_on_the_page_as_their_own_token():
+    text = "10. Cassa 952.074 1.127.325\nTotale (36.530) -"
+    assert bs._printed_on_page("952.074", text) and bs._printed_on_page("(36.530)", text) and bs._printed_on_page("-", text)
+    assert not bs._printed_on_page("52.074", text) and not bs._printed_on_page("1", text) and not bs._printed_on_page("2", text)
+
+
+def test_rate_limited_provider_is_waited_for_then_the_next_one_answers(monkeypatch):
+    calls = []
+
+    class Response:
+        def __init__(self, status, body=None, headers=None):
+            self.status_code, self._body, self.headers = status, body, headers or {}
+
+        def json(self):
+            return self._body
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs["json"]["model"], kwargs["json"].get("reasoning_effort")))
+        if "groq" in url:
+            return Response(429, headers={"retry-after": "0"})
+        if "cerebras" in url:
+            return Response(402)
+        return Response(200, {"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    monkeypatch.setattr(bs, "_llm_endpoints", lambda kind: [("k", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b"),
+                                                            ("k", "https://api.cerebras.ai/v1", "gpt-oss-120b"),
+                                                            ("k", "https://api.mistral.ai/v1", "mistral-large-latest")])
+    assert bs.chat([{"role": "user", "content": "hi"}]) == "ok"
+    assert [c[1] for c in calls] == ["openai/gpt-oss-120b", "openai/gpt-oss-120b", "gpt-oss-120b", "mistral-large-latest"]
+    assert calls[0][2] == "low" and calls[3][2] is None  # reasoning kept short for gpt-oss only
+
+
+def test_every_configured_assistant_model_joins_the_chain_and_gemini_can_read_scans(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "crawler_llm_settings", lambda: {"api_key": "a", "base_url": "https://g/v1", "model": "gpt-oss-120b"})
+    monkeypatch.setattr(config, "assistant_llm_settings", lambda: {
+        "api_key": "b", "base_url": "https://mistral/v1", "model": "mistral-large-latest",
+        "fallback_api_key": "c", "fallback_base_url": "https://gemini/v1", "fallback_model": "gemini-2.0-flash"})
+    assert [m for _, _, m in bs._llm_endpoints("text")] == ["gpt-oss-120b", "mistral-large-latest", "gemini-2.0-flash"]
+    assert [m for _, _, m in bs._llm_endpoints("vision") if "gemini" in m] == ["gemini-2.0-flash"]
