@@ -51,7 +51,11 @@ def render_page_png(content, index, scale=2.0):
 
 def extract_pages(content, ocr=None):
     """[{page, text, method}] - text layer, or OCR (a callable taking PNG bytes) for pages without one."""
-    import pdfplumber
+    try:
+        import pdfplumber
+    except ImportError as exc:
+        raise RuntimeError("Reading PDFs needs the 'pdfplumber' package: run  pip install -r requirements.txt  "
+                           "(and restart the app).") from exc
     pages = []
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         for number, page in enumerate(pdf.pages, 1):
