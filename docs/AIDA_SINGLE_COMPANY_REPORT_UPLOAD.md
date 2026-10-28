@@ -59,6 +59,19 @@ transaction. Failure rolls the whole import back. Re-import replaces only people
 owned by this dataset and cannot silently overwrite indicators from other sources.
 There is no automatic repair or deletion of earlier Flexible Data Import records.
 
+## Current mapping limits
+
+All financial lines and dates are retained and displayed, but only labels in the
+parser's explicit `_METRICS` table become canonical financial facts. Those facts
+feed the existing AIDA indicator formulas, with file/sheet/cell/date/unit lineage
+and a stored mapping snapshot. Other financial lines remain report data and are
+not automatically connected to indicators or the cost-breakdown analytics.
+
+This flow does not yet provide Flexible Data Import's editable source-to-fact
+mapping controls or saved reusable mapping profiles: the saved-report view bypasses
+that editor. Re-import replaces this dataset's report rather than keeping a history
+of successive upload versions. Fiscal-year series within the report are retained.
+
 ## Verification
 
 The supplied `Mondial Bony.xlsx` was reconciled against all **3,751** populated
