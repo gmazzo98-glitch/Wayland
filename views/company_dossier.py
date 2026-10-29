@@ -13,6 +13,7 @@ behind it is large:
   Market & Digital    competitors, crawled intelligence, products, public contracts, recalls, patents, crawler coverage
   Actions             shortlist, crawls, pilot history, manual entry, paid pulls, ask-the-AI, one-page export
   Data & Audit        data gaps, provenance, raw datasets & mapping, signal audit, evidence, context tags
+  Notes               shared live notebook for the team; notes can be sent to the AI (views/company_notes_panel.py)
 
 The section bodies are the existing renderers (views/company_detail.py `sec_*`, views/company_actions.py, the cost
 X-ray, valuation, pain points) - moved, not rewritten - plus the layers that did not exist before (Overview,
@@ -44,7 +45,7 @@ TAB_KEY = "dossier_tab"
 SECTIONS = [
     ("overview", "🧭 Overview"), ("financials", "💰 Financials"), ("costs", "💸 Costs"), ("diagnosis", "🩺 Diagnosis"),
     ("people", "👥 People & Ownership"), ("market", "🌐 Market & Digital"), ("actions", "🎯 Actions"),
-    ("data", "🗄️ Data & Audit"),
+    ("data", "🗄️ Data & Audit"), ("notes", "📝 Notes"),
 ]
 SECTION_LABEL = dict(SECTIONS)
 LEVEL_ICON = {"risk": "🔴", "watch": "🟠", "strength": "🟢"}
@@ -494,9 +495,14 @@ def _tab_data(ctx: cd.DossierContext, shared: dict) -> None:
     cd.sec_context_tags(ctx)
 
 
+def _tab_notes(ctx: cd.DossierContext, shared: dict) -> None:
+    from views.company_notes_panel import render_notes_section
+    render_notes_section(ctx.db, ctx.company)
+
+
 TAB_RENDERERS = {
     "overview": _tab_overview, "financials": _tab_financials, "costs": _tab_costs, "diagnosis": _tab_diagnosis,
-    "people": _tab_people, "market": _tab_market, "actions": _tab_actions, "data": _tab_data,
+    "people": _tab_people, "market": _tab_market, "actions": _tab_actions, "data": _tab_data, "notes": _tab_notes,
 }
 
 
@@ -583,4 +589,5 @@ DOSSIER_LAYERS = {
     "ownership & group (AIDA)": ("people", "_render_ownership"),
     "data gaps with sources": ("data", "gap_rows"),
     "one-page export": ("actions", "build_html"),
+    "team notes, live collaboration, send-to-AI": ("notes", "render_notes_section"),
 }

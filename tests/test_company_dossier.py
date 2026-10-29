@@ -162,6 +162,7 @@ EXPECTED = {
                 "Manually Record a Signal", "Germany-only"],
     "data": ["Data gaps", "Which sources actually populated live data", "Raw datasets", "Scored Signal Audit",
              "Context & Moderator Tags"],
+    "notes": ["Notes & collaboration"],
 }
 
 
@@ -188,7 +189,7 @@ def test_layer_inventory_is_wired_to_real_functions_in_the_right_tab():
     import views.company_dossier as dossier_page
     from views import company_actions, company_detail, cost_structure
     namespaces = [dossier_page, company_detail, company_actions, cost_structure, dd, dossier_export,
-                  __import__("views.ai_assistant", fromlist=["x"])]
+                  __import__("views.ai_assistant", fromlist=["x"]), __import__("views.company_notes_panel", fromlist=["x"])]
     for layer, (tab, fn_name) in dossier_page.DOSSIER_LAYERS.items():
         assert tab in dossier_page.SECTION_LABEL, f"{layer}: unknown tab {tab}"
         assert any(hasattr(ns, fn_name) for ns in namespaces), f"{layer}: {fn_name} does not exist"

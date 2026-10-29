@@ -717,3 +717,43 @@ class SiteEvidenceCompany(Base):
     finished_at = Column(DateTime, nullable=True)
     last_run_id = Column(String(36), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CompanyNote(Base):
+    """
+    A human note on one company, written in the Company Intelligence dossier.
+
+    Two jobs. (1) Collaboration: anyone who opens the company reads every note, and several people can write at
+    once because each note is its own row (nobody overwrites anybody; the dossier polls every few seconds).
+    (2) Memory for the AI: a note only reaches the assistant and the AI brief once someone has pressed
+    "Send to AI" (`use_in_ai`); the AI always cites it as an analyst note, never as verified data. `kind` is
+    note | insight | proposal | question | decision. Deleting is soft (`deleted_at`) so a note the AI already
+    used can still be traced.
+    """
+    __tablename__ = "company_notes"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+    parent_id = Column(String(36), ForeignKey("company_notes.id"), nullable=True, index=True)   # reply to a note
+    author = Column(String(80), nullable=False)
+    kind = Column(String(20), nullable=False, default="note")
+    body = Column(Text, nullable=False)
+    pinned = Column(Boolean, nullable=False, default=False)
+    use_in_ai = Column(Boolean, nullable=False, default=False, index=True)
+    ai_sent_by = Column(String(80), nullable=True)
+    ai_sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    edited_by = Column(String(80), nullable=True)
+    deleted_at = Column(DateTime, nullable=True, index=True)
+
+
+class CompanyNotePresence(Base):
+    """Who has a company's notes open right now: one row per (company, person), refreshed on every poll."""
+    __tablename__ = "company_note_presence"
+    __table_args__ = (UniqueConstraint("company_id", "author", name="uq_note_presence"),)
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+    author = Column(String(80), nullable=False)
+    seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)

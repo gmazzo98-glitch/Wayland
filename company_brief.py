@@ -136,6 +136,13 @@ def collect_evidence(db: Session, company) -> list[dict]:
                 "Found on the company's own crawled pages; this named entity is NOT a separate "
                 "company record in this database, so it cannot be independently confirmed here.")
 
+    # Notes colleagues sent to the AI. Added only next to crawled evidence (a brief is never built from opinion
+    # alone) and labelled so a finding can say "an analyst note says", never state the opinion as a fact.
+    if items:
+        import company_notes
+        for note in company_notes.ai_notes(db, company.id)[:8]:
+            add("analyst_note", f"{note['kind']} by {note['written_by']} on {note['written_on']}", note["text"])
+
     return items
 
 
@@ -174,6 +181,10 @@ def generate_brief(db: Session, company) -> dict:
         "hiring_signal with zero open roles is a real snapshot at crawl time, not evidence the company "
         "never hires. A parent_group_relationship item that says the parent is NOT a separate record "
         "in this database means exactly that - never claim it is confirmed or verified elsewhere. "
+        "An analyst_note item is a colleague's human opinion, not verified evidence: a finding that uses "
+        "one must begin 'An analyst note says' (or 'According to a note by NAME'), must cite that note, and "
+        "must never present its content as a confirmed fact or combine it with other evidence into a "
+        "claim neither supports. "
         "Do not infer customer concentration, contract value, market share, legal applicability, "
         "headcount, revenue, or the absence of events the evidence doesn't mention. If the evidence "
         "is thin, return fewer findings. Return JSON only."

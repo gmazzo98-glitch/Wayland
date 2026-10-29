@@ -122,7 +122,8 @@ def render_company_chat(db: Session, company) -> None:
     the company so 'its costs' / 'this company' resolve without the user typing the name."""
     note = (f"Context: the user is reading the dossier of {company.legal_name} (registration number "
             f"{company.registration_number}). Unless they name another company, 'this company', 'it' and 'its' mean "
-            f"{company.legal_name}; use get_company_profile / get_cost_breakdown / get_company_pain_points with that name.")
+            f"{company.legal_name}; use get_company_profile / get_cost_breakdown / get_company_pain_points / get_company_notes with that name. "
+            f"Colleagues' notes that were sent to you are analyst opinions: always attribute them, never state them as recorded fact.")
     _render_chat(db, state_key=f"ai_company_chat_{company.id}", context_note=note, input_key=f"ai_company_input_{company.id}",
                  heading=False, placeholder=f"Ask about {company.legal_name}…",
                  suggestions=("Summarise this company in five bullets",

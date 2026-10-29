@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Tuple
 import requests
 from sqlalchemy.orm import Session
 
+import company_notes
 import company_service
 import config
 import cost_analytics
@@ -46,7 +47,11 @@ SYSTEM_PROMPT = (
     "a percentage as thousands of euros. For a company's cost structure call get_cost_breakdown; "
     "to rank companies on a cost line use the cost_<line>_k (thousand EUR), cost_<line>_share (% of "
     "total production costs) or cost_<line>_rev (% of revenue) signal keys. Rankings cover every company in the database "
-    "unless a tool explicitly applies a narrower filter."
+    "unless a tool explicitly applies a narrower filter. Colleagues also write notes on companies; "
+    "get_company_profile and get_company_notes return the ones they sent to you. A note is a human opinion, "
+    "never verified data: whenever you use one, say it comes from an analyst note, name who wrote it and "
+    "when (\"according to a note by X on DATE\"), keep it apart from the tool-derived figures, and if a note "
+    "contradicts a recorded value, show both instead of picking one."
 )
 
 # These indicators store percentage points as numeric values (e.g. 35.2 means
@@ -152,6 +157,14 @@ TOOLS = [
         }, "required": ["company_name"]},
     }},
     {"type": "function", "function": {
+        "name": "get_company_notes",
+        "description": "The analyst notes, insights, proposed changes and questions colleagues wrote on one company and "
+                        "sent to the assistant. These are human opinions, not verified data: always attribute them.",
+        "parameters": {"type": "object", "properties": {
+            "company_name": {"type": "string", "description": "The company's legal name or VAT number"},
+        }, "required": ["company_name"]},
+    }},
+    {"type": "function", "function": {
         "name": "get_company_pain_points",
         "description": "Detected pain points for one company, strongest first.",
         "parameters": {"type": "object", "properties": {
@@ -214,14 +227,20 @@ def _execute_tool(db: Session, name: str, args: Dict[str, Any]) -> Dict[str, Any
         return {"signals": [{"key": k, "label": d.get("label"), "category": d.get("category"),
                              "unit": signal_unit(k)}
                             for k, d in sorted(defs.items())]}
-    if name in ("get_company_profile", "get_company_pain_points", "get_cost_breakdown"):
+    if name in ("get_company_profile", "get_company_pain_points", "get_cost_breakdown", "get_company_notes"):
         company, error = _resolve_company(db, args.get("company_name", ""))
         if error:
             return error
+        if name == "get_company_notes":
+            notes = company_notes.ai_notes(db, company.id)
+            return {"company": company.legal_name, "notes": notes,
+                    **({} if notes else {"note": "No notes have been sent to the assistant for this company."})}
         if name == "get_cost_breakdown":
             return cost_analytics.company_breakdown(db, company) or {"error": f"No cost breakdown imported for {company.legal_name}."}
         if name == "get_company_profile":
-            return company_service.get_company_profile(db, company)
+            profile = company_service.get_company_profile(db, company)
+            notes = company_notes.ai_notes(db, company.id)
+            return {**profile, "analyst_notes": notes} if notes else profile
         return {"pain_points": company_service.get_company_pain_points(db, company)}
     return {"error": f"unknown tool {name!r}"}
 
