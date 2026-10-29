@@ -30,6 +30,8 @@ OCR_MIN_CHARS = 60
 
 _MONTHS = {m: i for i, m in enumerate(
     "january february march april may june july august september october november december".split(), 1)}
+_MONTHS_IT = {m: i for i, m in enumerate(
+    "gennaio febbraio marzo aprile maggio giugno luglio agosto settembre ottobre novembre dicembre".split(), 1)}
 
 
 def key(value):
@@ -194,8 +196,53 @@ def parse_date(text, language="it"):
             return None
     match = re.search(r"\b([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\b", text)
     if match and match[1].casefold() in _MONTHS:
-        return date(int(match[3]), _MONTHS[match[1].casefold()], int(match[2])).isoformat()
+        try:
+            return date(int(match[3]), _MONTHS[match[1].casefold()], int(match[2])).isoformat()
+        except ValueError:
+            return None
+    # "31 dicembre 2025", "31 December 2025"
+    match = re.search(r"\b(\d{1,2})\s*(?:º|°)?\s+([A-Za-zàèéìòù]+)\.?\s+(\d{4})\b", text)
+    if match:
+        month = _MONTHS_IT.get(match[2].casefold()) or _MONTHS.get(match[2].casefold())
+        if month:
+            try:
+                return date(int(match[3]), month, int(match[1])).isoformat()
+            except ValueError:
+                return None
     return None
+
+
+def _with_year(iso, year):
+    """The same month and day in another year (29 February falls back to the 28th)."""
+    d = date.fromisoformat(iso)
+    try:
+        return d.replace(year=year).isoformat()
+    except ValueError:
+        return d.replace(year=year, day=28).isoformat()
+
+
+_YEAR_HEADER = re.compile(r"^(?:(?:esercizio|anno|year|fy|al)\s*)?(20\d{2})\s+(?:(?:esercizio|anno|year|fy|al)\s*)?(20\d{2})$", re.I)
+
+
+def _scan_column_headers(pages, language):
+    """What the statement's own column headings say about the years of the figure columns, in printed order:
+    ([dates of each dated heading], [years of the first year-only heading])."""
+    dated, years = [], []
+    for page in pages:
+        entries = [e["text"] for e in _clean_lines(page["text"]) if e["text"]]
+        for i, line in enumerate(entries):
+            if not any(pattern.search(line) for _, pattern in _HEADINGS):
+                continue
+            found = [d for d in (parse_date(t, language) for t in re.findall(r"\d{1,2}[-/.]\d{1,2}[-/.]\d{4}", line)) if d]
+            if found:
+                dated.append(found)
+            elif not years:
+                for nxt in entries[i + 1:i + 4]:  # the years sit on a line of their own under the heading
+                    match = _YEAR_HEADER.match(nxt.strip())
+                    if match:
+                        years = [int(match[1]), int(match[2])]
+                        break
+    return dated, years
 
 
 def _prior_year(iso):
@@ -276,7 +323,8 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
                   if re.search(r"\b(?:s\.?p\.?a\.?|s\.?r\.?l\.?|s\.?a\.?s\.?|s\.?n\.?c\.?|s\.?c\.?a\.?r\.?l\.?|ltd|gmbh|ag|spa|srl)\b", line, re.I)), None)
     if first:
         report["company"]["legal_name"] = first.title() if first.isupper() else first
-    for pattern in (r"bilancio(?: di esercizio)?\s+al\s+([\d/.\-]+)", r"(?:financial statements|balance sheet)\s+(?:as of|as at|at)\s+([A-Za-z0-9 ,/.\-]+?\d{4})"):
+    for pattern in (r"(?:bilancio(?: di esercizio)?|esercizio(?: sociale)?)\s+(?:chiuso\s+)?al\s+(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{1,2}\s*(?:º|°)?\s+[A-Za-zàèéìòù]+\.?\s+\d{4})",
+                    r"(?:financial statements|balance sheet)\s+(?:as of|as at|at)\s+([A-Za-z0-9 ,/.\-]+?\d{4})"):
         match = re.search(pattern, full, re.I)
         if match and parse_date(match[1], language):
             report["period_end"] = parse_date(match[1], language)
@@ -285,10 +333,32 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
         report["unit"], report["unit_text"] = "thousand EUR", "thousands of euro"
     elif re.search(r"importi (?:presenti )?(?:sono )?espressi in euro|amounts (?:shown )?are in euros?|expressed in (?:units of )?euro|in unit. di euro", full, re.I):
         report["unit"], report["unit_text"] = "EUR", "euro"
+    ncols = 2  # current and previous year, as Italian statements print them
+    dated_headings, header_years = _scan_column_headers(pages, language)
+    header_cols = next((d for d in dated_headings if len(d) >= ncols), None)
+    fallback_columns = None
+    if header_cols:
+        # The dates over the figure columns are the direct evidence of which year each number belongs to; a date elsewhere in
+        # the text (the cover, an approval date) is not.
+        newest = max(header_cols)
+        if report["period_end"] and report["period_end"] != newest:
+            warnings.append(f"The text names {report['period_end']} but the figure columns are headed {', '.join(header_cols)}; "
+                            f"the column headings are used (the statement closes {newest}).")
+        report["period_end"], fallback_columns = newest, header_cols[:ncols]
+    elif len(header_years) >= ncols:
+        if report["period_end"]:
+            if int(report["period_end"][:4]) != max(header_years):
+                warnings.append(f"The text names {report['period_end']} but the figure columns are headed {header_years[0]} and "
+                                f"{header_years[1]}; the column years are used.")
+                report["period_end"] = _with_year(report["period_end"], max(header_years))
+            fallback_columns = [_with_year(report["period_end"], y) for y in header_years[:ncols]]
+        else:
+            report["column_years"] = header_years[:ncols]  # months and days unknown: columns stay placeholders until the date is given
     if not report["period_end"]:
-        warnings.append("The statement date could not be read; enter the period end to continue.")
+        hint = f" The columns are headed {header_years[0]} and {header_years[1]}." if len(header_years) >= ncols else ""
+        warnings.append("The statement date could not be read; enter the closing date of the newest column to continue." + hint)
 
-    statement, seen, ncols, dates = None, set(), 2, []
+    statement, seen, dates = None, set(), []
     pending, last_wrapped, counters, pending_garbled = [], None, {}, False
     for page in pages:
         entries = _clean_lines(page["text"])
@@ -327,7 +397,8 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
                 if restored_garble and item in _STANDARD_ITEMS:
                     full_label, restored = f"{item}. {_STANDARD_ITEMS[item]}", True
                 period_end = report["period_end"]
-                columns = dates[:ncols] if len(dates) >= ncols else ([period_end, _prior_year(period_end)] if period_end else [f"column {i + 1}" for i in range(ncols)])
+                columns = dates[:ncols] if len(dates) >= ncols else (
+                    fallback_columns or ([period_end, _prior_year(period_end)] if period_end else [f"column {i + 1}" for i in range(ncols)]))
                 stem = f"{statement}|{item or key(full_label)}"
                 counters[stem] = counters.get(stem, 0) + 1
                 row = dict(id=f"{stem}|{counters[stem]}", statement=statement, item=item, label=full_label, page=page["page"],
@@ -359,13 +430,13 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
             elif entry["garbled"]:
                 pending, pending_garbled = [line], True
 
-    if dates and report["period_end"] is None:
-        report["period_end"] = dates[0]
     report["dates"] = sorted({d for row in report["lines"] for d in row["values"]}, reverse=True)
+    report["columns"] = list(report["lines"][0]["values"]) if report["lines"] else (fallback_columns or [])  # printed order
     if not report["lines"]:
-        warnings.append("No statement lines were found. If the PDF is a scan, configure the OCR model and read it again.")
-    if report["period_end"] and report["dates"] and report["dates"][0] != report["period_end"]:
-        warnings.append(f"The first column date {report['dates'][0]} differs from the statement date {report['period_end']}.")
+        warnings.append("No statement lines were found. The reader expects two figure columns (current and previous year). "
+                        "If the PDF is a scan, configure the OCR model and read it again.")
+    if report["period_end"] and report["dates"] and report["dates"][0] != report["period_end"] and not str(report["dates"][0]).startswith("column"):
+        warnings.append(f"The newest column date {report['dates'][0]} differs from the statement date {report['period_end']}.")
     if any(p["method"] == "ocr" for p in report["pages"]):
         warnings.append("Some pages were read by OCR; check every number against the PDF before importing.")
     if any(p["method"] == "empty" for p in report["pages"]):
@@ -399,6 +470,35 @@ def parse_statement(source, filename=None, ocr=None, chat_fn=None):
             report["warnings"].append(f"The AI reading could not run ({exc}); the lines come from the rule-based reader.")
     else:
         report["warnings"].append("No language model is configured, so only the rule-based reader ran. Add a CRAWLER_LLM key for the AI reading.")
+    return report
+
+
+def apply_period_end(report, closing_date):
+    """Give the figure columns their dates once the closing date of the NEWEST column is known (the PDF printed no readable date).
+
+    Until then the columns are placeholders ("column 1", "column 2") in printed order. The first printed column is taken to be the
+    newest, as Italian statements print it; when the headings printed the years (report["column_years"]) those are used, so a
+    statement that prints the older year first lands correctly. Idempotent: a report whose columns are dated is left alone."""
+    closing = date.fromisoformat(str(closing_date)[:10]).isoformat()
+    old = list(report.get("columns") or [])
+    if not old or not any(str(c).startswith("column") for c in old):
+        report["period_end"] = report.get("period_end") or closing
+        return report
+    years = report.get("column_years")
+    if years and len(years) == len(old) and max(years) == int(closing[:4]):
+        new = [_with_year(closing, y) for y in years]
+    else:
+        new = [closing] + [_with_year(closing, int(closing[:4]) - i) for i in range(1, len(old))]
+    rename = dict(zip(old, new))
+    for row in report["lines"]:
+        row["values"] = {rename.get(k, k): v for k, v in row["values"].items()}
+        row["raw"] = {rename.get(k, k): v for k, v in row["raw"].items()}
+    report["columns"], report["period_end"] = new, max(new)
+    report["dates"] = sorted({d for row in report["lines"] for d in row["values"]}, reverse=True)
+    report["warnings"] = [w for w in report["warnings"] if not w.startswith("The statement date could not be read")
+                          and not w.startswith("Check failed")]
+    report["checks"] = consistency_checks(report)
+    report["warnings"] += [f"Check failed - {c['name']}: {c['detail']}" for c in report["checks"] if not c["ok"]]
     return report
 
 
@@ -665,7 +765,10 @@ def enrich_with_ai(report, pages, chat_fn=None):
     Numbers are always parsed from the printed text; where model and rules read different numbers the rules' value is kept
     and the line says so."""
     extraction = ai_extract(pages, chat_fn)
-    columns = report["dates"][:2] or ([report["period_end"], _prior_year(report["period_end"])] if report["period_end"] else [])
+    # The columns in the order the PDF prints them: the model's figures follow that order, not the order of the dates
+    # (a statement that prints the older year first would otherwise have its two years swapped).
+    columns = report.get("columns") or report["dates"][:2] or (
+        [report["period_end"], _prior_year(report["period_end"])] if report["period_end"] else [])
     counters = {}
     for row in report["lines"]:
         stem, number = row["id"].rsplit("|", 1)

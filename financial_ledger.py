@@ -89,6 +89,24 @@ def existing_observations(db, company_id):
     return found
 
 
+def unplaced_datasets(db, company_id):
+    """Names of datasets that hold Latest / Y-n figures of merged facts but no closing date. They cannot be put in a fiscal year,
+    so the merge leaves them out; the import preview says so instead of dropping them silently."""
+    from company_service import CANONICAL_SERIES_LABELS
+    from models import RawImportRecord
+    names = []
+    if not company_id:
+        return names
+    for record in db.query(RawImportRecord).filter_by(company_id=company_id).all():
+        raw = record.raw_row if isinstance(record.raw_row, dict) else {}
+        if record.dataset_name == LEDGER_DATASET or record.dataset_name.startswith(DATASET_PREFIX) or _anchor_year(raw) is not None:
+            continue
+        if any((m := _FACT.match(column)) and m["base"] in CANONICAL_SERIES_LABELS and isinstance(value, (int, float))
+               and not isinstance(value, bool) for column, value in raw.items()):
+            names.append(record.dataset_name)
+    return names
+
+
 def statement_observations(db, company_id):
     from models import RawImportRecord
     out = {}
@@ -109,6 +127,10 @@ def build_record(statement, mapping, unit, new_labels=None):
     period_end = statement.get("period_end")
     if not period_end:
         raise ValueError("The statement date is missing.")
+    undated = sorted({d for line in statement["lines"] for d in line["values"] if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(d))})
+    if undated:
+        raise ValueError("The figure columns have no dates yet (" + ", ".join(undated) + "): give the closing date of the newest "
+                         "column so each column is placed in its year.")
     observations, direct, proposals, warnings, company = [], [], {}, [], {}
     for line in statement["lines"]:
         target = mapping.get(line["id"]) or None
@@ -321,6 +343,40 @@ def signal_changes(db, company_id, merged):
 
 # --------------------------------------------------------------------------------------------- plan and import
 
+def year_placement(db, company_id, record, merged):
+    """One row per fiscal year the statement covers: the label it gets in the merged history (Latest, Y-1 ...), how many of its
+    figures are new, confirm what another source already holds, or differ from it."""
+    others, _ = _all_candidates(db, company_id) if company_id else ({}, {})
+    rows = {}
+    for o in record["observations"]:
+        row = rows.setdefault(o["year"], dict(year=o["year"], fiscal_year=f"FY{o['year']}", lands_as=period_name(merged["anchor"], o["year"]),
+                                              figures=0, new=0, confirms=0, differs=0, date=o["date"]))
+        row["figures"] += 1
+        known = [c for c in others.get((o["base"], o["year"]), []) if c["dataset"] != record["dataset"]]
+        if not known:
+            row["new"] += 1
+        elif any(_agree(c, dict(value=o["value"], rounded=False)) for c in known):
+            row["confirms"] += 1
+        else:
+            row["differs"] += 1
+    return [rows[y] for y in sorted(rows, reverse=True)]
+
+
+def period_warnings(record, merged):
+    """Plausibility of the years a statement claims: a typo in a date would otherwise move the whole timeline."""
+    from datetime import date as _date
+    out = []
+    years = sorted({o["year"] for o in record["observations"]})
+    if years and years[-1] > _date.today().year + 1:
+        out.append(f"The newest column closes in FY{years[-1]}, which has not happened yet. Check the statement date.")
+    if years and years[0] < 1990:
+        out.append(f"A column belongs to FY{years[0]}. Check the statement date.")
+    if merged["anchor"] and merged.get("previous_anchor") and merged["anchor"] - merged["previous_anchor"] > 3:
+        out.append(f"This moves the latest year from FY{merged['previous_anchor']} to FY{merged['anchor']}, {merged['anchor'] - merged['previous_anchor']} "
+                   "years later. Check the statement date if that is not expected.")
+    return out
+
+
 def plan_statement(db, statement, mapping, new_labels=None, unit=None, decisions=None):
     """Read-only preview of importing one statement."""
     from models import Company
@@ -343,8 +399,12 @@ def plan_statement(db, statement, mapping, new_labels=None, unit=None, decisions
                        for k, v in record["company"].items() if not company or current(k) != v]
     return dict(company_id=company_id, action="Update existing company" if company else "Create company",
                 record=record, company_changes=company_changes, merged=merged, changes=signal_changes(db, company_id, merged) if company_id else [],
+                placement=year_placement(db, company_id, record, merged),
                 replaced_statement=bool(company_id and statement_dataset(record["period_end"]) in statement_observations(db, company_id)),
-                warnings=record["warnings"] + (["Several statements feed this history; check the conflicts below."] if merged["conflicts"] else []))
+                warnings=record["warnings"] + period_warnings(record, merged)
+                + [f"{name} holds Latest / Y-n figures but no closing date, so it cannot be placed in a fiscal year and is not part of "
+                   "the merged history." for name in unplaced_datasets(db, company_id)]
+                + (["Several statements feed this history; check the conflicts below."] if merged["conflicts"] else []))
 
 
 def _sync_headcount(company, value):

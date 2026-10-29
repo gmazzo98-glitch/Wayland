@@ -160,6 +160,30 @@ def _trend_groups_from_raw(raw_row: dict, mapping_snapshot: dict = None) -> dict
     return trends
 
 
+def _period_labels(series, raw_row: dict) -> list:
+    """Axis labels for an oldest-to-newest [(Latest / Y-n, value)] series: the fiscal year when the record says which year Latest
+    is (FY2023, FY2024 ...), otherwise Y-2, Y-1, Latest."""
+    year = raw_row.get("derived_last_accounts_year")
+    if not isinstance(year, (int, float)) or not 1900 < year < 2200:
+        close = str(raw_row.get("accounts_close") or "")[:4]
+        year = int(close) if close.isdigit() else None
+    labels = []
+    for label, _ in series:
+        offset = 0 if label == "Latest" else int(label.split("-")[1])
+        labels.append(f"FY{int(year) - offset}" if year else label)
+    return labels
+
+
+def _trend_figure(series, raw_row: dict):
+    """A small line chart that keeps the series in time order. (st.line_chart sorts a text axis alphabetically, which put
+    "Latest" before "Y-1" and drew time backwards.) A year with no value is a gap, not a zero."""
+    import plotly.graph_objects as go
+    fig = go.Figure(go.Scatter(x=_period_labels(series, raw_row), y=[v for _, v in series], mode="lines+markers", connectgaps=False))
+    fig.update_layout(template="plotly_dark", height=180, margin=dict(t=8, b=8, l=0, r=0), showlegend=False,
+                      xaxis=dict(type="category"), yaxis=dict(automargin=True))
+    return fig
+
+
 def _single_point_fields_from_raw(raw_row: dict) -> dict:
     """Every column from a raw injected row that is NOT part of a detected
     time series — the flat financial and non-financial fields, as injected."""
@@ -1370,13 +1394,11 @@ def sec_data_trends(ctx: DossierContext) -> None:
                 if trend_groups:
                     trend_cols = st.columns(min(3, len(trend_groups)))
                     for i, (base, series) in enumerate(sorted(trend_groups.items())):
-                        chart_df = pd.DataFrame(
-                            [v for _, v in series], index=[label for label, _ in series], columns=[base]
-                        )
                         with trend_cols[i % len(trend_cols)]:
                             tag_k = " (k)" if _is_financial_field(base) else ""
                             st.caption(f"{base.replace('_', ' ').title()}{tag_k}")
-                            st.line_chart(chart_df, height=180)
+                            st.plotly_chart(_trend_figure(series, rec.raw_row), use_container_width=True,
+                                            key=f"trend_{rec.id}_{base}")
                 else:
                     st.caption("No multi-year (Latest/Y-1/Y-2 style) columns detected in this dataset.")
                 if flat_fields:

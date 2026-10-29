@@ -1,5 +1,6 @@
 """Balance sheet (PDF) upload: read, check, map, resolve conflicts, import."""
 import hashlib
+from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -143,14 +144,24 @@ def render_upload(db, uploaded=None):
     except Exception as exc:
         st.error(f"Could not read this PDF: {exc}")
         return
+    if not statement["period_end"]:
+        # No readable closing date: the columns are placeholders until the date of the newest one is given, because that date
+        # is what puts each column into its year in the trend history.
+        years = statement.get("column_years")
+        chosen = st.date_input("Closing date of the newest figures column", value=date(max(years), 12, 31) if years else None,
+                               key=f"bs_date_{signature}", format="YYYY-MM-DD",
+                               help="The PDF printed no readable date. This decides which fiscal year each column belongs to.")
+        if chosen is not None:
+            bs.apply_period_end(statement, chosen.isoformat())
     _render_statement(statement)
+    if not statement["period_end"]:
+        st.info("Enter the closing date above to continue: it decides which year each figure column belongs to.")
+        return
 
     detected = {"EUR": 0, "thousand EUR": 1}.get(statement["unit"])
     unit_label = st.radio("Amounts in the statement are in", ["Euro", "Thousands of euro"], index=detected, horizontal=True,
                           key=f"bs_unit_{signature}", help="Read from the statement when printed; the radio is empty if it was not found.")
     unit = {"Euro": "EUR", "Thousands of euro": "thousand EUR"}.get(unit_label)
-    if not statement["period_end"]:
-        statement["period_end"] = str(st.date_input("Statement date", key=f"bs_date_{signature}"))
     if not unit:
         st.info("Choose the unit to continue.")
         return
@@ -172,6 +183,15 @@ def render_upload(db, uploaded=None):
             st.dataframe(pd.DataFrame([{"Field": c["field"].replace("_", " ").title(), "Now": str(c["existing"] or ""),
                                         "From the document": str(c["statement"])} for c in plan["company_changes"]]),
                          hide_index=True, width="stretch")
+    if plan.get("placement"):
+        st.markdown("##### Where this statement's years land")
+        st.caption("Each figure column is placed by the fiscal year it is dated: the newest year anywhere is Latest, the others count "
+                   "down from it. Figures other sources already hold for the same year are compared, not duplicated.")
+        st.dataframe(pd.DataFrame([{"Fiscal year": r["fiscal_year"], "Column date": r["date"],
+                                    "Becomes": {"latest": "Latest"}.get(r["lands_as"], (r["lands_as"] or "").replace("y-", "Y-")),
+                                    "Figures": r["figures"], "New": r["new"], "Confirm another source": r["confirms"],
+                                    "Differ from another source": r["differs"]} for r in plan["placement"]]),
+                     hide_index=True, width="stretch")
     if merged["anchor"]:
         before = merged["previous_anchor"]
         st.markdown(f"**Year labels:** Latest = FY{merged['anchor']}"

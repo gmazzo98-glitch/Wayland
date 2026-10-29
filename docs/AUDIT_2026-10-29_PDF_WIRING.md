@@ -41,6 +41,19 @@ Intelligence, where it must be visible; make a giant audit and string up loose e
 | 12 | `tests/test_phase7_batch.py` hook test failed intermittently (asserted thread start order). | asserts the submission order |
 | 13 | `tests/test_agent_status_file.py` failed for days: ids compared in file order after OP-015 moved to the Closed log, and section B had grown to 64 lines against its 39 line cap. | ids compared sorted; the dated history moved verbatim to `docs/STATUS_HISTORY.md` |
 
+## Second pass: does a new statement land in the right year? (requested after the first push)
+The ledger itself was right: an oracle test over every upload order, gaps of a year or more, a June year end and a restated
+comparative passes on the code as it was. The weaknesses were in recognising the year:
+| # | Finding | Fix |
+|---|---|---|
+| 14 | When the cover named a different year from the column headings, the statement was labelled with the cover's year while its figures were placed by the headings. | the headings decide, with a warning |
+| 15 | A PDF with no readable date could never be imported: typing the date left the columns as `column 1`, `column 2` and the import died with `invalid literal for int()`. | `apply_period_end` dates the columns; undated columns are refused with a clear message |
+| 16 | With the AI reading, a statement that prints the older year first got its two years swapped (the model's figures were zipped against dates sorted newest first). | the printed column order is kept |
+| 17 | Italian dates in words, and year-only headings, were not read. | read |
+| 18 | The operator could not see where a statement would land before importing. | "Where this statement's years land" table and plausibility warnings |
+| 19 | The trend charts in the dossier drew time backwards (`Latest, Y-1, Y-2` sorted alphabetically by the chart library). | plotly line charts in time order, labelled FY2023, FY2024 ... |
+| 20 | A dataset with Latest / Y-n figures but no closing date was left out of the merge without a word. | the preview names it |
+
 ## Not fixed, and why
 - `test_worker_hub::test_committed_bundle_contains_the_current_worker_source` stays red: `worker/worker.mjs` changed in ticket I04 without a rebuilt bundle. Rebuilding needs the Scraper repo and npm and ships an update to the helper PCs; it belongs to release ticket I90 (OP-010, OP-017 G7).
 - EBITDA from a statement (OP-020), peer cohort (OP-021), CI for the tests (OP-022) are decisions for Giorgio. Verification with real files, a scan and the hosted app (OP-023) needs data and keys this container does not have.

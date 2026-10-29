@@ -80,3 +80,28 @@ consolidated vs separate statements as distinct bases; OCR quality has not been 
 - **Valuation** reads the merged record when it has the newest fiscal year. A statement-only year has no EBITDA, so the valuation
   says "Revenue and EBITDA for the latest year are not available" until EBITDA exists (OP-020).
 - **Not following the PDF yet:** the diagnosis peer cohort (`diagnosis/peers.py`) still reads only the bulk AIDA blob (OP-021).
+
+## How a new statement is given its year (and its place in the trends)
+1. **Each figure column is dated.** The dates printed over the columns (`STATO PATRIMONIALE ATTIVO 31-12-2025 31-12-2024`) are the
+   evidence of which year each number belongs to, in the order the PDF prints them (a statement that prints the older year first
+   is read correctly). If only years are printed (`Esercizio 2025 Esercizio 2024`) the month and day come from the cover or from
+   the operator. A date elsewhere in the text (cover, approval date) is only the fallback; when it contradicts the column
+   headings the headings win and the page says so. Italian dates in words (`31 dicembre 2025`) are read.
+2. **No readable date:** the columns stay placeholders and the page asks for the closing date of the newest column (prefilled with
+   31 December of the year the headings print, empty when none). Entering it dates the columns (`balance_sheet_pdf.apply_period_end`);
+   the import is refused while columns are undated, so a placeholder can never reach the history.
+3. **Year of a column = the calendar year of its closing date**, the same rule AIDA's close date gives, so a 30 June year end is the
+   year it closes in and meets AIDA's figures by that year.
+4. **The preview shows the placement** ("Where this statement's years land"): per fiscal year, what it becomes in the history
+   (Latest, Y-1 ...), how many figures are new, confirm another source or differ from it. Implausible years (a future one, one before
+   1990, a jump of more than three years) are warned about before anything is saved.
+5. **The history is rebuilt from dated observations**, never from the order of the uploads: the newest year anywhere is Latest, every
+   other year counts down from it by actual year, a missing year stays a gap, a restated comparative is a conflict the newest
+   statement wins by default and the operator can overrule. The trend indicators compare Latest with two years back, else one year
+   back, and are not computed when neither exists (a gap is never bridged). `tests/test_year_placement.py` checks all this against
+   an oracle computed from the inputs, over every upload order and with gaps.
+6. **Charts and tables** of the dossier name the fiscal years (FY2023, FY2024 ...) and keep time order; a year with no value is a gap.
+7. **Left out, and said so:** a dataset that holds Latest / Y-n figures but no closing date cannot be placed in a year; the preview
+   names it.
+Limits: the reader expects two figure columns (current and previous year). A company that changes its year end can have two
+statements closing in one calendar year, which shows as a conflict for that year.
