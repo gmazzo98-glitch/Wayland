@@ -312,3 +312,17 @@ def render_saved_statement(record, scope=""):
     st.download_button("Download parsed statement (JSON)", json.dumps(statement, ensure_ascii=False, indent=2, default=str),
                        file_name=f"balance_sheet_{statement.get('period_end')}.json", mime="application/json",
                        key=f"bs_download_{scope}_{record.id}")
+
+
+def render_remove_statement(db, company, record, scope=""):
+    """Undo for a wrong upload: remove the statement, re-merge the history and the results that follow from it."""
+    st.caption("Uploaded the wrong file? Removing the statement re-merges the history from the sources that remain; the company, "
+               "other sources and your conflict choices stay, and results that rested only on this statement are withdrawn.")
+    sure = st.checkbox("Remove this statement", key=f"bs_rm_sure_{scope}_{record.id}")
+    if st.button("Remove statement and re-merge", key=f"bs_rm_{scope}_{record.id}", disabled=not sure):
+        try:
+            fl.remove_statement(db, company, record.dataset_name)
+        except Exception as exc:
+            st.error(f"Nothing was removed: {exc}")
+            return
+        st.rerun()

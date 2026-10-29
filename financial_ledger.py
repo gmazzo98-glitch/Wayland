@@ -18,6 +18,7 @@ PROFILE_PREFIX = "balance-sheet::"
 NEW_INDICATOR = "__new__"
 CALCULATION_PERIODS = ("latest", "y-1", "y-2")
 COST_BASES = {"personnel_costs", "materials", "production_costs"}
+YEAR_SIGNAL = "last_accounts_year"  # context signal read by the dossier's staleness flags
 _FACT = re.compile(r"^(?P<base>[a-z_]+)_(?P<period>latest|y-(?P<n>\d+))$")
 
 
@@ -130,6 +131,12 @@ def build_record(statement, mapping, unit, new_labels=None):
                 if number is None or number < 0 or float(number) != int(number):
                     raise ValueError(f"{line['label']} is not a whole, non-negative employee count.")
                 value = int(number)
+            elif field == "incorporation_date":
+                from balance_sheet_pdf import parse_date
+                iso = str(value).strip()[:10] if re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", str(value).strip()) else parse_date(str(value))
+                if not iso:
+                    raise ValueError(f"{line['label']} is not a readable date, so it cannot be the incorporation date.")
+                value = iso
             elif isinstance(value, (int, float)):
                 raise ValueError(f"{line['label']} is a number; connect it to a financial fact or an indicator.")
             if field in company and company[field] != value:
@@ -264,6 +271,10 @@ def compute(db, company_id, new_record=None, decisions=None):
     for indicator, item in _directs(records).items():
         drafts[indicator] = dict(value=item["value"], status="present", basis="Direct value from a reviewed balance sheet line, in the printed unit",
                                  inputs={}, raw_fields=[item["evidence"]])
+    if anchor:
+        # The staleness flags and the Data tab read this signal; it must follow the newest year of the merged history.
+        drafts[YEAR_SIGNAL] = dict(value=float(anchor), status="present", basis=f"Newest fiscal year in the merged annual history (FY{anchor})",
+                                   inputs={}, raw_fields=[])
     return dict(anchor=anchor, previous_anchor=previous, series=series, conflicts=conflicts, facts=facts, sources=sources,
                 drafts=drafts, decisions=decisions, labels=_fiscal_labels(anchor, years) if anchor else {},
                 missing=sorted(b for b, by_year in series.items() if anchor not in by_year), records=records)
@@ -277,6 +288,7 @@ def _derived_keys():
 
 def signal_changes(db, company_id, merged):
     """Rows comparing each affected signal with what is stored; `decide` is True when the operator must choose."""
+    from aida_import import DATASET_NAME as BULK_DATASET
     from aida_single_report import DATASET_NAME as REPORT_DATASET
     from indicators import fetch_indicator_defs
     from models import SignalRecord
@@ -288,6 +300,8 @@ def signal_changes(db, company_id, merged):
             continue
         old = existing.get(name)
         had = old is not None and old.status == "present" and not old.is_simulated and old.numeric_value is not None
+        if name == YEAR_SIGNAL and had and old.source != LEDGER_SOURCE and old.numeric_value >= draft["value"]:
+            continue  # a registry that already knows a later closing year is not pulled back
         new_value = draft["value"] if draft["status"] == "present" else None
         differs = had and (new_value is None or abs(old.numeric_value - new_value) > 1e-6 * max(1.0, abs(old.numeric_value)))
         if new_value is None and not had:
@@ -295,7 +309,9 @@ def signal_changes(db, company_id, merged):
         rows.append(dict(signal=name, existing=old.numeric_value if had else None, existing_source=old.source if had else None,
                          new=new_value, decide=bool(differs and old.source != LEDGER_SOURCE), obsolete=False))
     for name, old in existing.items():
-        if name in merged["drafts"] or old.status != "present" or old.source not in {LEDGER_SOURCE, REPORT_DATASET}:
+        # The bulk AIDA export is the main source of live companies: its results that were computed from a Latest the
+        # merged history no longer has are as stale as the single report's, and are offered for withdrawal the same way.
+        if name in merged["drafts"] or old.status != "present" or old.source not in {LEDGER_SOURCE, REPORT_DATASET, BULK_DATASET}:
             continue
         if name in _derived_keys() or old.source == LEDGER_SOURCE:
             rows.append(dict(signal=name, existing=old.numeric_value, existing_source=old.source, new=None,
@@ -320,19 +336,30 @@ def plan_statement(db, statement, mapping, new_labels=None, unit=None, decisions
         company_id = company.id
     record = build_record(statement, mapping, unit, new_labels)
     merged = compute(db, company_id, record, decisions)
-    company_changes = [dict(field=k, existing=getattr(company, k, None) if company else None, statement=v)
-                       for k, v in record["company"].items() if not company or getattr(company, k, None) != v]
+    def current(field):
+        value = getattr(company, field, None) if company else None
+        return str(value)[:10] if field == "incorporation_date" and value is not None else value
+    company_changes = [dict(field=k, existing=current(k), statement=v)
+                       for k, v in record["company"].items() if not company or current(k) != v]
     return dict(company_id=company_id, action="Update existing company" if company else "Create company",
                 record=record, company_changes=company_changes, merged=merged, changes=signal_changes(db, company_id, merged) if company_id else [],
                 replaced_statement=bool(company_id and statement_dataset(record["period_end"]) in statement_observations(db, company_id)),
                 warnings=record["warnings"] + (["Several statements feed this history; check the conflicts below."] if merged["conflicts"] else []))
 
 
+def _sync_headcount(company, value):
+    """Company.headcount is the denormalised copy of the number_of_employees signal (header, segment filters,
+    valuation peers), so it follows the signal the same way the AIDA report import keeps it."""
+    headcount = int(round(value))
+    if headcount < 0 or company.headcount == headcount:
+        return
+    company.headcount, company.headcount_source_tier = headcount, "T1"
+    company.segment = "SME" if headcount < 250 else "Midcap"
+
+
 def _write(db, company, merged, replace, now):
     """Signals and the merged-history record. Caller commits."""
-    from indicators import fetch_indicator_defs
     from models import RawImportRecord, SignalRecord
-    defs = fetch_indicator_defs(db)
     existing = {s.signal_key: s for s in db.query(SignalRecord).filter_by(company_id=company.id).all()}
     rows = {r["signal"]: r for r in signal_changes(db, company.id, merged)}
     written = cleared = 0
@@ -353,6 +380,10 @@ def _write(db, company, merged, replace, now):
                                               evidence=dict(inputs=draft["inputs"], anchor_year=merged["anchor"])), ensure_ascii=False, default=str)
         db.add(sig)
         written += 1
+        employees = (merged["series"].get("employees") or {}).get(merged["anchor"]) or {}
+        if name == "number_of_employees" and draft["status"] == "present" and draft["value"] is not None \
+                and employees.get("kind") == "balance_sheet":
+            _sync_headcount(company, draft["value"])  # only a figure the statement itself printed: AIDA's is already on the company
     record = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=LEDGER_DATASET).first()
     if record is None:
         record = RawImportRecord(company_id=company.id, dataset_name=LEDGER_DATASET)
@@ -387,7 +418,7 @@ def import_statement(db, statement, mapping, new_labels=None, unit=None, decisio
         if company.country != "Italy":
             raise ValueError("The matched company's country is not Italy. Resolve its identity before importing.")
         for field, value in plan["record"]["company"].items():
-            setattr(company, field, value)
+            setattr(company, field, datetime.fromisoformat(value) if field == "incorporation_date" else value)
         if "headcount" in plan["record"]["company"]:
             company.headcount_source_tier = "T1"
             company.segment = "SME" if company.headcount < 250 else "Midcap"
@@ -437,3 +468,33 @@ def apply_decisions(db, company, decisions):
     _write(db, company, merged, {}, datetime.utcnow())
     db.commit()
     return merged
+
+
+def remove_statement(db, company, dataset):
+    """Take one uploaded statement out of the history (a wrong file, a wrong company) and re-merge what is left.
+    Other sources, the company and the operator's conflict choices stay. With nothing left to merge the merged record and
+    the results it owns are withdrawn. Commits."""
+    from models import RawImportRecord, SignalRecord
+    if not str(dataset).startswith(DATASET_PREFIX):
+        raise ValueError("Only an uploaded balance sheet statement can be removed here.")
+    record = db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=dataset).first()
+    if record is None:
+        raise ValueError("This company has no such statement.")
+    now = datetime.utcnow()
+    try:
+        db.delete(record)
+        db.flush()
+        merged = compute(db, company.id)
+        if merged["series"]:
+            _write(db, company, merged, {}, now)
+        else:
+            for sig in db.query(SignalRecord).filter_by(company_id=company.id, source=LEDGER_SOURCE).all():
+                sig.status, sig.numeric_value, sig.text_value, sig.fetched_at = "not_yet_checked", None, None, now
+                sig.raw_payload_ref = json.dumps(dict(dataset=LEDGER_SOURCE, basis="The statement behind this result was removed."))
+            db.query(RawImportRecord).filter_by(company_id=company.id, dataset_name=LEDGER_DATASET).delete(synchronize_session=False)
+            company.need_score = company.readiness_score = company.last_scored_at = None
+        db.commit()
+        return merged
+    except Exception:
+        db.rollback()
+        raise

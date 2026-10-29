@@ -58,7 +58,8 @@ def test_read_first_line_is_at_the_top_of_claude_agents_and_readme():
 def test_sections_and_seed_points_exist():
     d = op.Doc(REAL)
     assert list(d.section_starts()) == ["A", "B", "C", "D", "E"]
-    ids = [p.id for p in d.points()]
+    # Done points move to the Closed log (section E), so file order is not numeric order: compare the set of ids.
+    ids = sorted(p.id for p in d.points())
     # The 13 seed points stay, numbered without gaps; later points (added by agents) only extend the list.
     assert ids == [f"OP-{i:03d}" for i in range(1, len(ids) + 1)] and len(ids) >= 13
     text = REAL.read_text(encoding="utf-8")

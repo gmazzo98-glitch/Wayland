@@ -683,6 +683,16 @@ def apply_records(db: Session, records: Dict[str, dict], apply: bool = False) ->
     health.mode, health.last_status, health.last_run_at, health.last_error_message = "live", "success", now, None
     health.total_calls = (health.total_calls or 0) + 1
     db.commit()
+    # A company with statement history keeps one merged timeline (financial_ledger): its AIDA figures just changed, so
+    # re-merge it, exactly as an AIDA single-company report import does. Nobody else is touched.
+    from financial_ledger import LEDGER_DATASET, rebuild_company
+    merged_ids = [cid for (cid,) in db.query(RawImportRecord.company_id).filter(
+        RawImportRecord.dataset_name == LEDGER_DATASET, RawImportRecord.company_id.in_(blob_company_ids))]
+    for cid in merged_ids:
+        rebuild_company(db, db.get(Company, cid), now)
+    if merged_ids:
+        db.commit()
+    report["re_merged"] = len(merged_ids)
     if reviewed_mappings:
         from company_service import fetch_indicator_defs, reapply_mapping_to_raw_record
         indicator_defs = fetch_indicator_defs(db)

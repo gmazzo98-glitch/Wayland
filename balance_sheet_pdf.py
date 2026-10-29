@@ -217,8 +217,11 @@ _HEADINGS = (
 _OTHER_HEADING = re.compile(r"^(?:prospetto delle variazioni|statement of changes|rendiconto finanziario|cash flow statement|"
                             r"nota integrativa|notes to the|explanatory notes|parte [a-z]\b|criteri di valutazione)", re.I)
 _NOISE = re.compile(r"^(?:pag\.?\s*\d+|page\s*\d+|il consiglio|the board|l.amministratore|\(?[A-Z ]+\)$|subscribe to deepl|visit www)", re.I)
-_ITEM = re.compile(r"^\s*(\d{1,3})\.\s+")
+_ITEM = re.compile(r"^\s*(\d{1,3})[.)]\s+")  # "10. " (Bank of Italy layout) and "6) " (OIC layout)
 _LETTER_ITEM = re.compile(r"^\s*([a-z])\)\s+", re.I)
+# Headings that carry no figures of their own ("B) IMMOBILIZZAZIONI", "IV - Disponibilita liquide", "9) per il personale:"):
+# they group the rows below and must not become the first words of the next row's label.
+_SECTION = re.compile(r"^(?:[A-Z]\)\s+[A-Z][A-Z0-9'’ ,.\-/&()]*|(?:XII|XI|IX|X|VIII|VII|VI|IV|V|III|II|I)\s*[-–.]\s+\S.*|.*:)$")
 
 # Positions in the Bank of Italy layout, used only to restore a label the PDF printed as scattered letters.
 _STANDARD_ITEMS = {
@@ -288,10 +291,13 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
     statement, seen, ncols, dates = None, set(), 2, []
     pending, last_wrapped, counters, pending_garbled = [], None, {}, False
     for page in pages:
-        for entry in _clean_lines(page["text"]):
+        entries = _clean_lines(page["text"])
+        for position, entry in enumerate(entries):
             line = entry["text"]
             if not line:
                 continue
+            following = entries[position + 1]["text"] if position + 1 < len(entries) else ""
+            figures_next = bool(following) and not _split_numbers(following, ncols)[0] and len(_split_numbers(following, ncols)[1]) == ncols
             head = next((name for name, pattern in _HEADINGS if pattern.search(line)), None)
             if head:
                 if head in seen:
@@ -337,6 +343,9 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
                 last_wrapped = row if wrapped else None
                 continue
             if len(nums) == 0 and not entry["garbled"]:
+                if _SECTION.match(line.strip()) and not figures_next:  # a label with its figures on the next line is not a heading
+                    pending, last_wrapped = [], None
+                    continue
                 if last_wrapped is not None and not _ITEM.match(line) and len(line.split()) <= 3:
                     last_wrapped["label"] += " " + line
                     last_wrapped = None
@@ -404,7 +413,7 @@ def consistency_checks(report):
     """Totals that must agree if the lines were read correctly."""
     checks = []
     assets = _find(report, "assets", r"^(?:totale attivo|total assets)$")
-    liabilities = _find(report, "liabilities", r"^(?:totale passivo e patrimonio netto|total liabilities and (?:net )?equity)")
+    liabilities = _find(report, "liabilities", r"^(?:totale passivo(?: e patrimonio netto)?|total liabilities and (?:net )?equity)$")
     if assets and liabilities:
         for d in assets["values"]:
             a, b = assets["values"].get(d), liabilities["values"].get(d)
@@ -415,6 +424,15 @@ def consistency_checks(report):
         for d in income_net["values"]:
             a, b = income_net["values"].get(d), balance_net["values"].get(d)
             checks.append(dict(name=f"Net result agrees between income statement and balance sheet ({d})", ok=a == b, detail=f"{a} vs {b}"))
+    value = _find(report, "income", r"^(?:\d+ )?(?:a )?(?:totale )?valore della produzione$|^total (?:value of )?production$")
+    costs = _find(report, "income", r"^(?:\d+ )?(?:b )?(?:totale )?costi della produzione$|^total production costs$")
+    result = _find(report, "income", r"^differenza tra valore e costi della produzione(?: a b)?$")
+    if value and costs and result:  # costs are printed positive (OIC) or in brackets: the sign is not what is checked
+        for d in value["values"]:
+            a, b, r = value["values"].get(d), costs["values"].get(d), result["values"].get(d)
+            if None not in (a, b, r):
+                checks.append(dict(name=f"Value of production minus production costs equals the operating result ({d})",
+                                   ok=abs(a - abs(b) - r) < 1, detail=f"{a} - {abs(b)} vs {r}"))
     before = next((r for r in report["lines"] if r["statement"] == "income" and r["item"] == "260"), None)
     tax = next((r for r in report["lines"] if r["statement"] == "income" and r["item"] == "270"), None)
     after = next((r for r in report["lines"] if r["statement"] == "income" and r["item"] == "280"), None)
@@ -631,8 +649,8 @@ def ai_extract(pages, chat_fn=None):
 
 
 def _base_key(label):
-    """Label without its item number or letter, so "a) crediti verso banche" and "crediti verso banche" meet."""
-    return key(re.sub(r"^\s*(?:\d{1,3}\.|[A-Za-z]\))\s*", "", label or ""))
+    """Label without its item number or letter, so "a) crediti verso banche", "6) per servizi" and "per servizi" meet."""
+    return key(re.sub(r"^\s*(?:\d{1,3}[.)]|[A-Za-z]\))\s*", "", label or ""))
 
 
 def _printed_number(token):
@@ -660,7 +678,6 @@ def enrich_with_ai(report, pages, chat_fn=None):
     stats = dict(agreed=0, ai_only=0, mismatch=0, rules_only=0, ungrounded=extraction["ungrounded"])
     for fact in extraction["facts"]:
         numeric_item = fact["item"] if fact["item"] and fact["item"].isdigit() else None
-        stem_key = numeric_item or _base_key(fact["label"])
         numbers = [_printed_number(t) for t in fact["printed"]]
         identifier = bool(re.search(r"codice fiscale|(?<!\w)p\.?\s?i\.?(?!\w)|partita iva|(?<!\w)rea(?!\w)|iscrizione|denominazione|paese|"
                                     r"capitale sociale|tax code|(?<!\w)vat(?!\w)|registration|albo", fact["label"], re.I))
@@ -674,9 +691,13 @@ def enrich_with_ai(report, pages, chat_fn=None):
             stats["details"] = stats.get("details", 0) + 1
             continue
         values = dict(zip(columns, numbers))
-        match = next((r for r in known.get((fact["statement"], fact["page"], stem_key), []) if r["origin"] in {"rules", "ai+rules"}), None) \
-            or next((r for r in known.get((fact["statement"], fact["page"], _base_key(fact["label"])), [])
-                     if r["origin"] in {"rules", "ai+rules"}), None)
+        usable = lambda rows: [r for r in rows if r["origin"] in {"rules", "ai+rules"}]  # noqa: E731
+        # The same printed label first; a numeric item only when it names one row on the page (OIC sub-items repeat "1)").
+        candidates = usable(known.get((fact["statement"], fact["page"], _base_key(fact["label"])), []))
+        if not candidates and numeric_item:
+            by_item = usable(known.get((fact["statement"], fact["page"], numeric_item), []))
+            candidates = by_item if len(by_item) == 1 else []
+        match = candidates[0] if candidates else None
         if match:
             if all(match["values"].get(d) == v for d, v in values.items() if v is not None):
                 match["origin"] = "ai+rules"

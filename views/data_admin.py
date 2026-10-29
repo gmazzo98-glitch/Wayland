@@ -87,6 +87,9 @@ def _render_flexible_import_tab(db: Session):
         return
     if uploaded.name.lower().endswith(".pdf"):
         from views.balance_sheet_upload import render_upload as render_document_import
+        st.info("For a PDF the country and dataset name above are not used: the company is matched by the fiscal code printed in the "
+                "statement (Italy), every statement is stored under its own date, and the figures join the company's merged annual "
+                "history, which Company Intelligence reads.")
         render_document_import(db, uploaded)
         return
 

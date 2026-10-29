@@ -329,13 +329,14 @@ def _render_statement(ctx: cd.DossierContext, shared: dict) -> None:
 
 def _render_statement_files(ctx: cd.DossierContext, shared: dict) -> None:
     """Full merged history by year with its source, conflicts the operator can still change, and each uploaded statement."""
-    from views.balance_sheet_upload import render_merged_history, render_saved_statement
+    from views.balance_sheet_upload import render_merged_history, render_remove_statement, render_saved_statement
     if shared.get("merged"):
         with st.expander("🗂️ Full annual history, source of every figure, conflicts", expanded=False):
             render_merged_history(ctx.db, ctx.company, shared["merged"], scope="dos")
     for record in shared.get("statements") or []:
         with st.expander(f"📄 Balance sheet {record.raw_row.get('period_end')} — {record.source_filename}", expanded=False):
             render_saved_statement(record, scope="dos")
+            render_remove_statement(ctx.db, ctx.company, record, scope="dos")
 
 
 def _tab_financials(ctx: cd.DossierContext, shared: dict) -> None:

@@ -10,6 +10,7 @@ be answered from a first-contact call (Phase 6 — no scraper will ever fetch
 """
 
 import json
+import re
 import hashlib
 from dataclasses import dataclass
 from typing import Callable
@@ -568,6 +569,10 @@ def _format_indicator_value(key: str, val, defn: dict = None) -> str:
     return f"{val:,.2f}"
 
 
+# Datasets that hold more reporting years than their trend indicators use (aida_report_mapping.CALCULATION_PERIODS).
+_THREE_POINT_DATASETS = {"Merged Annual Financials", "AIDA Single Company Report"}
+
+
 def _trend_headline(indicator_key: str, sig, raw_records: list) -> dict:
     """
     Builds a plain-language 'is it growing, by how much' view for one trend
@@ -578,11 +583,26 @@ def _trend_headline(indicator_key: str, sig, raw_records: list) -> dict:
     """
     base_name = _TREND_KEY_TO_RAW_BASE.get(indicator_key)
     if base_name:
-        for rec in raw_records:
+        # The record that backs the stored signal comes first: an older AIDA blob must not overrule the merged history
+        # or the report the trend was actually computed from (the headline would contradict the signal beside it).
+        ordered = sorted(raw_records, key=lambda r: 0 if sig is not None and r.dataset_name == sig.source else 1)
+        merged = next((r for r in ordered if r.dataset_name == "Merged Annual Financials"), None)
+        if merged is not None:
+            # The merged history already contains every AIDA figure, dated; an AIDA blob that does not reach further than it
+            # is a year behind (the dossier makes the same choice when it picks the statement to show).
+            close = lambda r: str((r.raw_row or {}).get("accounts_close", ""))[:10]  # noqa: E731
+            ordered = [r for r in ordered if r.dataset_name not in {"AIDA Raw Exports", "AIDA Single Company Report"}
+                       or close(r) > close(merged)]
+        for rec in ordered:
             groups = _trend_groups_from_raw(rec.raw_row, rec.mapping_snapshot)
             series = groups.get(base_name)
             if series:
                 values = [(label, v) for label, v in series if v is not None]
+                if rec.dataset_name in _THREE_POINT_DATASETS:
+                    # These records keep every reporting year, but their trends use Latest, Y-1 and Y-2 only.
+                    values = [(label, v) for label, v in values if label in {"Y-2", "Y-1", "Latest"}]
+                    if not values or values[-1][0] != "Latest":
+                        continue  # no value for the newest year: older figures are history, not "now"
                 if len(values) >= 2:
                     base_val, latest_val = values[0][1], values[-1][1]
                     delta = latest_val - base_val
@@ -1037,6 +1057,24 @@ def sec_pain_points(ctx: DossierContext) -> None:
     render_company_pain_points(db, signals, indicator_defs)
 
 
+_IDENTITY_LABEL = re.compile(r"codice fiscale|partita iva|(?<!\w)p\.?\s?i\.?(?!\w)|tax code|fiscal code|(?<!\w)vat(?!\w)|"
+                             r"denominazione|ragione sociale|legal name|company name", re.I)
+
+
+def _statement_details(raw_records):
+    """(record, lines): company details printed in the newest uploaded statement that the Company table has no column for
+    (share capital, REA, registered office ...). Details connected to a company field and the tax identifiers are left out."""
+    records = sorted((r for r in raw_records if r.dataset_name.startswith("Balance Sheet PDF ")), key=lambda r: r.dataset_name, reverse=True)
+    for record in records:
+        statement = (record.raw_row or {}).get("_statement") or {}
+        mapping = record.mapping_snapshot or {}
+        lines = [l for l in statement.get("lines", []) if l.get("statement") == "details" and l.get("values")
+                 and not str(mapping.get(l.get("id")) or "").startswith("company:") and not _IDENTITY_LABEL.search(l.get("label") or "")]
+        if lines:
+            return record, lines
+    return None
+
+
 def sec_identity(ctx: DossierContext) -> None:
     """Identity & registry facts, parent company and subsidiaries."""
     db, company = ctx.db, ctx.company
@@ -1052,7 +1090,7 @@ def sec_identity(ctx: DossierContext) -> None:
             st.write("**NACE / ATECO Code:**", company.nace_code)
             st.write("**Sector:**", company.sector_name)
             st.write("**Segment:**", company.segment)
-            st.write("**Headcount:**", f"{company.headcount} ({company.headcount_source_tier})" if company.headcount else "Not yet checked")
+            st.write("**Headcount:**", (f"{company.headcount} ({company.headcount_source_tier})" if company.headcount_source_tier else f"{company.headcount}") if company.headcount else "Not yet checked")
         with col_c3:
             st.write("**Region / Province:**", f"{company.region or '—'} / {company.province or '—'}")
             st.write("**Legal Form:**", company.legal_form or "—")
@@ -1068,6 +1106,12 @@ def sec_identity(ctx: DossierContext) -> None:
         subsidiaries = db.query(Company).filter_by(parent_company_id=company.id).all()
         if subsidiaries:
             st.write("**Subsidiaries:**", ", ".join(s.legal_name for s in subsidiaries))
+        printed = _statement_details(ctx.raw_records)
+        if printed:
+            record, lines = printed
+            st.caption(f"Printed in the uploaded statement of {(record.raw_row or {}).get('period_end')} ({record.source_filename}): "
+                       + " · ".join(f"{l['label']}: {next(iter(l['values'].values()), '')}" + (f" (p.{l['page']})" if l.get("page") else "")
+                                    for l in lines[:8]))
 
 
 def sec_competitors(ctx: DossierContext) -> None:
@@ -1241,7 +1285,7 @@ def sec_financial_profile(ctx: DossierContext) -> None:
     trend_keys = ["revenue_trend", "ebit_trend"]
     level_keys = ["leverage_ratio", "total_assets", "cash_position", "debt_level"]
 
-    st.markdown("**Is it growing?** (vs. the earliest year in the source data)")
+    st.markdown("**Is it growing?** (latest year vs the base year the trend uses, from the source named below)")
     tcols = st.columns(len(trend_keys))
     for i, hk in enumerate(trend_keys):
         defn = indicator_defs.get(hk)

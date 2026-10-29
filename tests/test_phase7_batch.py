@@ -7,6 +7,7 @@ shares one connection across threads, which intermittently returned no rows unde
 """
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from datetime import datetime
 
@@ -192,6 +193,16 @@ def test_the_hook_reports_every_start_and_end_with_the_number_finished(monkeypat
         with lock:
             events.append((event, index, total, name))
 
+    # Every step gets its own thread, so the order in which the threads record their start is up to the scheduler.
+    # What the runner controls, and what this pins, is the order the steps are SUBMITTED in.
+    submitted = []
+    real_submit = ThreadPoolExecutor.submit
+
+    def recording_submit(self, fn, *args, **kwargs):
+        submitted.append(args[-1].name)  # (context.run, run_step, step)
+        return real_submit(self, fn, *args, **kwargs)
+
+    monkeypatch.setattr(ThreadPoolExecutor, "submit", recording_submit)
     company_service.run_phase7_for_company("c0", factory, on_step=hook)
     starts = [e for e in events if e[0] == "start"]
     dones = [e for e in events if e[0] == "done"]
@@ -199,8 +210,8 @@ def test_the_hook_reports_every_start_and_end_with_the_number_finished(monkeypat
     assert sorted(e[1] for e in dones) == list(range(1, len(PHASE7_SOURCES) + 1)), "each end reports one more finished"
     assert {e[3] for e in starts} == {s for _, _, s in PHASE7_SOURCES}
     # The slowest-first ordering: competitor benchmark, the website crawler and digital-maturity
-    # crawler all start before the quick ones.
-    assert {starts[0][3], starts[1][3], starts[2][3]} == {"Competitor Benchmark", "Company Website Crawler", "Digital Maturity Crawler"}
+    # crawler are handed to the pool before the quick ones.
+    assert set(submitted[:3]) == {"Competitor Benchmark", "Company Website Crawler", "Digital Maturity Crawler"}
 
 
 def test_run_phase7_for_company_works_without_a_hook(monkeypatch, factory):

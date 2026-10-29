@@ -1,14 +1,19 @@
 # Balance sheet (PDF) upload and merged annual history
 
-Data Admin, tab "Balance sheet upload (PDF)". Implements OP-019 (see `docs/FINANCIAL_YEAR_ROLLOVER_PLAN.md`).
+Data Admin, **Flexible Data Import** (upload a `.pdf` next to csv/xlsx; there is no separate tab any more, see "The PDF is a
+carrier" below). Implements OP-019 (see `docs/FINANCIAL_YEAR_ROLLOVER_PLAN.md`).
 
 ## Flow
 1. **Read** (`balance_sheet_pdf.py`): the PDF text layer; pages with no text go to OCR through the vision model configured as
    `CRAWLER_VISION_LLM_*` (no key means the page is reported as unread, never guessed). Only the primary statements are parsed
    (assets, liabilities and equity, income statement, comprehensive income); every page's text is kept as evidence.
    Dates, Italian/English headings, `1.234.567` and `1,234,567` numbers, bracketed negatives (also unclosed), wrapped labels and
-   scattered-letter labels are handled. Arithmetic checks (assets = liabilities + equity, result in both statements, pre-tax + tax
-   = after-tax) are shown; a failed check is a warning.
+   scattered-letter labels are handled. Two Italian layouts are read: the Bank of Italy one (items `10.`, costs in brackets, as in
+   the Mondial Bony files) and the OIC one of industrial companies (items `6)`, unnumbered section headings such as
+   `B) IMMOBILIZZAZIONI` or `9) per il personale:`, costs printed positive, `Totale ...` lines). Section headings are kept out of the
+   row labels, otherwise the first row under each heading would read "B) IMMOBILIZZAZIONI I - Immobilizzazioni ... Totale ..." and
+   no mapping rule would find revenue, cash or debt. Arithmetic checks (assets = liabilities + equity, result in both statements, pre-tax + tax
+   = after-tax, value of production minus production costs = operating result) are shown; a failed check is a warning.
 2. **Map**: each line gets a year-independent id (statement + item number or label), so a saved profile
    (`ColumnMappingProfile` prefix `balance-sheet::`) carries over to next year's PDF. Rules propose facts (total assets, cash,
    net result, personnel costs, intangibles, revenue ...); a financial intermediary's commission income is proposed as revenue at
@@ -53,3 +58,25 @@ consolidated vs separate statements as distinct bases; OCR quality has not been 
 - **One database:** the extracted facts join the same annual history as AIDA (merged by fiscal year, conflicts decided by the
   operator, balance sheet default), feed the same signals, company fields, dossier, valuation and audit. The stored statement is only
   provenance (page, printed value, connection).
+
+## After the import: where the data shows up (2026-10-29 audit)
+- **Company Intelligence, Financials:** the statement is titled "merged annual history" when the merged record is the newest; the
+  "Full annual history" expander lists every year and fact with its source and the open conflicts; one expander per uploaded
+  statement shows every printed line with page and connection and has **Remove statement and re-merge** (tick the box first). A
+  removal re-merges what is left (an older AIDA year becomes Latest again) and withdraws what rested only on that statement.
+- **Company Intelligence, Overview:** the Identity block shows the company details the statement printed that the Company table has
+  no column for (share capital, REA, registered office ...). The "Is it growing?" headline reads the record behind the stored trend
+  signal (the merged history), over the same Latest / Y-1 / Y-2 window the trend uses, never an older AIDA blob.
+- **Year signal:** `last_accounts_year` follows the newest year of the merged history, so the stale-accounts flag and header chip
+  stop saying "FY2024, FY2025 is not in AIDA yet" once a FY2025 statement is in. A registry value that is already later is kept.
+- **AIDA bulk results:** indicators the bulk export computed from a Latest that the merged history no longer has (EBIT margin when the
+  newest statement has no operating result, revenue per employee without a headcount) are offered for withdrawal in the import
+  preview like the single-report ones (the operator can keep them) and withdrawn by default.
+- **Headcount:** when `number_of_employees` is written from the statement the company's headcount, tier T1 and segment follow it,
+  as the AIDA report import does. Keeping the old signal value keeps the old headcount.
+- **Re-merge on every source:** an AIDA single-company report import and a bulk AIDA export (`aida_import.apply_records`) both
+  re-merge a company that has statement history (the report says `re_merged`), so the merged record never lags behind a source.
+- **Dates:** a statement line connected to Incorporation Date must read as a date (ISO or dd/mm/yyyy), otherwise the plan says so.
+- **Valuation** reads the merged record when it has the newest fiscal year. A statement-only year has no EBITDA, so the valuation
+  says "Revenue and EBITDA for the latest year are not available" until EBITDA exists (OP-020).
+- **Not following the PDF yet:** the diagnosis peer cohort (`diagnosis/peers.py`) still reads only the bulk AIDA blob (OP-021).
