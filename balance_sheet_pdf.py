@@ -63,13 +63,16 @@ def extract_pages(content, ocr=None):
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         for number, page in enumerate(pdf.pages, 1):
             text = (page.extract_text() or "").strip()
-            method = "text"
+            method, error = "text", None
             if len(text) < OCR_MIN_CHARS:
                 if ocr is None:
                     method = "empty"
                 else:
-                    text, method = (ocr(render_page_png(content, number - 1)) or "").strip(), "ocr"
-            pages.append(dict(page=number, text=text, method=method))
+                    try:
+                        text, method = (ocr(render_page_png(content, number - 1)) or "").strip(), "ocr"
+                    except Exception as exc:  # a page the vision model cannot read must not lose the pages that have text
+                        text, method, error = "", "empty", str(exc)
+            pages.append(dict(page=number, text=text, method=method, **({"error": error} if error else {})))
     return pages
 
 
@@ -130,7 +133,8 @@ def chat(messages, kind="text", max_tokens=4000, timeout=120, attempts=2):
                     wait = 0
                 time.sleep(min(max(wait, 2.0 * (attempt + 1)), 20.0))
                 continue
-            errors.append(f"{model}: HTTP {response.status_code}")
+            errors.append(f"{model}: HTTP {response.status_code}" + (" (model not found: the name is retired or wrong, update it in the settings)"
+                                                                     if response.status_code == 404 else ""))
             break
     raise RuntimeError("No language model answered. " + ("; ".join(errors) if errors else "No provider key is configured."))
 
@@ -440,7 +444,10 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
     if any(p["method"] == "ocr" for p in report["pages"]):
         warnings.append("Some pages were read by OCR; check every number against the PDF before importing.")
     if any(p["method"] == "empty" for p in report["pages"]):
-        warnings.append(f"{sum(p['method'] == 'empty' for p in report['pages'])} page(s) have no readable text and OCR was not run.")
+        failed = [p for p in pages if p.get("error")]
+        warnings.append(f"{sum(p['method'] == 'empty' for p in report['pages'])} page(s) have no readable text"
+                        + (f" and the OCR model failed on {len(failed)} of them ({failed[0]['error']}); check the vision model name and key in the settings."
+                           if failed else " and OCR was not run."))
     if "�" in full:
         warnings.append("The PDF text contains damaged characters (accents). Labels are kept as printed.")
     report["checks"] = consistency_checks(report)

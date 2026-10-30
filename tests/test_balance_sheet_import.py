@@ -915,3 +915,23 @@ def test_a_correct_model_reading_of_an_oic_statement_agrees_with_every_rule_row_
     stats = st["extraction"]
     assert stats["agreed"] == rows and stats["ai_only"] == 0 and stats["mismatch"] == 0, stats
     assert len(st["lines"]) == rows and all(l["origin"] == "ai+rules" for l in st["lines"])
+
+
+def test_a_page_the_ocr_model_cannot_read_is_reported_and_does_not_lose_the_rest(monkeypatch):
+    import types
+    pages_ = [types.SimpleNamespace(extract_text=lambda: "x" * 200), types.SimpleNamespace(extract_text=lambda: "")]
+
+    class Pdf:
+        pages = pages_
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    import pdfplumber
+    monkeypatch.setattr(pdfplumber, "open", lambda _: Pdf())
+    monkeypatch.setattr(bs, "render_page_png", lambda content, i: b"png")
+
+    def broken(png):
+        raise RuntimeError("gemini-2.0-flash: HTTP 404")
+    out = bs.extract_pages(b"%PDF", ocr=broken)
+    assert [p["method"] for p in out] == ["text", "empty"] and "404" in out[1]["error"]
+    report = bs.parse_pages(out)
+    assert any("OCR model failed on 1" in w and "404" in w for w in report["warnings"])
