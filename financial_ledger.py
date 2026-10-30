@@ -381,6 +381,11 @@ def plan_statement(db, statement, mapping, new_labels=None, unit=None, decisions
     """Read-only preview of importing one statement."""
     from models import Company
     company_id = None
+    partial = statement.get("partial_period")
+    if partial and not statement.get("accept_partial"):
+        raise ValueError(f"This statement covers {partial['start']} to {partial['end']} ({partial['days']} days), not a full fiscal year. "
+                         "Its income statement figures are for part of a year and would be compared with full years in the trends. "
+                         "Confirm below that it should be imported as a fiscal year anyway.")
     registration = (statement.get("company") or {}).get("registration_number")
     if not registration:
         raise ValueError("The statement has no readable fiscal code, so the company cannot be matched.")

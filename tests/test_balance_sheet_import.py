@@ -935,3 +935,97 @@ def test_a_page_the_ocr_model_cannot_read_is_reported_and_does_not_lose_the_rest
     assert [p["method"] for p in out] == ["text", "empty"] and "404" in out[1]["error"]
     report = bs.parse_pages(out)
     assert any("OCR model failed on 1" in w and "404" in w for w in report["warnings"])
+
+
+class FakePage:
+    """A pdfplumber page reduced to its words: label words from x=25, figures right-aligned on column edges (each char 5.5 wide)."""
+
+    def __init__(self, rows):
+        self.words, top = [], 20.0
+        for label, cells in rows:
+            x = 25.0
+            for token in label.split():
+                self.words.append(dict(text=token, x0=x, x1=x + 5.5 * len(token), top=top))
+                x += 5.5 * len(token) + 2.5
+            for text, edge in cells:
+                width = 5.5 * len(text)
+                if text == "6|00.000":  # a number the font split with no gap: two words that touch
+                    self.words += [dict(text="6", x0=edge - 33, x1=edge - 27.5, top=top), dict(text="00.000", x0=edge - 27.5, x1=edge, top=top)]
+                else:
+                    self.words.append(dict(text=text, x0=edge - width, x1=edge, top=top))
+            top += 12.0
+
+    def extract_words(self, **kwargs):
+        return self.words
+
+
+INTERIM_ROWS = [
+    ("STATO PATRIMONIALE PASSIVO", []),
+    ("10. Passività finanziarie valutate al costo ammortizzato", [("104.836", 561.6)]),
+    ("20. Passività finanziarie di negoziazione", [("-", 548.0)]),
+    ("60. Passività fiscali", [("15.407", 561.6)]),
+    ("80. Altre passività", [("2.324.967", 561.6)]),
+    ("90. Trattamento di fine rapporto del personale", [("383.068", 561.6)]),
+    ("100. Fondi per rischi ed oneri", [("250.000", 561.6)]),
+    ("110. Capitale", [("6|00.000", 561.6)]),
+    ("120. Azioni proprie (-)", [("-", 548.0)]),
+    ("150. Riserve", [("210.801", 561.6)]),
+    ("160. Riserve da valutazione", [("91.971", 561.6)]),
+    ("170. Utile (Perdita) d'esercizio", [("32.709", 561.6)]),
+    ("TOTALE PASSIVO E PATRIMONIO NETTO", [("4.013.759", 561.6), ("-", 570.0), ("24.161", 699.3)]),
+    ("CONTO ECONOMICO", []),
+    ("20. Interessi passivi e oneri assimilati", [("-", 470.0), ("7.771", 561.6)]),
+    ("40. Commissioni attive", [("2.651.101", 561.6)]),
+    ("50. Commissioni passive", [("-", 470.0), ("1.937.913", 561.6)]),
+    ("300. UTILE (PERDITA) D'ESERCIZIO", [("32.709", 561.6)]),
+]
+
+
+def test_position_aware_text_glues_split_digits_reads_signs_and_ignores_a_side_column():
+    text, ncols = bs.geometry_text(FakePage(INTERIM_ROWS))
+    rows = {line.split(" ")[0]: line for line in text.splitlines()}
+    assert ncols == 1
+    assert "110. Capitale 600.000" in text                         # "6" + "00.000" touching
+    assert "20. Interessi passivi e oneri assimilati -7.771" in text  # a dash far left of the figure is its sign
+    assert "50. Commissioni passive -1.937.913" in text
+    assert "20. Passività finanziarie di negoziazione -" in text and "-0" not in text  # a dash inside the column is nil
+    assert text.count("TOTALE PASSIVO E PATRIMONIO NETTO 4.013.759") == 1 and "24.161" not in text  # the side column is not a figure
+    assert rows["110."] == "110. Capitale 600.000"
+
+
+def test_two_aligned_columns_keep_a_nil_dash_in_the_first_column():
+    rows = [("STATO PATRIMONIALE ATTIVO", [])] + [(f"{i}0. Voce {i}", [(f"{i}00.000", 400.0), (f"{i}10.000", 500.0)]) for i in range(1, 5)] \
+        + [("50. Voce nulla", [("-", 392.0), ("1.127.325", 500.0)])]
+    text, ncols = bs.geometry_text(FakePage(rows))
+    assert ncols == 2 and "50. Voce nulla - 1.127.325" in text
+
+
+def test_an_interim_statement_with_one_column_and_no_equity_total_is_read_and_blocked_as_a_fiscal_year(db):
+    text, ncols = bs.geometry_text(FakePage(INTERIM_ROWS))
+    pages = [dict(page=1, method="text", text="MONDIAL BONY SERVICE SPA\nPartita IVA 06038441215 - Codice Fiscale 06038441215\n"
+                                              "Fascicolo dal 01/01/2026 al 30/06/2026\n" + text, ncols=ncols)]
+    st = bs.parse_pages(pages, "interim.pdf", "sha")
+    assert st["period_end"] == "2026-06-30" and st["columns"] == ["2026-06-30"]
+    assert st["partial_period"] == dict(start="2026-01-01", end="2026-06-30", days=181)
+    equity = next(l for l in st["lines"] if "calcolato" in l["label"])
+    assert equity["values"] == {"2026-06-30": 935481.0}           # 600.000 + 210.801 + 91.971 + 32.709, own shares deducted
+    assert bs.suggest_mapping(st)[equity["id"]]["target"] == "base:equity"
+    assert next(l for l in st["lines"] if "Interessi passivi" in l["label"])["values"] == {"2026-06-30": -7771.0}
+    check = next(c for c in st["checks"] if c["name"].startswith("Liabilities (items 10 to 100) plus equity"))
+    assert check["ok"], check                                        # the calculated equity is proven by the liabilities total
+    mapping = {k: v["target"] for k, v in bs.suggest_mapping(st).items()}
+    with pytest.raises(ValueError, match="not a full fiscal year"):
+        fl.plan_statement(db, st, mapping, unit="EUR")
+    st["accept_partial"] = True
+    plan = fl.plan_statement(db, st, mapping, unit="EUR")
+    assert plan["merged"]["anchor"] == 2026 and plan["record"]["observations"]
+    fl.import_statement(db, st, mapping, unit="EUR")
+    assert db.query(RawImportRecord).filter_by(dataset_name=fl.LEDGER_DATASET).one().raw_row["equity_latest"] == 935.481
+
+
+def test_the_plain_text_is_used_when_the_rebuilt_text_reads_fewer_lines(monkeypatch):
+    plain_pages = pages(2025, Y25, Y24)
+    rebuilt = [dict(p, text="garbage", plain=p["text"], ncols=3) for p in plain_pages]
+    monkeypatch.setattr(bs, "extract_pages", lambda content, ocr=None: rebuilt)
+    st = bs.parse_statement(b"%PDF-fake", "x.pdf")
+    assert len(st["lines"]) >= 5 and st["period_end"] == "2025-12-31"

@@ -52,8 +52,108 @@ def render_page_png(content, index, scale=2.0):
         pdf.close()
 
 
+_NUMERIC_WORD = re.compile(r"^\(?-?\d[\d.,]*\)?$")
+
+
+def _is_item_number(text):
+    return bool(re.fullmatch(r"\d{1,3}\.", text))
+
+
+def _cluster(values, tolerance=6.0):
+    groups = []
+    for v in sorted(values):
+        if groups and v - groups[-1][-1] <= tolerance:
+            groups[-1].append(v)
+        else:
+            groups.append([v])
+    return groups
+
+
+def geometry_text(page):
+    """(text, ncols) rebuilt from the positions of the words on a text-layer page, or None when there is nothing to rebuild.
+
+    What the plain text of a PDF gets wrong, and the positions get right:
+      * a number split by the font's kerning ("6" + "00.000" touching at the same x) is glued back to 600.000;
+      * a minus sign is often a separate "-" far to the left of its number ("-      7.771"), while a nil marker "-" sits inside
+        the figure column: the first is attached to its number as a sign, the second stays "-";
+      * the number of figure columns (one for an interim, two for a year with comparatives) is the number of right edges that
+        most rows share; a figure printed outside them (a check difference in a side column) is not a column and is left out.
+    Every row comes out as its label followed by exactly the figures of the columns it has, in the form the reader parses."""
+    words = page.extract_words(x_tolerance=1.5, y_tolerance=2, keep_blank_chars=False)
+    if not words:
+        return None
+    lines = []
+    for w in sorted(words, key=lambda w: (w["top"], w["x0"])):
+        if lines and abs(w["top"] - lines[-1][0]) <= 2.5:
+            lines[-1][1].append(w)
+        else:
+            lines.append([w["top"], [w]])
+    rows = []
+    for _, ws in lines:
+        merged = []
+        for w in sorted(ws, key=lambda w: w["x0"]):
+            if merged and _NUMERIC_WORD.match(w["text"]) and _NUMERIC_WORD.match(merged[-1]["text"]) \
+                    and not _is_item_number(merged[-1]["text"]) and w["x0"] - merged[-1]["x1"] < 1.5:
+                merged[-1] = dict(merged[-1], text=merged[-1]["text"] + w["text"], x1=w["x1"])
+            else:
+                merged.append(dict(w))
+        rows.append(merged)
+    runs = []  # the trailing run of figures (and dashes) of every row
+    for ws in rows:
+        i = len(ws)
+        while i > 0 and (_NUMERIC_WORD.match(ws[i - 1]["text"]) and not _is_item_number(ws[i - 1]["text"]) or ws[i - 1]["text"] == "-"):
+            i -= 1
+        # A small whole number that touches the label ("Voce 1", "Allegato 2") is part of the label, not a figure column.
+        while i < len(ws) and i > 0 and re.fullmatch(r"\d{1,2}", ws[i]["text"]) and ws[i]["x0"] - ws[i - 1]["x1"] < 5.0:
+            i += 1
+        runs.append(i)
+    edges = [w["x1"] for ws, start in zip(rows, runs) for w in ws[start:] if w["text"] != "-"]
+    clusters = [c for c in _cluster(edges)]
+    if len(edges) < 5 or not clusters:
+        return None
+    biggest = max(len(c) for c in clusters)
+    columns = [c for c in clusters if len(c) >= 3 and len(c) >= 0.25 * biggest]
+    if not columns:
+        return None
+    centres = [sum(c) / len(c) for c in columns]
+    cell = []  # (left, right) of each figure column's cell, as wide as its widest figure
+    for centre, group in zip(centres, columns):
+        width = max((w["x1"] - w["x0"]) for ws, start in zip(rows, runs) for w in ws[start:]
+                    if w["text"] != "-" and abs(w["x1"] - centre) <= 6.0)
+        cell.append((centre - width - 6.0, centre + 6.0))
+    out = []
+    for ws, start in zip(rows, runs):
+        label = " ".join(w["text"] for w in ws[:start])
+        figures = {}
+        tail = ws[start:]
+        for j, w in enumerate(tail):
+            if w["text"] == "-":
+                continue
+            k = min(range(len(centres)), key=lambda c: abs(w["x1"] - centres[c]))
+            if abs(w["x1"] - centres[k]) > 6.0:
+                continue  # outside every figure column: an annotation, not a figure
+            text = w["text"]
+            for d in reversed(tail[:j]):  # a dash outside every cell, directly before this figure, is its sign
+                if d["text"] != "-":
+                    break
+                if not any(lo <= d["x1"] <= hi for lo, hi in cell):
+                    text = "-" + text.lstrip("-")
+                break
+            figures[k] = text
+        for w in tail:  # nil markers inside a column's cell where that column has no figure on the row
+            if w["text"] == "-":
+                for k, (lo, hi) in enumerate(cell):
+                    if lo <= w["x1"] <= hi and k not in figures:
+                        figures[k] = "-"
+        out.append(" ".join(([label] if label else []) + [figures[k] for k in sorted(figures)]))
+    return "\n".join(line for line in out if line.strip()), len(columns)
+
+
 def extract_pages(content, ocr=None):
-    """[{page, text, method}] - text layer, or OCR (a callable taking PNG bytes) for pages without one."""
+    """[{page, text, method}] - text layer, or OCR (a callable taking PNG bytes) for pages without one.
+
+    `text` is rebuilt from the word positions where that works (see geometry_text) and carries `ncols`, the number of figure
+    columns found; `plain` keeps what pdfplumber printed, the fallback when the rebuilt text reads worse."""
     try:
         import pdfplumber
     except ImportError as exc:
@@ -63,7 +163,7 @@ def extract_pages(content, ocr=None):
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         for number, page in enumerate(pdf.pages, 1):
             text = (page.extract_text() or "").strip()
-            method, error = "text", None
+            method, error, extra = "text", None, {}
             if len(text) < OCR_MIN_CHARS:
                 if ocr is None:
                     method = "empty"
@@ -72,7 +172,15 @@ def extract_pages(content, ocr=None):
                         text, method = (ocr(render_page_png(content, number - 1)) or "").strip(), "ocr"
                     except Exception as exc:  # a page the vision model cannot read must not lose the pages that have text
                         text, method, error = "", "empty", str(exc)
-            pages.append(dict(page=number, text=text, method=method, **({"error": error} if error else {})))
+            else:
+                try:
+                    rebuilt = geometry_text(page)
+                except Exception:  # the plain text stands on its own
+                    rebuilt = None
+                if rebuilt:
+                    extra = dict(plain=text, ncols=rebuilt[1])
+                    text = rebuilt[0]
+            pages.append(dict(page=number, text=text, method=method, **extra, **({"error": error} if error else {})))
     return pages
 
 
@@ -327,17 +435,31 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
                   if re.search(r"\b(?:s\.?p\.?a\.?|s\.?r\.?l\.?|s\.?a\.?s\.?|s\.?n\.?c\.?|s\.?c\.?a\.?r\.?l\.?|ltd|gmbh|ag|spa|srl)\b", line, re.I)), None)
     if first:
         report["company"]["legal_name"] = first.title() if first.isupper() else first
+    span = re.search(r"\bdal\s+(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})\s+al\s+(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})", full, re.I) \
+        or re.search(r"\bfrom\s+(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})\s+to\s+(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})", full, re.I)
+    if span and parse_date(span[1], language) and parse_date(span[2], language):
+        start, end = parse_date(span[1], language), parse_date(span[2], language)
+        report["period_end"] = end
+        days = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+        if days < 330:  # an interim (a half year, a quarter): its income figures are not a fiscal year's
+            report["partial_period"] = dict(start=start, end=end, days=days)
+            warnings.append(f"This statement covers {start} to {end} ({days} days), not a full fiscal year. Its income statement figures "
+                            "are for part of a year; mixed with full years they would corrupt the trends, so the import is blocked "
+                            "unless you confirm it.")
     for pattern in (r"(?:bilancio(?: di esercizio)?|esercizio(?: sociale)?)\s+(?:chiuso\s+)?al\s+(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{1,2}\s*(?:º|°)?\s+[A-Za-zàèéìòù]+\.?\s+\d{4})",
                     r"(?:financial statements|balance sheet)\s+(?:as of|as at|at)\s+([A-Za-z0-9 ,/.\-]+?\d{4})"):
         match = re.search(pattern, full, re.I)
-        if match and parse_date(match[1], language):
+        if match and parse_date(match[1], language) and not report["period_end"]:
             report["period_end"] = parse_date(match[1], language)
             break
     if re.search(r"(?:espress\w+|in)\s+(?:migliaia|mille)\s+di\s+euro|in thousands? of euro|\(?€\s?/\s?000\)?|euro/000|amounts? (?:are )?in thousands", full, re.I):
         report["unit"], report["unit_text"] = "thousand EUR", "thousands of euro"
     elif re.search(r"importi (?:presenti )?(?:sono )?espressi in euro|amounts (?:shown )?are in euros?|expressed in (?:units of )?euro|in unit. di euro", full, re.I):
         report["unit"], report["unit_text"] = "EUR", "euro"
-    ncols = 2  # current and previous year, as Italian statements print them
+    # Figure columns: what the page positions say (one for an interim or a first year, two for a year with its comparative),
+    # two when the pages carry no positions (OCR text).
+    counted = [pg["ncols"] for pg in pages if pg.get("ncols")]
+    ncols = max(1, min(3, max(set(counted), key=counted.count))) if counted else 2
     dated_headings, header_years = _scan_column_headers(pages, language)
     header_cols = next((d for d in dated_headings if len(d) >= ncols), None)
     fallback_columns = None
@@ -359,7 +481,7 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
         else:
             report["column_years"] = header_years[:ncols]  # months and days unknown: columns stay placeholders until the date is given
     if not report["period_end"]:
-        hint = f" The columns are headed {header_years[0]} and {header_years[1]}." if len(header_years) >= ncols else ""
+        hint = f" The columns are headed {' and '.join(str(y) for y in header_years[:ncols])}." if len(header_years) >= ncols else ""
         warnings.append("The statement date could not be read; enter the closing date of the newest column to continue." + hint)
 
     statement, seen, dates = None, set(), []
@@ -402,7 +524,8 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
                     full_label, restored = f"{item}. {_STANDARD_ITEMS[item]}", True
                 period_end = report["period_end"]
                 columns = dates[:ncols] if len(dates) >= ncols else (
-                    fallback_columns or ([period_end, _prior_year(period_end)] if period_end else [f"column {i + 1}" for i in range(ncols)]))
+                    fallback_columns or ([period_end, _prior_year(period_end), _prior_year(_prior_year(period_end))][:ncols] if period_end
+                                         else [f"column {i + 1}" for i in range(ncols)]))
                 stem = f"{statement}|{item or key(full_label)}"
                 counters[stem] = counters.get(stem, 0) + 1
                 row = dict(id=f"{stem}|{counters[stem]}", statement=statement, item=item, label=full_label, page=page["page"],
@@ -450,11 +573,42 @@ def parse_pages(pages, filename="statement.pdf", sha256=""):
                            if failed else " and OCR was not run."))
     if "�" in full:
         warnings.append("The PDF text contains damaged characters (accents). Labels are kept as printed.")
+    _derive_equity(report)
     report["checks"] = consistency_checks(report)
     for check in report["checks"]:
         if not check["ok"]:
             warnings.append(f"Check failed - {check['name']}: {check['detail']}")
     return report
+
+
+_EQUITY_ITEMS = ("110", "130", "140", "150", "160", "170")  # Bank of Italy schedule: capital ... result; 120 (own shares) is deducted
+
+
+def _derive_equity(report):
+    """The Bank of Italy schedule for financial intermediaries prints equity as items 110 to 170 and no total. Without a total line
+    equity would stay unmapped (and read as 0 or missing); it is calculated here from those items, labelled as calculated, and the
+    liabilities check proves it (items 10 to 100 plus this equity must equal the liabilities total)."""
+    rows = [r for r in report["lines"] if r["statement"] == "liabilities"]
+    if any(re.search(r"^(?:a )?(?:\d+ )?totale patrimonio netto|^total (?:share|stock)holders s? equity|^total (?:net )?equity", key(r["label"])) for r in rows):
+        return
+    parts = {r["item"]: r for r in rows if r["item"] in _EQUITY_ITEMS + ("120",)}
+    if len(parts) < 3 or "110" not in parts:
+        return
+    dates = list(parts["110"]["values"])
+    values = {}
+    for d in dates:
+        total = 0.0
+        for item, row in parts.items():
+            v = row["values"].get(d)
+            if v is None:
+                continue
+            total += -abs(v) if item == "120" else v
+        values[d] = total
+    report["lines"].append(dict(id="liabilities|equity_calc|1", statement="liabilities", item=None,
+                                label="TOTALE PATRIMONIO NETTO (calcolato: voci 110-170)", page=parts["110"]["page"], values=values,
+                                raw={d: "calculated" for d in dates}, origin="derived",
+                                flags=["calculated: the PDF prints no equity total; this is the sum of items 110 to 170 "
+                                       "(own shares deducted), checked against the liabilities total"]))
 
 
 def parse_statement(source, filename=None, ocr=None, chat_fn=None):
@@ -469,7 +623,14 @@ def parse_statement(source, filename=None, ocr=None, chat_fn=None):
         content = source.read()
         filename = filename or getattr(source, "name", "statement.pdf")
     pages = extract_pages(content, ocr=ocr)
-    report = parse_pages(pages, filename or "statement.pdf", hashlib.sha256(content).hexdigest())
+    digest = hashlib.sha256(content).hexdigest()
+    report = parse_pages(pages, filename or "statement.pdf", digest)
+    if any("plain" in pg for pg in pages):
+        # The text rebuilt from word positions is used unless pdfplumber's plain text reads more lines (the proven path).
+        plain_pages = [dict(pg, text=pg.get("plain", pg["text"]), ncols=None) for pg in pages]
+        plain = parse_pages(plain_pages, filename or "statement.pdf", digest)
+        if len(plain["lines"]) > len(report["lines"]):
+            report, pages = plain, plain_pages
     if chat_fn is not None or llm_available("text"):
         try:
             enrich_with_ai(report, pages, chat_fn)
@@ -531,6 +692,17 @@ def consistency_checks(report):
         for d in income_net["values"]:
             a, b = income_net["values"].get(d), balance_net["values"].get(d)
             checks.append(dict(name=f"Net result agrees between income statement and balance sheet ({d})", ok=a == b, detail=f"{a} vs {b}"))
+    equity_row = _find(report, "liabilities", r"^totale patrimonio netto")
+    if liabilities and equity_row:
+        top = {r["item"]: r for r in report["lines"] if r["statement"] == "liabilities" and r["item"] in
+               {"10", "20", "30", "40", "50", "60", "70", "80", "90", "100"}}
+        if "10" in top and "80" in top:
+            for d in liabilities["values"]:
+                parts = [r["values"].get(d) for r in top.values()] + [equity_row["values"].get(d)]
+                if None not in parts and liabilities["values"].get(d) is not None:
+                    checks.append(dict(name=f"Liabilities (items 10 to 100) plus equity equal the liabilities total ({d})",
+                                       ok=abs(sum(parts) - liabilities["values"][d]) < 1,
+                                       detail=f"{sum(parts):,.0f} vs {liabilities['values'][d]:,.0f}"))
     value = _find(report, "income", r"^(?:\d+ )?(?:a )?(?:totale )?valore della produzione$|^total (?:value of )?production$")
     costs = _find(report, "income", r"^(?:\d+ )?(?:b )?(?:totale )?costi della produzione$|^total production costs$")
     result = _find(report, "income", r"^differenza tra valore e costi della produzione(?: a b)?$")
@@ -561,6 +733,8 @@ _RULES = (
      "Average headcount printed outside the primary statements."),
     ("assets", r"^(?:totale attivo|total assets)$", "total_assets", 0.98, ""),
     ("liabilities", r"^(?:a )?(?:totale patrimonio netto|total (?:share|stock)holders s? equity|total net equity|total equity)$", "equity", 0.95, ""),
+    ("liabilities", r"^totale patrimonio netto calcolato", "equity", 0.85,
+     "Calculated from items 110 to 170 because the PDF prints no equity total; the liabilities check proves it."),
     ("income", r"(?:utile|profit) \w*\s*(?:perdita|loss)?\s*(?:d esercizio|dell esercizio|for the (?:financial )?year|of the year)$", "net_income", 0.95, ""),
     ("income", r"^(?:\d+ )?(?:utile|profit|net profit|net income)\s*(?:perdita|loss)?\s*(?:dell esercizio|d esercizio|for the year)?$", "net_income", 0.9, ""),
     ("income", r"^(?:a 1 |1 )?ricavi (?:delle )?vendite(?: e (?:delle )?prestazioni)?$|^(?:net )?(?:sales|revenues?)$|^revenue from sales", "revenue", 0.9, ""),

@@ -165,6 +165,11 @@ def render_upload(db, uploaded=None):
     if not unit:
         st.info("Choose the unit to continue.")
         return
+    if statement.get("partial_period"):
+        part = statement["partial_period"]
+        statement["accept_partial"] = st.checkbox(
+            f"This covers only {part['start']} to {part['end']}. Import it as FY{part['end'][:4]} anyway (its income figures are for part of "
+            "a year and will distort the trends)", key=f"bs_partial_{signature}")
     mapping, new_labels, profile_name = _mapping_editor(db, statement, signature)
     if mapping is None:
         return

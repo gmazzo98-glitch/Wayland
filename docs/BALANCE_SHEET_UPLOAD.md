@@ -105,3 +105,16 @@ consolidated vs separate statements as distinct bases; OCR quality has not been 
    names it.
 Limits: the reader expects two figure columns (current and previous year). A company that changes its year end can have two
 statements closing in one calendar year, which shows as a conflict for that year.
+
+## Layouts that broke the plain text reading (the "riclassificato" interim, 2026-10-30)
+A reclassified half-year file of Mondial Bony (`dal 01/01/2026 al 30/06/2026`) read equity as 0 and capital as `[6, 0]`: the PDF text
+layer split `600.000` into `6` and `00.000`, printed a minus sign as a dash 90 points left of its figure, had one figure column plus
+a side column with a check difference, and no equity total. The reader now rebuilds each page's text from the word positions
+(`geometry_text`): touching digit fragments are glued, a dash outside the figure column is the sign of the figure to its right
+while a dash inside it is a nil marker, the number of figure columns is what most rows share (one or two; a side column is not a
+figure), and a figure that sits outside the columns is dropped. pdfplumber's plain text is still read and wins when it yields more
+lines, so layouts that already worked cannot get worse. Without an equity total, equity is calculated from items 110 to 170 (own
+shares deducted), labelled as calculated, and a check proves it (items 10 to 100 plus equity must equal the liabilities total).
+**Interim periods:** a statement that covers less than a year is detected from `dal ... al ...`; its income figures are not a fiscal
+year's, so the import is blocked unless the operator ticks that it should be imported as a fiscal year anyway (OP-024 asks for proper
+interim handling). A real difference in the file (assets 4,037,920 vs liabilities 4,013,759 here) shows as a failed check.
