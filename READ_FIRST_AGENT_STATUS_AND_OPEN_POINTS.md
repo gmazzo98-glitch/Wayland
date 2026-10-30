@@ -323,6 +323,18 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * notes:
   - 2026-10-30: 2026-10-30 (claude): today an interim is read correctly but import is blocked unless the operator ticks that it counts as a fiscal year, which would put half-year income figures next to full years. Recommendation: store the balance sheet items as a dated snapshot (point in time values are valid), keep the income statement out of the annual series.
 
+### OP-025: Business-line segment data from statement notes (Mondial Bony: money transfer vs acquiring/POS) and a client-engagement view
+* status: NEEDS_DECISION
+* needs: decision from Giorgio
+* owner: none
+* checked_out_at: none
+* lease_until: none
+* blocked_by: none
+* context: Part D table E.8 in Bilancio 2023/2024 PDFs (page_text already stored by balance_sheet_pdf.py); notes 2.1/2.2, protection fund, agents receivables; MondialBony/Appunti Gio.docx and Appunti Chiamata Gio.docx
+* done_when: Giorgio has chosen whether segment tables from statement notes become a stored per-company dataset plus a dossier section, and whether an engagement-question view (call topics mapped to data present / missing) is built; then an agent implements it with tests.
+* notes:
+  - 2026-10-30: 2026-10-30 (claude): analysis only, no code. Verified E.8 holds two lines for 2022-2024: money transfer 194.4M/263.5M/298.6M amounts, 721k/882k/955k ops, commission 5.04M/6.37M/6.64M; acquiring 3.0M/6.9M/10.0M, 78k/183k/302k ops, commission 53k/88k/120k. Proposal given in chat; nothing built.
+
 ## D. Decisions log
 
 Only Giorgio's decisions. One line each: date, decision, who decided, quote or source.
