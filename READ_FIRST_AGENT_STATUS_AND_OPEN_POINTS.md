@@ -34,6 +34,7 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * PDF financial statements as a data source (Flexible Data Import; `balance_sheet_pdf.py`, `financial_ledger.py`, `views/balance_sheet_upload.py`, `docs/BALANCE_SHEET_UPLOAD.md`; OP-019 closed): the AI reads the text layer into every printed row and the company details (kept only where printed on the page, numbers parsed from the text, cross-checked by the rule reader for the Bank of Italy and the OIC layouts); lines connect like any import and merge by fiscal year with AIDA into `Merged Annual Financials` (balance sheet wins by default, conflicts are the operator's, newest year = Latest, a missing fact stays missing). Year recognition (2026-10-29): the dates over the figure columns decide which year each number is, in printed order; an unreadable date is asked for and dates the columns before anything imports; the preview shows where each year lands; `tests/test_year_placement.py` checks placement and trends against an oracle for every upload order, gaps, a June year end and restatements; dossier trend charts keep time order. The reader rebuilds page text from word positions (touching digit fragments, separate minus signs, one or two figure columns, a calculated equity when no total is printed) and blocks interim periods unless confirmed (2026-10-30, from a real half-year file). Company Intelligence reads the merged record: Financials (statement, full history with sources, per-statement lines, removal with re-merge), Overview (Identity shows what the statement printed, flags and header read the new year), Data tab, valuation, signals, so Target Matrix, pain points and the assistant follow. Audit and fixes 2026-10-29 (claude): `last_accounts_year` follows the merged year, bulk-AIDA results built on a Latest the history no longer has are offered for withdrawal, headcount syncs when the statement printed one, the growth headline reads the merged record, a bulk AIDA re-import re-merges companies with statement history, OIC layout rows (section headings, `6)` items) map and agree with the AI reading. NOT verified: the hosted app, a scanned PDF (no vision key), a live model on an OIC file, a browser look. Open: OP-020 (no EBITDA from a statement, so valuation says "not valued"), OP-021 (peer cohort ignores PDFs).
 * Tests, 2026-10-29: full run 1288 passed, 12 skipped (no pgserver, no Scraper repo, no raw AIDA exports here), 1 known failure: `test_worker_hub.py::test_committed_bundle_contains_the_current_worker_source` (stale worker bundle, OP-010, release ticket I90). `tests/test_app_pages.py` renders every navigation page on a database holding a PDF-built company.
 * Company notes (2026-10-29): dossier section "Notes" (`views/company_notes_panel.py`, `company_notes.py`, tables `company_notes` and `company_note_presence` created by `create_all`). One row per note so several people write at once, list polls every 3 s (`st.fragment`), presence, kinds, replies, pin, edit with conflict refusal, soft delete; authors are a self-typed name (one shared app password). A note is team-only until "Send to AI"; then `assistant_llm` (`get_company_notes`, `get_company_profile.analyst_notes`), the company chat and the AI brief (evidence kind `analyst_note`) read it, always labelled "analyst note, not verified data" with author and date. Notes never touch scoring. Not verified: two real browsers, hosted app, Neon tables/RLS. Tests: `tests/test_company_notes.py`.
+* Business lines (2026-10-31, OP-025): `statement_segments.py` reads table E.8 (money transfer / acquiring volumes, operations, commissions), agent balances and protection fund from the stored page text of saved PDF statements (no new table), merged by year; `views/business_lines.py` shows it at the top of dossier Financials. Italian wording is a best guess, not seen on a real file. Tests: `tests/test_statement_segments.py`.
 * Run tests: `python -m pytest tests --capture=no -q -p no:cacheprovider` (never bare `pytest`; `tests/conftest.py` forces a throwaway SQLite DB).
 * Regenerate the contract after editing the workbook or settings: `python scripts/build_indicator_contract.py` (`--check` to verify).
 * Bridge comparison (live engine vs new engine on one company; read-only, point `DATABASE_URL` at a throwaway or real DB deliberately):
@@ -333,13 +334,27 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
 * context: Part D table E.8 in Bilancio 2023/2024 PDFs (page_text already stored by balance_sheet_pdf.py); notes 2.1/2.2, protection fund, agents receivables; MondialBony/Appunti Gio.docx and Appunti Chiamata Gio.docx
 * done_when: Giorgio has chosen whether segment tables from statement notes become a stored per-company dataset plus a dossier section, and whether an engagement-question view (call topics mapped to data present / missing) is built; then an agent implements it with tests.
 * notes:
+  - 2026-10-31: 2026-10-31 (claude): Giorgio decided 'Yes, build it'; built in 975f42f (statement_segments.py, views/business_lines.py). Left NEEDS_DECISION only because the script cannot check in a point that was never checked out; Giorgio may close it.
   - 2026-10-30: 2026-10-30 (claude): analysis only, no code. Verified E.8 holds two lines for 2022-2024: money transfer 194.4M/263.5M/298.6M amounts, 721k/882k/955k ops, commission 5.04M/6.37M/6.64M; acquiring 3.0M/6.9M/10.0M, 78k/183k/302k ops, commission 53k/88k/120k. Proposal given in chat; nothing built.
+
+### OP-026: Engagement question view: map call topics to data present, missing and who holds it (Mondial Bony / Naples visit)
+* status: OPEN
+* needs: agent work
+* owner: none
+* checked_out_at: none
+* lease_until: none
+* blocked_by: none
+* context: MondialBony/Appunti Gio.docx, Appunti Chiamata Gio.docx; statement_segments.py gives the baseline for ticket, take rate, headcount, agent balances; docs/BALANCE_SHEET_UPLOAD.md
+* done_when: A dossier section lists each briefing topic with the baseline figure from the statements (source cited), the data to request and the holder, editable by the team, with tests.
+* notes:
+  - 2026-10-31: 2026-10-31 (claude): split off from OP-025 once the segment extraction was built. Giorgio chose segments first.
 
 ## D. Decisions log
 
 Only Giorgio's decisions. One line each: date, decision, who decided, quote or source.
 
 * 2026-10-26 | Stay side by side until weights are approved | Giorgio | "Keep the new engine side by side for now; don't wire it into the app until weights are approved."
+* 2026-10-31 | Build business-line extraction from statement notes (money transfer vs acquiring) into the dossier | Giorgio | "Yes, build it"
 
 ## E. Closed log
 
