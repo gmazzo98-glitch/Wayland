@@ -341,6 +341,8 @@ def _render_statement_files(ctx: cd.DossierContext, shared: dict) -> None:
 
 
 def _tab_financials(ctx: cd.DossierContext, shared: dict) -> None:
+    from views.business_lines import render_business_lines
+    render_business_lines(ctx.db, ctx.company, scope="dos")
     _render_statement(ctx, shared)
     cd.sec_financial_profile(ctx)
     cd.sec_full_financial_table(ctx)
