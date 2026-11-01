@@ -45,7 +45,7 @@ TAB_KEY = "dossier_tab"
 SECTIONS = [
     ("overview", "🧭 Overview"), ("financials", "💰 Financials"), ("costs", "💸 Costs"), ("diagnosis", "🩺 Diagnosis"),
     ("people", "👥 People & Ownership"), ("market", "🌐 Market & Digital"), ("actions", "🎯 Actions"),
-    ("data", "🗄️ Data & Audit"), ("notes", "📝 Notes"),
+    ("data", "🗄️ Data & Audit"), ("notes", "📝 Notes"), ("engagement", "🗺️ Engagement"),
 ]
 SECTION_LABEL = dict(SECTIONS)
 LEVEL_ICON = {"risk": "🔴", "watch": "🟠", "strength": "🟢"}
@@ -502,9 +502,15 @@ def _tab_notes(ctx: cd.DossierContext, shared: dict) -> None:
     render_notes_section(ctx.db, ctx.company)
 
 
+def _tab_engagement(ctx: cd.DossierContext, shared: dict) -> None:
+    from views.engagement_checklist import render_engagement
+    render_engagement(ctx.db, ctx.company, ctx.sig_dict)
+
+
 TAB_RENDERERS = {
     "overview": _tab_overview, "financials": _tab_financials, "costs": _tab_costs, "diagnosis": _tab_diagnosis,
     "people": _tab_people, "market": _tab_market, "actions": _tab_actions, "data": _tab_data, "notes": _tab_notes,
+    "engagement": _tab_engagement,
 }
 
 
