@@ -338,15 +338,16 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
   - 2026-10-30: 2026-10-30 (claude): analysis only, no code. Verified E.8 holds two lines for 2022-2024: money transfer 194.4M/263.5M/298.6M amounts, 721k/882k/955k ops, commission 5.04M/6.37M/6.64M; acquiring 3.0M/6.9M/10.0M, 78k/183k/302k ops, commission 53k/88k/120k. Proposal given in chat; nothing built.
 
 ### OP-026: Engagement question view: map call topics to data present, missing and who holds it (Mondial Bony / Naples visit)
-* status: OPEN
+* status: CHECKED_OUT
 * needs: agent work
-* owner: none
-* checked_out_at: none
-* lease_until: none
+* owner: claude
+* checked_out_at: 2026-11-01T10:40:37Z
+* lease_until: 2026-11-03T10:40:37Z
 * blocked_by: none
 * context: MondialBony/Appunti Gio.docx, Appunti Chiamata Gio.docx; statement_segments.py gives the baseline for ticket, take rate, headcount, agent balances; docs/BALANCE_SHEET_UPLOAD.md
 * done_when: A dossier section lists each briefing topic with the baseline figure from the statements (source cited), the data to request and the holder, editable by the team, with tests.
 * notes:
+  - 2026-11-01: checked out by claude
   - 2026-10-31: 2026-10-31 (claude): split off from OP-025 once the segment extraction was built. Giorgio chose segments first.
 
 ## D. Decisions log
