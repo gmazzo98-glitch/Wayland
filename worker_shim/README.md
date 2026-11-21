@@ -16,23 +16,44 @@ DATABASE_URL=<neon-pooled-connection-string> uvicorn app.main:app --host 0.0.0.0
 ## Deploying
 
 Deployed on Vercel (project `vienna-worker-shim`, team `agri-portal`), linked to this
-repo's `worker_shim/` directory — pushes to `master` auto-deploy. `DATABASE_URL` is set as
+repo's `worker_shim/` directory - pushes to `master` auto-deploy. `DATABASE_URL` is set as
 an encrypted production env var there. `vercel.json` sets `maxDuration: 30` on the
 function since a Neon cold connection plus a crawl claim can take a few seconds.
 
 Alternatives if Vercel doesn't fit (e.g. serverless cold starts prove too slow for the
 15s heartbeat cadence):
 
-- **Render** (free web service) — new Web Service, root dir `worker_shim/`, build
+- **Render** (free web service) - new Web Service, root dir `worker_shim/`, build
   `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`,
   env var `DATABASE_URL`. Free tier sleeps after 15 min idle, but the worker's own 15s
   heartbeat keeps it warm while any worker is running.
-- **Fly.io** (free allowance) — `fly launch` in this directory, `fly secrets set
+- **Fly.io** (free allowance) - `fly launch` in this directory, `fly secrets set
   DATABASE_URL=...`, `fly deploy`.
-- Any small VPS — same two commands as the local run, behind a process manager.
+- Any small VPS - same two commands as the local run, behind a process manager.
 
 `WORKER_SHIM_URL` in the main app's `.env` (or Streamlit secrets) must point at whichever
 one is live. The Crawler Setup page won't hand out worker installers until that's set.
+
+## Pause and resume remote workers
+
+In Crawler Setup, open **Pause or resume remote workers**. Change `paused` in
+`app/fleet_mode.json` to `true` (pause) or `false` (resume) and commit to `master`.
+The Vercel production deployment applies the switch. `/fleet` reports the currently
+deployed value without connecting to Neon. The control uses the same GitHub and
+Vercel accounts as this repo and service.
+
+While paused, the shim blocks heartbeats and new claims before opening a database
+connection, including from earlier worker builds. Claimed jobs can finish and send
+their results. Existing standalone Site Evidence or Wayback runs can keep processing
+locally. Site Evidence output stays on the PC until reporting resumes. Crawler Setup
+shows the fleet as paused because its PC availability isn't refreshed in this mode.
+
+After Vercel goes live with `paused: false`, updated workers check for resume about
+every 15 seconds and send a fresh heartbeat before claiming work. Older workers go
+back to normal on their next ordinary poll. Computers that are asleep or offline
+will check in when they're back online. Pausing does not suspend Neon directly.
+Other users and applications can still access it, and Neon suspends after its normal
+idle window once the last work has finished.
 
 ## Rolling out to already-installed workers
 

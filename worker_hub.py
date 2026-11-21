@@ -10,7 +10,7 @@ here instead: it writes a CrawlerTask row, and the worker installed on that comp
 (worker/worker.mjs) claims it, runs the very same `node dist/main.js <input.csv>` command,
 and posts the dataset rows back. Everything downstream of the rows (signal derivation,
 SourceHealth, scoring, DB writes) is unchanged and stays on this server, which is why the
-worker needs no database password — it only talks to the vienna_worker_* SQL functions
+worker needs no database password - it only talks to the vienna_worker_* SQL functions
 (worker/supabase_rpc.sql, applied at start by ensure_rpc()) with its own token.
 
 Which worker a crawl uses is carried in a ContextVar (use_target), set by crawl_jobs around
@@ -27,10 +27,12 @@ import shutil
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.request import urlopen
 
-from config import SCRAPER_CRAWLERS_DIR
+from config import SCRAPER_CRAWLERS_DIR, WORKER_SHIM_URL
 from models import CrawlerTask, CrawlerWorker
 
 RPC_SQL_PATH = Path(__file__).resolve().parent / "worker" / "supabase_rpc.sql"
@@ -62,6 +64,23 @@ def remote_overhead_seconds() -> float:
 READY, OUTDATED, BROKEN, OFFLINE, WAITING, REVOKED, INCOMPATIBLE, UPDATING = (
     "ready", "outdated", "broken", "offline", "waiting", "revoked", "incompatible", "updating")
 USABLE_STATES = (READY, OUTDATED)
+PAUSED = "paused"
+
+
+@lru_cache(maxsize=2)
+def _read_fleet_mode(url: str, interval: int) -> Optional[bool]:
+    try:
+        with urlopen(url, timeout=2) as response:
+            paused = json.load(response).get("paused")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return paused if isinstance(paused, bool) else None
+
+
+def fleet_paused() -> Optional[bool]:
+    if not WORKER_SHIM_URL:
+        return None
+    return _read_fleet_mode(WORKER_SHIM_URL.rstrip("/") + "/fleet", int(time.monotonic() // 4))
 
 
 # ---- which worker a crawl runs on ---------------------------------------------------------
@@ -125,15 +144,17 @@ def local_crawlers_available() -> bool:
 def usable_targets(db, expected: Optional[Dict[str, Any]] = None, include_local: bool = True) -> List[Dict[str, Any]]:
     """Every target that can take a crawl RIGHT NOW: 'this server' (target=None) when it has its
     own crawlers, plus every registered Crawler Worker whose status is usable (ready or
-    outdated) — deliberately never one that's offline, broken, incompatible, waiting for its
+    outdated) - deliberately never one that's offline, broken, incompatible, waiting for its
     first heartbeat, or removed. Each entry is {"target", "name", "capacity"}: capacity is how
     many companies' crawlers that computer can run at once (its own reported max_parallel, or
-    this machine's process slots), which is what a big batch gets spread over — the whole point
+    this machine's process slots), which is what a big batch gets spread over - the whole point
     being that more people with the worker open right now means more capacity, automatically."""
     targets: List[Dict[str, Any]] = []
     if include_local and local_crawlers_available():
         from resource_governor import default_capacities
         targets.append({"target": None, "name": "this server", "capacity": default_capacities()["process"]})
+    if fleet_paused():
+        return targets
     for w in list_workers(db):
         status = worker_status(w, expected)
         if not status["usable"]:
@@ -144,7 +165,7 @@ def usable_targets(db, expected: Optional[Dict[str, Any]] = None, include_local:
 
 
 def distribute_companies(company_ids: List[str], targets: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
-    """Splits `company_ids` across `targets`, proportionally to each one's capacity — a computer
+    """Splits `company_ids` across `targets`, proportionally to each one's capacity - a computer
     that can run twice as many crawlers at once ends up with roughly twice the companies.
     Greedy: each company in turn goes to whichever target currently has the smallest
     assigned-so-far/capacity ratio. That needs no advance knowledge of the batch size (so it
@@ -152,8 +173,8 @@ def distribute_companies(company_ids: List[str], targets: List[Dict[str, Any]]) 
     list and targets always produce the same assignment.
 
     Every id gets a target as long as `targets` is non-empty; an empty `targets` list means
-    nothing is available, and every company maps to None (the caller must check that case —
-    see resolve_batch_targets — since None here is not "this server", it's "nowhere")."""
+    nothing is available, and every company maps to None (the caller must check that case -
+    see resolve_batch_targets - since None here is not "this server", it's "nowhere")."""
     if not targets:
         return {cid: None for cid in company_ids}
     counts = {t["target"]: 0 for t in targets}
@@ -175,12 +196,12 @@ def _rpc_marker() -> str:
 
 def ensure_rpc(engine) -> bool:
     """Creates the worker-facing SQL functions and locks the two tables down. Postgres only
-    (SQLite has no RPC layer and no remote workers). Returns False — never raises — if it could
+    (SQLite has no RPC layer and no remote workers). Returns False - never raises - if it could
     not be applied, so a permissions hiccup can't stop the whole app from booting.
 
     Runs at every app start, so it must cost nothing once applied: the functions carry a
     marker comment (a hash of the SQL file), and when it matches nothing is executed at all.
-    That matters because the SQL includes ALTER TABLE, which needs an exclusive lock — and
+    That matters because the SQL includes ALTER TABLE, which needs an exclusive lock - and
     every Streamlit session idles inside an open transaction holding a read lock on whatever
     it last queried, so DDL run needlessly would queue behind them and, worse, stall the
     workers' own queries queued behind the DDL. When it does have to apply, lock_timeout makes
@@ -224,7 +245,7 @@ def hash_token(token: str) -> str:
 
 def create_worker(db, name: str):
     """Registers (or re-keys) a worker and returns (worker, plain_token). The plain token
-    exists only in this return value — it goes into the installer and is never stored.
+    exists only in this return value - it goes into the installer and is never stored.
     Re-installing on a computer that already has a live entry with the same name rotates
     that entry's token instead of piling up duplicates; the old install stops working."""
     name = " ".join((name or "").split())[:120]
@@ -287,6 +308,8 @@ def worker_status(worker: CrawlerWorker, expected: Optional[Dict[str, Any]] = No
 
     if worker.revoked:
         return result(REVOKED, "Removed", "This computer was removed; its installer no longer works.")
+    if fleet_paused():
+        return result(PAUSED, "Fleet paused", "Resume the worker fleet in Crawler Setup to see which PCs are online.")
     if seen is None:
         return result(WAITING, "Waiting for the installer",
                       "Nothing has connected yet. Run the downloaded setup file on that computer.")
@@ -304,7 +327,7 @@ def worker_status(worker: CrawlerWorker, expected: Optional[Dict[str, Any]] = No
                       "It starts by itself when that computer logs in.")
     if info.get("protocol") != PROTOCOL:
         return result(INCOMPATIBLE, "Needs re-installing",
-                      "Installed with an older Vienna version that this app can no longer talk to — "
+                      "Installed with an older Vienna version that this app can no longer talk to - "
                       "download and run a fresh setup file.")
     problems = _failed_checks(info)
     if problems:
@@ -339,21 +362,23 @@ def run_remote(worker_id: str, crawler: str, kind: str, request: Dict[str, Any],
                run_timeout: int, session_factory=None, poll_seconds: float = POLL_SECONDS) -> List[Dict[str, Any]]:
     """
     Queues one crawler invocation on `worker_id`, blocks until the worker posts the rows
-    back, and returns them — the drop-in equivalent of the local subprocess call. Raises
+    back, and returns them - the drop-in equivalent of the local subprocess call. Raises
     CrawlerRunError for anything that goes wrong, which the wrapper's run_adapter turns
     into the usual simulated fallback.
     """
     from scrapers.node_crawler_base import CrawlerRunError  # lazy: node_crawler_base imports this module
 
+    if fleet_paused():
+        raise CrawlerRunError("The worker fleet is paused. Resume it in Crawler Setup before dispatching crawls.")
     factory = session_factory or _session_factory()
     db = factory()
     try:
         worker = db.get(CrawlerWorker, worker_id)
         if worker is None or worker.revoked:
-            raise CrawlerRunError("The computer chosen for this crawl has been removed — pick another one.")
+            raise CrawlerRunError("The computer chosen for this crawl has been removed - pick another one.")
         status = worker_status(worker)
         if status["state"] in (OFFLINE, WAITING):
-            raise CrawlerRunError(f"'{worker.name}' is {status['label'].lower()} — {status['detail']}")
+            raise CrawlerRunError(f"'{worker.name}' is {status['label'].lower()} - {status['detail']}")
         if status["state"] == INCOMPATIBLE:
             raise CrawlerRunError(f"'{worker.name}' needs to be re-installed: {status['detail']}")
 
@@ -394,7 +419,7 @@ def run_remote(worker_id: str, crawler: str, kind: str, request: Dict[str, Any],
                 db.commit()
                 if unclaimed_too_long:
                     raise CrawlerRunError(f"'{worker_name}' did not pick up the {crawler} task within "
-                                          f"{CLAIM_WAIT_SECONDS}s — is the worker running there?")
+                                          f"{CLAIM_WAIT_SECONDS}s - is the worker running there?")
                 raise CrawlerRunError(f"{crawler} on '{worker_name}' did not report back within "
                                       f"{run_timeout + RESULT_GRACE_SECONDS}s")
         finally:

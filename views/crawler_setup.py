@@ -1,11 +1,11 @@
 """
-Crawler Setup — where the Phase 7 crawlers run, and how a helper's computer gets set up to
+Crawler Setup - where the Phase 7 crawlers run, and how a helper's computer gets set up to
 run them.
 
 The crawlers are Node/Playwright programs; a browser tab can't start programs on the viewer's
 computer, and a hosted app has no Scraper folder of its own. So a helper installs the small
-"Vienna Crawler Worker" once (one download, one double-click — see worker_installer.py), and
-from then on it picks up crawls this app queues for it (worker_hub.py) whenever it's running —
+"Vienna Crawler Worker" once (one download, one double-click - see worker_installer.py), and
+from then on it picks up crawls this app queues for it (worker_hub.py) whenever it's running -
 in the background, from login onward, whether or not anyone has this page open at that moment.
 This page is where that download lives, and where the app shows whether each computer really
 has the right thing installed: every worker reports its version, build id and self-test results
@@ -17,7 +17,7 @@ that's online and free right now):
   - resolve_crawl_target: ONE target, for a single company (Company Intelligence's "Run Deep
     Crawlers") or when someone has deliberately pinned the whole queue to one computer here.
   - resolve_batch_targets: a whole batch, spread across every usable computer at once,
-    proportional to how many each can run in parallel (worker_hub.distribute_companies) — the
+    proportional to how many each can run in parallel (worker_hub.distribute_companies) - the
     more people have the worker running, the bigger a batch can go without queuing behind a
     single machine. This is the default; picking one computer in the sidebar overrides it.
 """
@@ -36,9 +36,10 @@ TARGET_KEY = "crawl_target_choice"
 SETUP_FILE_KEY = "crawler_setup_file"
 LOCAL = "local"
 AUTO = "auto"  # sidebar default: spread a batch across every usable computer (see resolve_batch_targets)
+FLEET_SWITCH_URL = "https://github.com/gmazzo98-glitch/Wayland/edit/master/worker_shim/app/fleet_mode.json"
 
-_BADGE = {READY: "🟢", OUTDATED: "🟡", UPDATING: "🔄", BROKEN: "🔴", OFFLINE: "⚪",
-          WAITING: "🕓", REVOKED: "⚫", INCOMPATIBLE: "🔴"}
+_BADGE = {READY: "??", OUTDATED: "??", UPDATING: "??", BROKEN: "??", OFFLINE: "?",
+          WAITING: "??", REVOKED: "?", INCOMPATIBLE: "??"}
 
 
 def _ago(seconds: Optional[float]) -> str:
@@ -56,14 +57,14 @@ def _ago(seconds: Optional[float]) -> str:
 # ---- which computer crawls run on ------------------------------------------------------------------
 
 def _options(db):
-    """[(value, label, status-or-None)] — this machine first (when it can crawl), then every worker."""
+    """[(value, label, status-or-None)] - this machine first (when it can crawl), then every worker."""
     expected = worker_installer.bundle_info()
     options = []
     if local_crawlers_available():
         options.append((LOCAL, "This server (its own crawlers)", None))
     for w in list_workers(db):
         status = worker_status(w, expected)
-        options.append((w.id, f"{w.name} — {status['label']}", status))
+        options.append((w.id, f"{w.name} - {status['label']}", status))
     return options
 
 
@@ -85,12 +86,12 @@ def resolve_crawl_target(db=None) -> Dict:
 
     if choice is None:
         return {"target": None, "label": "no computer set up", "ok": False,
-                "problem": "No computer is set up to run the crawlers yet. Open 🖥️ Crawler Setup to install "
+                "problem": "No computer is set up to run the crawlers yet. Open ??? Crawler Setup to install "
                            "the worker on one."}
     label, status = by_value[choice]
     if status is None:
         return {"target": None, "label": "this server", "ok": True, "problem": ""}
-    name = label.split(" — ")[0]
+    name = label.split(" - ")[0]
     if not status["usable"]:
         return {"target": choice, "label": name, "ok": False,
                 "problem": f"{name} can't run crawls right now: {status['label'].lower()}. {status['detail']}"}
@@ -105,7 +106,7 @@ def resolve_batch_targets(db, company_ids: List[str]) -> Dict:
 
     In Automatic (the sidebar default), every company is assigned to one of the computers that
     are online and free RIGHT NOW, proportional to how many each can run at once
-    (worker_hub.usable_targets + distribute_companies) — the more helpers currently have the
+    (worker_hub.usable_targets + distribute_companies) - the more helpers currently have the
     worker running, the more of the batch runs at once instead of queuing behind one machine.
     Picking one specific computer in the sidebar instead sends the whole batch there, same as
     resolve_crawl_target.
@@ -121,7 +122,7 @@ def resolve_batch_targets(db, company_ids: List[str]) -> Dict:
     if not usable:
         return {"targets": {}, "target_labels": {}, "computers": [], "ok": False,
                 "recommended_workers": None,
-                "problem": "No computer is set up to run the crawlers yet. Open 🖥️ Crawler Setup to install "
+                "problem": "No computer is set up to run the crawlers yet. Open ??? Crawler Setup to install "
                            "the worker on one."}
 
     assignment = worker_hub.distribute_companies(company_ids, usable)
@@ -142,43 +143,45 @@ def render_sidebar_target(db) -> None:
     Automatic is the default and covers what most people want: queue a batch from anywhere
     (including a phone) and it lands on whichever registered computers are online and free at
     that moment, split between them. Picking one specific computer here instead pins the WHOLE
-    next batch to it — still useful if you deliberately want to keep a run off a particular
+    next batch to it - still useful if you deliberately want to keep a run off a particular
     machine, or send everything to one you know is fast."""
     options = _options(db)
-    st.sidebar.markdown("**🖥️ Crawls run on**")
+    if worker_hub.fleet_paused():
+        st.sidebar.caption("Remote worker fleet paused. See Crawler Setup to resume it.")
+    st.sidebar.markdown("**??? Crawls run on**")
     if not options:
-        st.sidebar.caption("No computer set up yet — open **🖥️ Crawler Setup**.")
+        st.sidebar.caption("No computer set up yet - open **??? Crawler Setup**.")
         return
     usable = [v for v, _, s in options if s is None or s["usable"]]
     values = [AUTO] + [v for v, _, _ in options]
-    labels = {AUTO: (f"🔀 Automatic — spreads across {len(usable)} available now" if usable
-                     else "🔀 Automatic (nothing available yet)")}
-    labels.update({v: (f"{_BADGE.get(s['state'], '')} {l}" if s else f"🟢 {l}") for v, l, s in options})
+    labels = {AUTO: (f"?? Automatic - spreads across {len(usable)} available now" if usable
+                     else "?? Automatic (nothing available yet)")}
+    labels.update({v: (f"{_BADGE.get(s['state'], '')} {l}" if s else f"?? {l}") for v, l, s in options})
     if st.session_state.get(TARGET_KEY) not in values:
         st.session_state[TARGET_KEY] = AUTO
     st.sidebar.selectbox("Crawls run on", values, key=TARGET_KEY, format_func=lambda v: labels[v],
                          label_visibility="collapsed")
     if st.session_state[TARGET_KEY] == AUTO:
         if not usable:
-            st.sidebar.caption("⚠️ No computer is set up yet. Open **🖥️ Crawler Setup** to install the worker on one.")
+            st.sidebar.caption("?? No computer is set up yet. Open **??? Crawler Setup** to install the worker on one.")
     else:
         resolved = resolve_crawl_target(db)
         if not resolved["ok"]:
-            st.sidebar.caption(f"⚠️ {resolved['problem']}")
+            st.sidebar.caption(f"?? {resolved['problem']}")
 
 
 # ---- the page ----------------------------------------------------------------------------------------------
 
 def render_crawler_setup_page(db) -> None:
-    st.title("🖥️ Crawler Setup")
+    st.title("??? Crawler Setup")
     st.caption(
-        "The deep-crawl scrapers run on a computer with the **Vienna Crawler Worker** installed — this server "
+        "The deep-crawl scrapers run on a computer with the **Vienna Crawler Worker** installed - this server "
         "if it has them, or a helper's own PC. Install it once; after that, crawls started in this app run there "
         "automatically."
     )
     expected = worker_installer.bundle_info()
     if expected:
-        st.caption(f"Current crawler set: version **{expected['version']}** · build `{expected['build']}` · "
+        st.caption(f"Current crawler set: version **{expected['version']}** � build `{expected['build']}` � "
                    f"{len(expected['crawlers'])} crawlers")
 
     _render_computers(db, expected)
@@ -188,19 +191,29 @@ def render_crawler_setup_page(db) -> None:
 
 @st.fragment(run_every=4)
 def _render_computers(db, expected) -> None:
+    paused = None
+    if WORKER_SHIM_URL:
+        paused = worker_hub.fleet_paused()
+        st.link_button("Pause or resume remote workers", FLEET_SWITCH_URL)
+        st.caption("Set `paused` to `true` to pause or `false` to resume, then commit to `master`. "
+                   "The change takes effect after Vercel deploys it.")
+        if paused is True:
+            st.warning("Remote worker fleet paused. Computer availability will refresh after resume.")
+        if paused is None:
+            st.caption("Could not read fleet mode from the worker service.")
     usable = worker_hub.usable_targets(db, expected)
     if usable:
         total_capacity = sum(t["capacity"] for t in usable)
-        st.info(f"🔀 **{len(usable)} computer(s) available right now** ({', '.join(t['name'] for t in usable)}) — "
+        st.info(f"?? **{len(usable)} computer(s) available right now** ({', '.join(t['name'] for t in usable)}) - "
                f"up to {total_capacity} companies' crawlers can run at once between them. A batch queued from "
-               f"anywhere (including a phone) automatically splits across all of them.", icon="🔀")
-    else:
+               f"anywhere (including a phone) automatically splits across all of them.", icon="??")
+    elif not paused:
         st.warning("No computer is currently available to run crawls. Install the worker below, or check that "
-                  "an installed one is running.", icon="⚠️")
+                  "an installed one is running.", icon="??")
 
     st.subheader("Computers")
     if local_crawlers_available():
-        st.markdown("🟢 **This server** — has its own crawlers and Node; crawls can run right here.")
+        st.markdown("?? **This server** - has its own crawlers and Node; crawls can run right here.")
     else:
         st.caption("This server has no crawlers of its own, so crawls need a computer below.")
 
@@ -215,14 +228,14 @@ def _render_computers(db, expected) -> None:
         with st.container(border=True):
             head, action = st.columns([5, 1], vertical_alignment="center")
             with head:
-                st.markdown(f"{_BADGE[status['state']]} **{w.name}** — {status['label']}")
+                st.markdown(f"{_BADGE.get(status['state'], '')} **{w.name}** - {status['label']}")
                 st.caption(status["detail"])
                 if status["state"] == worker_hub.UPDATING:
                     progress = status.get("update_progress") or {}
                     percent = progress.get("percent")
                     label = progress.get("label") or "Updating crawler files"
                     if isinstance(percent, (int, float)):
-                        st.progress(max(0.0, min(1.0, percent / 100)), text=f"{int(percent)}% · {label}")
+                        st.progress(max(0.0, min(1.0, percent / 100)), text=f"{int(percent)}% � {label}")
                     else:
                         st.progress(0.0, text=label)
                     if progress.get("downloaded_bytes") and progress.get("total_bytes"):
@@ -242,14 +255,14 @@ def _render_computers(db, expected) -> None:
                     st.rerun()
             facts = [f"last seen {_ago(status['seen_ago'])}"]
             if info.get("version"):
-                facts.append(f"version {info['version']} · build `{info.get('build')}`")
+                facts.append(f"version {info['version']} � build `{info.get('build')}`")
             if info.get("host"):
                 facts.append(f"host {info['host']}")
             if info.get("busy") is not None and status["state"] in (READY, OUTDATED):
                 facts.append(f"{info['busy']} crawl(s) running now")
-            st.caption(" · ".join(facts))
+            st.caption(" � ".join(facts))
             for name, check in (info.get("checks") or {}).items():
-                st.caption(f"{'✅' if check.get('ok') else '❌'} **{name}** — {check.get('detail')}")
+                st.caption(f"{'?' if check.get('ok') else '?'} **{name}** - {check.get('detail')}")
 
 
 def _render_add_computer(db) -> None:
@@ -271,11 +284,11 @@ def _render_add_computer(db) -> None:
     st.markdown(
         "1. Type a name for the computer and press **Prepare setup file**.\n"
         "2. **Download** the file on *that* computer.\n"
-        "3. **Double-click it.** Everything installs by itself (about 5 minutes, ~300 MB) — no admin rights needed. "
-        "If Windows says *“Windows protected your PC”*, click **More info → Run anyway**.\n"
-        "4. A window says **“Everything is ready.”** This page then shows the computer as 🟢 Ready."
+        "3. **Double-click it.** Everything installs by itself (about 5 minutes, ~300 MB) - no admin rights needed. "
+        "If Windows says *"Windows protected your PC"*, click **More info  Run anyway**.\n"
+        "4. A window says **"Everything is ready."** This page then shows the computer as ?? Ready."
     )
-    st.caption("Windows only. The download is personal to this computer — don't forward it; use **Remove** above "
+    st.caption("Windows only. The download is personal to this computer - don't forward it; use **Remove** above "
                "to cut a computer off.")
 
     name = st.text_input("Name of the computer", placeholder="e.g. Anna's laptop", key="setup_computer_name")
@@ -289,7 +302,7 @@ def _render_add_computer(db) -> None:
                 "bat": worker_installer.build_setup_bat(config),
                 "zip": worker_installer.build_setup_zip(config),
             }
-        except Exception as e:  # noqa: BLE001 — surface it, don't crash the page
+        except Exception as e:  # noqa: BLE001 - surface it, don't crash the page
             st.error(f"Couldn't prepare the setup file: {e}")
 
     prepared = st.session_state.get(SETUP_FILE_KEY)
@@ -297,7 +310,7 @@ def _render_add_computer(db) -> None:
         st.success(f"Setup file for **{prepared['name']}** is ready.")
         col_a, col_b = st.columns(2)
         with col_a:
-            st.download_button("⬇️ Download setup file", prepared["bat"], file_name=worker_installer.SETUP_BAT_NAME,
+            st.download_button("?? Download setup file", prepared["bat"], file_name=worker_installer.SETUP_BAT_NAME,
                                mime="application/octet-stream", type="primary", width="stretch", on_click="ignore")
         with col_b:
             st.download_button("Browser blocked it? Download as .zip", prepared["zip"],
