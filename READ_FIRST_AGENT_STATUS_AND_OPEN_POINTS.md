@@ -339,15 +339,16 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
   - 2026-10-30: 2026-10-30 (claude): analysis only, no code. Verified E.8 holds two lines for 2022-2024: money transfer 194.4M/263.5M/298.6M amounts, 721k/882k/955k ops, commission 5.04M/6.37M/6.64M; acquiring 3.0M/6.9M/10.0M, 78k/183k/302k ops, commission 53k/88k/120k. Proposal given in chat; nothing built.
 
 ### OP-027: Let Neon suspend when Vienna crawler workers are idle
-* status: OPEN
+* status: CHECKED_OUT
 * needs: agent work
-* owner: none
-* checked_out_at: none
-* lease_until: none
+* owner: Codex
+* checked_out_at: 2026-11-21T13:42:42Z
+* lease_until: 2026-11-23T13:42:42Z
 * blocked_by: none
 * context: Wayland.my Neon production, worker/worker.mjs idle claim loop, worker/supabase_rpc.sql vienna_worker_claim, worker_shim/app/main.py
 * done_when: An installed worker with an empty queue lets production compute suspend after the configured idle window, and a newly queued crawl still reaches the worker within a documented dispatch delay. Verify on a deployed worker and measure CU-hours before and after.
 * notes:
+  - 2026-11-21: checked out by Codex
   - 2026-11-21: Assessment: prioritize an explicit crawler pause/resume over adding a service or increasing idle SQL polling. Existing Windows Start/Stop shortcuts work per PC (stop can interrupt a crawl, and login starts the worker again). A remote fleet switch can use deploy-time configuration and a database-free status route on the existing Vercel worker shim. The shim currently opens a Neon connection at import, including cold starts for update checks, so the status/update path must avoid opening that connection. Paused workers should stop new claims and idle heartbeats, drain active work and pending reports, and check only the control route until resumed. Treat paused presence as unknown. A deployment-based toggle has propagation delay. Verify Neon actually suspends and a resumed worker can claim a fresh job before closure. Assessment only; no implementation or production state change.
   - 2026-11-21: 2026-11-21 read-only audit: Neon reported about 250 active hours and 65.3 CU-hours in November to date (about USD 6.93 at the Launch rate), on one production compute with a 0.25 CU floor. Scale-to-zero is working. The GioMazzo worker continued updating last_seen_at with zero queued or running crawler tasks. The worker polls about every 2 seconds and each no-task claim updates crawler_workers. Landing page views are static and only validated form submissions issue SQL. Historical queries could not be fully attributed because pg_stat_statements is unavailable and the available Postgres log query returned no entries. No production settings or worker state changed.
 
