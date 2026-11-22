@@ -339,15 +339,16 @@ Protocol: git is the lock. Check out = `git pull`, run `checkout`, commit and pu
   - 2026-10-30: 2026-10-30 (claude): analysis only, no code. Verified E.8 holds two lines for 2022-2024: money transfer 194.4M/263.5M/298.6M amounts, 721k/882k/955k ops, commission 5.04M/6.37M/6.64M; acquiring 3.0M/6.9M/10.0M, 78k/183k/302k ops, commission 53k/88k/120k. Proposal given in chat; nothing built.
 
 ### OP-027: Let Neon suspend when Vienna crawler workers are idle
-* status: OPEN
+* status: CHECKED_OUT
 * needs: agent work
-* owner: none
-* checked_out_at: none
-* lease_until: none
+* owner: Codex
+* checked_out_at: 2026-11-22T09:03:55Z
+* lease_until: 2026-11-24T09:03:55Z
 * blocked_by: none
 * context: Wayland.my Neon production, worker/worker.mjs idle claim loop, worker/supabase_rpc.sql vienna_worker_claim, worker_shim/app/main.py
 * done_when: An installed worker with an empty queue lets production compute suspend after the configured idle window, and a newly queued crawl still reaches the worker within a documented dispatch delay. Verify on a deployed worker and measure CU-hours before and after.
 * notes:
+  - 2026-11-22: checked out by Codex
   - 2026-11-21: Production rollout verified after check-in: GioMazzo auto-updated to build ab1b04a1d5c8 and sent an authenticated heartbeat at 14:56 CET with the fleet enabled.
   - 2026-11-21: Implemented and deployed in fe65b18354128dd64f798630f765d31e1650a123 (Vercel worker build ab1b04a1d5c8). Crawler Setup links to the version-controlled Vercel fleet switch. Paused claims and heartbeats do not connect to Neon, in-flight task completions still work, and Site Evidence reports stay queued locally. The normal Node entry point passed an offline pause/resume integration run and 39 focused Python and 26 Node tests passed. Production /fleet and the released build were verified, with the fleet left enabled. Live pause, Neon suspension and CU-hour comparison remain open because the production pause action was not authorized.
   - 2026-11-21: checked out by Codex
