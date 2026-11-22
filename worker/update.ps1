@@ -217,7 +217,7 @@ try {
   # Everything from here down used to run before this try block, so a bad environment (TLS
   # setup, a missing assembly, or a WorkerInfoBase64 payload mangled on the way through the
   # command line) killed the process before it ever logged a line or restarted the worker it
-  # had just replaced - the install looked merely "stuck", with no diagnosis and no recovery,
+  # had just replaced — the install looked merely "stuck", with no diagnosis and no recovery,
   # until the app's own 20-minute grace period lapsed and it reported offline.
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
   Add-Type -AssemblyName System.IO.Compression.FileSystem

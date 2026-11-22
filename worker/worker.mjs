@@ -1,4 +1,4 @@
-// Vienna Crawler Worker - runs the Vienna crawlers on this computer when the Vienna app asks.
+// Vienna Crawler Worker — runs the Vienna crawlers on this computer when the Vienna app asks.
 //
 // It holds no database password. It only knows the worker_shim/ service's URL and its own
 // token, and talks to three token-checked functions (worker/supabase_rpc.sql on the server)
@@ -8,7 +8,7 @@
 //   claim      every ~2s while it has a free slot: "give me my next queued crawl"
 //   complete   posts the crawl's rows (or its error) back
 //
-// Everything is Node built-ins - nothing to install for the worker itself.
+// Everything is Node built-ins — nothing to install for the worker itself.
 //
 //   node worker.mjs              run the worker (what the startup shortcut does)
 //   node worker.mjs --selftest   check the installation and print a report (used by the installer)
@@ -25,7 +25,7 @@ import { createSiteEvidence, tailLines } from './site_evidence.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = process.env.VIENNA_WORKER_HOME ? path.resolve(process.env.VIENNA_WORKER_HOME) : path.resolve(HERE, '..');
 const CRAWLERS_DIR = path.join(ROOT, 'crawlers');
-// A plain Python tool, not one of the Node crawlers above - bundled and dispatched
+// A plain Python tool, not one of the Node crawlers above — bundled and dispatched
 // separately (see executeWaybackTimeline below) because it runs for hours, not minutes,
 // and must never occupy one of the maxParallel crawl slots or hit runTask's 900s cap.
 // Kept nested under tools/ in the bundle too, matching the Scraper repo's own layout
@@ -61,7 +61,7 @@ const ENV_ALLOWLIST = new Set([
   'LLM_FALLBACK3_API_KEY', 'LLM_FALLBACK3_BASE_URL', 'LLM_FALLBACK3_MODEL',
   'LLM_FALLBACK4_API_KEY', 'LLM_FALLBACK4_BASE_URL', 'LLM_FALLBACK4_MODEL',
   'LLM_FALLBACK5_API_KEY', 'LLM_FALLBACK5_BASE_URL', 'LLM_FALLBACK5_MODEL',
-  // digital-maturity-crawler's visual-assessment phase (2026-10-08) - a separate provider
+  // digital-maturity-crawler's visual-assessment phase (2026-10-08) — a separate provider
   // namespace from LLM_* above, see config.py's CRAWLER_VISION_LLM_* docstring. Same
   // primary + fallbacks coverage as the LLM_* entries; without these, that phase's calls
   // get silently stripped to nothing on a remote worker and visual_assessment reads not_found
@@ -83,7 +83,7 @@ const ENV_ALLOWLIST = new Set([
 ]);
 
 function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^?/, ''));
+  return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, ''));
 }
 
 let CONFIG;
@@ -427,11 +427,11 @@ async function runTask(task) {
 
 // ---- wayback_timeline: a Python tool, dispatched fire-and-forget, never awaited here ------------
 //
-// Unlike a crawl task, "run" isn't the unit of work the server asks for - "start" and "stop"
+// Unlike a crawl task, "run" isn't the unit of work the server asks for — "start" and "stop"
 // are. The Python process manages its own lifecycle (resumable, RAM-gated, stoppable via its
 // own STOP file; see tools/wayback_timeline/ram_guard.py in the Scraper repo this is bundled
 // from). The worker's job is just: act on the request immediately, report back immediately,
-// and separately surface its live status on every heartbeat - never block a claim slot on it.
+// and separately surface its live status on every heartbeat — never block a claim slot on it.
 
 // The Python process's own stdout/stderr used to go to stdio:'ignore' - fine while it's
 // running, but when it refuses to start at all (e.g. the RAM gate in ram_guard.py) or
@@ -580,7 +580,7 @@ async function main() {
     process.exit(report.ok ? 0 : 1);
   }
 
-  if (!acquireSingleInstance()) { log('another worker is already running - exiting'); process.exit(0); }
+  if (!acquireSingleInstance()) { log('another worker is already running — exiting'); process.exit(0); }
   const cleanup = () => { try { fs.rmSync(LOCK_PORT_FILE, { force: true }); } catch { /* ignore */ } };
   process.on('exit', cleanup);
   process.on('SIGINT', () => process.exit(0));
@@ -634,7 +634,7 @@ async function main() {
     lastBeat = Date.now();
     if (r?.fleet_paused) { pauseFleet(); return; }
     if (!r || r.ok === false) {
-      log(`server refused this worker (${r && r.reason}); it was removed in the app - stopping`);
+      log(`server refused this worker (${r && r.reason}); it was removed in the app — stopping`);
       writeStatus({ state: 'revoked' });
       process.exit(0);
     }

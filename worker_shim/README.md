@@ -16,20 +16,20 @@ DATABASE_URL=<neon-pooled-connection-string> uvicorn app.main:app --host 0.0.0.0
 ## Deploying
 
 Deployed on Vercel (project `vienna-worker-shim`, team `agri-portal`), linked to this
-repo's `worker_shim/` directory - pushes to `master` auto-deploy. `DATABASE_URL` is set as
+repo's `worker_shim/` directory — pushes to `master` auto-deploy. `DATABASE_URL` is set as
 an encrypted production env var there. `vercel.json` sets `maxDuration: 30` on the
 function since a Neon cold connection plus a crawl claim can take a few seconds.
 
 Alternatives if Vercel doesn't fit (e.g. serverless cold starts prove too slow for the
 15s heartbeat cadence):
 
-- **Render** (free web service) - new Web Service, root dir `worker_shim/`, build
+- **Render** (free web service) — new Web Service, root dir `worker_shim/`, build
   `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`,
   env var `DATABASE_URL`. Free tier sleeps after 15 min idle, but the worker's own 15s
   heartbeat keeps it warm while any worker is running.
-- **Fly.io** (free allowance) - `fly launch` in this directory, `fly secrets set
+- **Fly.io** (free allowance) — `fly launch` in this directory, `fly secrets set
   DATABASE_URL=...`, `fly deploy`.
-- Any small VPS - same two commands as the local run, behind a process manager.
+- Any small VPS — same two commands as the local run, behind a process manager.
 
 `WORKER_SHIM_URL` in the main app's `.env` (or Streamlit secrets) must point at whichever
 one is live. The Crawler Setup page won't hand out worker installers until that's set.

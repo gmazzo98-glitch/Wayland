@@ -1,10 +1,10 @@
-"""Vienna Worker Shim - replaces Supabase's auto-generated PostgREST layer.
+"""Vienna Worker Shim — replaces Supabase's auto-generated PostgREST layer.
 
 Friend-PC crawler workers (worker/worker.mjs) never hold a database password; they only
 know this shim's URL plus their own random token. This service holds the real Postgres
 credentials and does nothing but forward the 3 whitelisted calls to the SECURITY DEFINER
 functions in worker/supabase_rpc.sql, which do the actual token check. So this shim is not
-a new trust boundary - it's a dumb HTTP-to-SQL translator, exactly what PostgREST was doing.
+a new trust boundary — it's a dumb HTTP-to-SQL translator, exactly what PostgREST was doing.
 
 Run locally: uvicorn app.main:app --host 0.0.0.0 --port 8000
 Needs: DATABASE_URL (the same Postgres connection string the main app uses)
