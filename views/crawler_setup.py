@@ -22,13 +22,15 @@ that's online and free right now):
     single machine. This is the default; picking one computer in the sidebar overrides it.
 """
 
+from time import monotonic
 from typing import Dict, List, Optional
 
 import streamlit as st
 
 import worker_hub
 import worker_installer
-from config import WORKER_SHIM_URL
+from config import WORKER_SHIM_URL, get_config_var
+from worker_fleet_control import EDIT_URL, FleetControlError, request_fleet_mode
 from worker_hub import (BROKEN, INCOMPATIBLE, OFFLINE, OUTDATED, READY, REVOKED, UPDATING, WAITING,
                         list_workers, local_crawlers_available, revoke_worker, worker_status)
 
@@ -36,7 +38,8 @@ TARGET_KEY = "crawl_target_choice"
 SETUP_FILE_KEY = "crawler_setup_file"
 LOCAL = "local"
 AUTO = "auto"  # sidebar default: spread a batch across every usable computer (see resolve_batch_targets)
-FLEET_SWITCH_URL = "https://github.com/gmazzo98-glitch/Wayland/edit/master/worker_shim/app/fleet_mode.json"
+_FLEET_REQUEST_KEY = "crawler_fleet_pending_request"
+_FLEET_DEPLOY_WAIT = 180
 
 _BADGE = {READY: "??", OUTDATED: "??", UPDATING: "??", BROKEN: "??", OFFLINE: "?",
           WAITING: "??", REVOKED: "?", INCOMPATIBLE: "??"}
@@ -189,18 +192,52 @@ def render_crawler_setup_page(db) -> None:
     _render_add_computer(db)
 
 
+def _render_fleet_control(paused: Optional[bool]) -> None:
+    if paused is True:
+        st.warning("Remote worker fleet paused. Computer availability will refresh after resume.")
+    elif paused is None:
+        st.caption("Could not read fleet mode from the worker service.")
+
+    request = st.session_state.get(_FLEET_REQUEST_KEY)
+    if request:
+        target, deadline = request
+        if paused is target:
+            st.session_state.pop(_FLEET_REQUEST_KEY)
+            st.success("Remote workers are paused." if target else "Remote workers are enabled.")
+        elif monotonic() < deadline:
+            st.info("Pause requested. Waiting for Vercel." if target else "Resume requested. Waiting for Vercel.")
+            return
+        else:
+            st.session_state.pop(_FLEET_REQUEST_KEY)
+            st.warning("Vercel has not confirmed the change yet. Check its deployment status before retrying.")
+
+    token = (get_config_var("WORKER_FLEET_GITHUB_TOKEN") or "").strip()
+    label = "Resume remote workers" if paused is True else "Pause remote workers"
+    if not token:
+        st.button(label, key="change_crawler_fleet_mode", disabled=True)
+        st.caption("Add `WORKER_FLEET_GITHUB_TOKEN` in Streamlit Secrets to enable the switch.")
+        st.link_button("Edit worker mode on GitHub", EDIT_URL)
+        return
+    if paused is None:
+        return
+
+    target = not paused
+    if st.button(label, key="change_crawler_fleet_mode",
+                 help="Vercel applies the change after deployment. Workers can finish jobs they already claimed."):
+        try:
+            request_fleet_mode(target, token)
+        except FleetControlError as exc:
+            st.error(str(exc))
+        else:
+            st.session_state[_FLEET_REQUEST_KEY] = (target, monotonic() + _FLEET_DEPLOY_WAIT)
+            st.info("Pause requested. Waiting for Vercel." if target else "Resume requested. Waiting for Vercel.")
+
+
 @st.fragment(run_every=4)
 def _render_computers(db, expected) -> None:
-    paused = None
+    paused = worker_hub.fleet_paused() if WORKER_SHIM_URL else None
     if WORKER_SHIM_URL:
-        paused = worker_hub.fleet_paused()
-        st.link_button("Pause or resume remote workers", FLEET_SWITCH_URL)
-        st.caption("Set `paused` to `true` to pause or `false` to resume, then commit to `master`. "
-                   "The change takes effect after Vercel deploys it.")
-        if paused is True:
-            st.warning("Remote worker fleet paused. Computer availability will refresh after resume.")
-        if paused is None:
-            st.caption("Could not read fleet mode from the worker service.")
+        _render_fleet_control(paused)
     usable = worker_hub.usable_targets(db, expected)
     if usable:
         total_capacity = sum(t["capacity"] for t in usable)

@@ -36,11 +36,18 @@ one is live. The Crawler Setup page won't hand out worker installers until that'
 
 ## Pause and resume remote workers
 
-In Crawler Setup, open **Pause or resume remote workers**. Change `paused` in
+In Crawler Setup, click **Pause remote workers** or **Resume remote workers**.
+The app commits the setting and shows when the Vercel production deployment applies it.
+`/fleet` reports the deployed value without connecting to Neon.
+
+To enable the button, add `WORKER_FLEET_GITHUB_TOKEN` to the Streamlit app's
+Secrets (or its local environment). Use a fine-grained GitHub personal access token
+restricted to this repository with **Contents: Read and write**. Store it in the
+app's secret settings. Anyone who can access the password-protected Crawler Setup
+page can use the button once it's configured.
+
+The GitHub editor is also available if the token is missing. Change `paused` in
 `app/fleet_mode.json` to `true` (pause) or `false` (resume) and commit to `master`.
-The Vercel production deployment applies the switch. `/fleet` reports the currently
-deployed value without connecting to Neon. The control uses the same GitHub and
-Vercel accounts as this repo and service.
 
 While paused, the shim blocks heartbeats and new claims before opening a database
 connection, including from earlier worker builds. Claimed jobs can finish and send
